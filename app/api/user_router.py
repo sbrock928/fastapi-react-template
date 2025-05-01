@@ -1,15 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlmodel import Session, select
-from typing import List, Optional
+from typing import List
 from app.database import get_session
 from app.models.base import User
 from sqlalchemy.exc import IntegrityError
-from pydantic import BaseModel, EmailStr
-
-class UserUpdate(BaseModel):
-    username: Optional[str] = None
-    email: Optional[EmailStr] = None
-    full_name: Optional[str] = None
 
 router = APIRouter()
 
@@ -59,15 +53,24 @@ async def get_user(user_id: int, session: Session = Depends(get_session)):
 @router.patch("/{user_id}", response_model=User)
 async def update_user(
     user_id: int,
-    user_update: UserUpdate,
+    user: User,
     session: Session = Depends(get_session)
 ):
     db_user = session.get(User, user_id)
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Get only the fields that were actually provided
-    update_data = {k: v for k, v in user_update.dict().items() if v is not None}
+    # Get only the fields that were actually provided in the request
+    # Try with dict() instead of model_dump() for compatibility
+    try:
+        update_data = user.dict(exclude_unset=True)
+    except AttributeError:
+        # For newer versions of SQLModel/Pydantic
+        update_data = user.model_dump(exclude_unset=True)
+    
+    # Remove id from update data to prevent changing it
+    if "id" in update_data:
+        del update_data["id"]
     
     # Check uniqueness for username and email if they are being updated
     if update_data.get('username') or update_data.get('email'):
@@ -78,11 +81,12 @@ async def update_user(
             exclude_id=user_id
         )
     
-    # Update the user object
+    # Update the user object with the provided fields
     for key, value in update_data.items():
         setattr(db_user, key, value)
     
     try:
+        session.add(db_user)
         session.commit()
         session.refresh(db_user)
         return db_user
