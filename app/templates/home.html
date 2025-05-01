@@ -1,0 +1,23 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}Welcome to Vibez{% endblock %}
+
+{% block content %}
+<div class="text-center mt-5">
+    <h1 class="display-4 mb-4">Welcome to Vibez Admin</h1>
+    <p class="lead mb-5">A simple and effective management application for your organization's resources.</p>
+    
+    <div class="row justify-content-center mt-5">
+        <div class="col-md-4">
+            <div class="card shadow-sm mb-4">
+                <div class="card-body text-center py-5">
+                    <i class="bi bi-grid fs-1 mb-3 text-primary"></i>
+                    <h3 class="card-title">Manage Resources</h3>
+                    <p class="card-text mb-4">Efficiently manage users and employees from a single dashboard.</p>
+                    <a href="/resources" class="btn btn-primary">Go to Resources</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
