@@ -26,17 +26,40 @@ def create_app():
     from app.models.base import User, Employee
     
     # Only include API routes, not page routes
-    app.include_router(user_router, prefix="/users")
-    app.include_router(employee_router, prefix="/employees")
+    app.include_router(user_router)
+    app.include_router(employee_router)
     
-    # Combined resources route
+    # Combined resources route with dynamic model-based tables
     @app.get("/resources", response_class=HTMLResponse)
     async def resources_page(request: Request, session: Session = Depends(get_session)):
+        # Fetch all users and employees
         users = session.exec(select(User)).all()
         employees = session.exec(select(Employee)).all()
+        
+        # Convert SQLModel objects to dictionaries for JSON serialization
+        # Handle both older and newer Pydantic versions (dict vs model_dump)
+        users_data = []
+        employees_data = []
+        
+        for user in users:
+            try:
+                users_data.append(user.dict())
+            except AttributeError:
+                users_data.append(user.model_dump())
+        
+        for employee in employees:
+            try:
+                employees_data.append(employee.dict())
+            except AttributeError:
+                employees_data.append(employee.model_dump())
+        
         return templates.TemplateResponse(
             "resources.html",
-            {"request": request, "users": users, "employees": employees}
+            {
+                "request": request, 
+                "users": users_data, 
+                "employees": employees_data
+            }
         )
     
     return app, templates

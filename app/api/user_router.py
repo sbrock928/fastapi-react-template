@@ -24,12 +24,12 @@ async def check_user_exists(username: str, email: str, session: Session, exclude
     if existing_email:
         raise HTTPException(status_code=400, detail={"email": "Email already exists"})
 
-@router.get("/", response_model=List[User])
+@router.get("/users", response_model=List[User])
 async def list_users(session: Session = Depends(get_session)):
     users = session.exec(select(User)).all()
     return users
 
-@router.post("/", response_model=User)
+@router.post("/users", response_model=User)
 async def create_user(user: User, session: Session = Depends(get_session)):
     await check_user_exists(user.username, user.email, session)
     session.add(user)
@@ -43,14 +43,14 @@ async def create_user(user: User, session: Session = Depends(get_session)):
             raise HTTPException(status_code=400, detail="Database constraint violated")
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.get("/{user_id}", response_model=User)
+@router.get("/users/{user_id}", response_model=User)
 async def get_user(user_id: int, session: Session = Depends(get_session)):
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
 
-@router.patch("/{user_id}", response_model=User)
+@router.patch("/users/{user_id}", response_model=User)
 async def update_user(
     user_id: int,
     user: User,
@@ -96,7 +96,7 @@ async def update_user(
             raise HTTPException(status_code=400, detail="Database constraint violated")
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.delete("/{user_id}")
+@router.delete("/users/{user_id}")
 async def delete_user(user_id: int, session: Session = Depends(get_session)):
     user = session.get(User, user_id)
     if not user:

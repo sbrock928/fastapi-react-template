@@ -16,146 +16,39 @@
 
 <!-- Dynamic Table Container -->
 <div id="tableContainer">
-    <!-- User Table -->
-    <div id="userTableSection">
-        <table class="table">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Username</th>
-                    <th>Email</th>
-                    <th>Full Name</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody id="userTableBody">
-                {% for user in users %}
-                <tr>
-                    <td>{{ user.id }}</td>
-                    <td>{{ user.username }}</td>
-                    <td>{{ user.email }}</td>
-                    <td>{{ user.full_name }}</td>
-                    <td>
-                        <button class="btn btn-sm btn-info" onclick="editResource({{ user.id }})">Edit</button>
-                        <button class="btn btn-sm btn-danger" onclick="deleteResource({{ user.id }})">Delete</button>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    <!-- Employee Table -->
-    <div id="employeeTableSection" style="display: none;">
-        <table class="table">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Employee ID</th>
-                    <th>Full Name</th>
-                    <th>Email</th>
-                    <th>Department</th>
-                    <th>Position</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody id="employeeTableBody">
-                {% for employee in employees %}
-                <tr>
-                    <td>{{ employee.id }}</td>
-                    <td>{{ employee.employee_id }}</td>
-                    <td>{{ employee.full_name }}</td>
-                    <td>{{ employee.email }}</td>
-                    <td>{{ employee.department }}</td>
-                    <td>{{ employee.position }}</td>
-                    <td>
-                        <button class="btn btn-sm btn-info" onclick="editResource({{ employee.id }})">Edit</button>
-                        <button class="btn btn-sm btn-danger" onclick="deleteResource({{ employee.id }})">Delete</button>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
+    <!-- Dynamic Resource Table -->
+    <table class="table">
+        <thead id="dynamicTableHeader">
+            <!-- Table headers will be populated dynamically -->
+        </thead>
+        <tbody id="dynamicTableBody">
+            <!-- Table rows will be populated dynamically -->
+        </tbody>
+    </table>
 </div>
 
-<!-- User Modal -->
-<div class="modal fade" id="userModal" tabindex="-1">
+<!-- Dynamic Resource Modal -->
+<div class="modal fade" id="resourceModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="userModalTitle">Add User</h5>
+                <h5 class="modal-title" id="resourceModalTitle">Add Resource</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <form id="userForm">
-                    <input type="hidden" id="userId">
-                    <div class="mb-3">
-                        <label for="username" class="form-label">Username</label>
-                        <input type="text" class="form-control" id="username" required>
-                        <div class="invalid-feedback"></div>
+                <form id="resourceForm" novalidate>
+                    <input type="hidden" id="resourceId">
+                    <div id="validationSummary" class="alert alert-danger d-none mb-3">
+                        Please fix the validation errors below.
                     </div>
-                    <div class="mb-3">
-                        <label for="userEmail" class="form-label">Email</label>
-                        <input type="email" class="form-control" id="userEmail" required>
-                        <div class="invalid-feedback"></div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="userFullName" class="form-label">Full Name</label>
-                        <input type="text" class="form-control" id="userFullName" required>
-                        <div class="invalid-feedback"></div>
+                    <div id="dynamicFormFields">
+                        <!-- Form fields will be populated dynamically -->
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary" onclick="saveResource('users')">Save</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Employee Modal -->
-<div class="modal fade" id="employeeModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="employeeModalTitle">Add Employee</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="employeeForm">
-                    <input type="hidden" id="employeeId">
-                    <div class="mb-3">
-                        <label for="employeeIdField" class="form-label">Employee ID</label>
-                        <input type="text" class="form-control" id="employeeIdField" required placeholder="EMP-xxxx">
-                        <div class="invalid-feedback"></div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="employeeEmail" class="form-label">Email</label>
-                        <input type="email" class="form-control" id="employeeEmail" required>
-                        <div class="invalid-feedback"></div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="employeeFullName" class="form-label">Full Name</label>
-                        <input type="text" class="form-control" id="employeeFullName" required>
-                        <div class="invalid-feedback"></div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="department" class="form-label">Department</label>
-                        <input type="text" class="form-control" id="department" required>
-                        <div class="invalid-feedback"></div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="position" class="form-label">Position</label>
-                        <input type="text" class="form-control" id="position" required>
-                        <div class="invalid-feedback"></div>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary" onclick="saveResource('employees')">Save</button>
+                <button type="button" class="btn btn-primary" id="saveResourceBtn">Save</button>
             </div>
         </div>
     </div>
@@ -163,5 +56,10 @@
 {% endblock %}
 
 {% block extra_js %}
+<script>
+    // Store the data for dynamic rendering
+    const usersData = {{ users|tojson }};
+    const employeesData = {{ employees|tojson }};
+</script>
 <script src="{{ url_for('static', path='js/resources.js') }}"></script>
 {% endblock %}
