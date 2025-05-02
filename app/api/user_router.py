@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlmodel import Session, select
 from typing import List
 from app.database import get_session
-from app.models.base import User
+from app.models.base import User, UserBase
 from sqlalchemy.exc import IntegrityError
 
 router = APIRouter()
@@ -30,7 +30,11 @@ async def list_users(session: Session = Depends(get_session)):
     return users
 
 @router.post("/users", response_model=User)
-async def create_user(user: User, session: Session = Depends(get_session)):
+async def create_user(user_data: UserBase, session: Session = Depends(get_session)):
+    # Create a new User instance from the validated UserBase data
+    # Since UserBase has extra="forbid", it already prevents any id field
+    user = User.from_orm(user_data) if hasattr(User, "from_orm") else User(**user_data.dict())
+    
     await check_user_exists(user.username, user.email, session)
     session.add(user)
     try:
@@ -53,7 +57,7 @@ async def get_user(user_id: int, session: Session = Depends(get_session)):
 @router.patch("/users/{user_id}", response_model=User)
 async def update_user(
     user_id: int,
-    user: User,
+    user_update: UserBase,
     session: Session = Depends(get_session)
 ):
     db_user = session.get(User, user_id)
@@ -61,12 +65,11 @@ async def update_user(
         raise HTTPException(status_code=404, detail="User not found")
     
     # Get only the fields that were actually provided in the request
-    # Try with dict() instead of model_dump() for compatibility
     try:
-        update_data = user.dict(exclude_unset=True)
+        update_data = user_update.dict(exclude_unset=True)
     except AttributeError:
         # For newer versions of SQLModel/Pydantic
-        update_data = user.model_dump(exclude_unset=True)
+        update_data = user_update.model_dump(exclude_unset=True)
     
     # Remove id from update data to prevent changing it
     if "id" in update_data:

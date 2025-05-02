@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlmodel import Session, select
 from typing import List
 from app.database import get_session
-from app.models.base import Employee
+from app.models.base import Employee, EmployeeBase
 from sqlalchemy.exc import IntegrityError
 
 router = APIRouter()
@@ -30,7 +30,11 @@ async def list_employees(session: Session = Depends(get_session)):
     return employees
 
 @router.post("/employees", response_model=Employee)
-async def create_employee(employee: Employee, session: Session = Depends(get_session)):
+async def create_employee(employee_data: EmployeeBase, session: Session = Depends(get_session)):
+    # Create a new Employee instance from the validated EmployeeBase data
+    # Since EmployeeBase has extra="forbid", it already prevents any id field
+    employee = Employee.from_orm(employee_data) if hasattr(Employee, "from_orm") else Employee(**employee_data.dict())
+    
     await check_employee_exists(employee.employee_id, employee.email, session)
     session.add(employee)
     try:
@@ -53,7 +57,7 @@ async def get_employee(employee_id: int, session: Session = Depends(get_session)
 @router.patch("/employees/{employee_id}", response_model=Employee)
 async def update_employee(
     employee_id: int,
-    employee: Employee,
+    employee_update: EmployeeBase,
     session: Session = Depends(get_session)
 ):
     db_employee = session.get(Employee, employee_id)
@@ -61,16 +65,11 @@ async def update_employee(
         raise HTTPException(status_code=404, detail="Employee not found")
     
     # Get only the fields that were actually provided in the request
-    # Try with dict() instead of model_dump() for compatibility
     try:
-        update_data = employee.dict(exclude_unset=True)
+        update_data = employee_update.dict(exclude_unset=True)
     except AttributeError:
         # For newer versions of SQLModel/Pydantic
-        update_data = employee.model_dump(exclude_unset=True)
-    
-    # Remove id from update data to prevent changing it
-    if "id" in update_data:
-        del update_data["id"]
+        update_data = employee_update.model_dump(exclude_unset=True)
     
     # Check uniqueness for employee_id and email if they are being updated
     if update_data.get('employee_id') or update_data.get('email'):

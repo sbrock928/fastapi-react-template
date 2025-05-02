@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
-from app.database import get_session
-from app.models.base import Log
 from typing import List
+from app.database import get_session
+from app.models.base import Log, LogBase
+from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timedelta
 
 router = APIRouter(
@@ -10,7 +11,7 @@ router = APIRouter(
     tags=["logs"],
 )
 
-@router.get("/", response_model=List[dict])
+@router.get("/", response_model=List[Log])
 async def get_logs(
     session: Session = Depends(get_session),
     limit: int = 100,
