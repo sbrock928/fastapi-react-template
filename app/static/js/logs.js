@@ -193,6 +193,16 @@ function showLogDetails(logId) {
                 document.getElementById('detailBody').textContent = log.request_body || 'No body captured';
             }
             
+            // Handle response body - new code added here
+            try {
+                // Try to parse as JSON first
+                const responseBodyObj = JSON.parse(log.response_body || '{}');
+                document.getElementById('detailResponseBody').textContent = JSON.stringify(responseBodyObj, null, 2);
+            } catch (e) {
+                // If not valid JSON, just show as is
+                document.getElementById('detailResponseBody').textContent = log.response_body || 'No response body captured';
+            }
+            
             // Show the modal
             const modal = new bootstrap.Modal(document.getElementById('logDetailsModal'));
             modal.show();

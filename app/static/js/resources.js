@@ -34,6 +34,11 @@ const resourceConfig = {
 let currentResourceType = 'users';
 let resourceData = {};
 
+// Pagination variables
+let currentPage = 1;
+const itemsPerPage = 10;
+let totalPages = 1;
+
 // Initialize the page
 document.addEventListener('DOMContentLoaded', function() {
     // Set up resource type selector
@@ -89,6 +94,15 @@ function updateResourceView() {
     // Update resource type text
     document.getElementById('resourceType').textContent = config.displayName;
     
+    // Check URL parameters for page number
+    const urlParams = new URLSearchParams(window.location.search);
+    const pageParam = urlParams.get('page');
+    if (pageParam) {
+        currentPage = parseInt(pageParam) || 1;
+    } else {
+        currentPage = 1; // Reset to first page when changing resource type
+    }
+    
     // Render table
     renderResourceTable(config);
 }
@@ -129,8 +143,27 @@ function renderResourceTable(config) {
         emptyCell.className = 'text-center';
         emptyRow.appendChild(emptyCell);
         tableBody.appendChild(emptyRow);
+        
+        // Hide pagination when no data
+        document.getElementById('resourcePagination')?.classList.add('d-none');
     } else {
-        data.forEach(item => {
+        // Calculate total pages and ensure current page is valid
+        totalPages = Math.ceil(data.length / itemsPerPage);
+        if (currentPage > totalPages) {
+            currentPage = totalPages;
+        } else if (currentPage < 1) {
+            currentPage = 1;
+        }
+        
+        // Calculate start and end indices for current page
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const endIndex = Math.min(startIndex + itemsPerPage, data.length);
+        
+        // Get current page data
+        const currentPageData = data.slice(startIndex, endIndex);
+        
+        // Render current page data
+        currentPageData.forEach(item => {
             const row = document.createElement('tr');
             
             // Add data cells
@@ -161,7 +194,101 @@ function renderResourceTable(config) {
             
             tableBody.appendChild(row);
         });
+        
+        // Render pagination controls
+        renderPagination(data.length);
     }
+}
+
+// Render pagination controls
+function renderPagination(totalItems) {
+    // Get or create pagination container
+    let paginationContainer = document.getElementById('resourcePagination');
+    
+    if (!paginationContainer) {
+        // Create pagination container if it doesn't exist
+        paginationContainer = document.createElement('nav');
+        paginationContainer.id = 'resourcePagination';
+        paginationContainer.setAttribute('aria-label', 'Resource pagination');
+        paginationContainer.className = 'mt-3';
+        
+        // Find the table container to append pagination after it
+        const tableContainer = document.querySelector('.table-responsive');
+        if (tableContainer && tableContainer.parentNode) {
+            tableContainer.parentNode.insertBefore(paginationContainer, tableContainer.nextSibling);
+        }
+    }
+    
+    // Show pagination container
+    paginationContainer.classList.remove('d-none');
+    
+    // Calculate total pages
+    totalPages = Math.ceil(totalItems / itemsPerPage);
+    
+    // Create pagination HTML
+    let paginationHTML = `
+        <ul class="pagination justify-content-center">
+            <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
+                <a class="page-link" href="#" data-page="prev">&laquo;</a>
+            </li>
+    `;
+    
+    // Determine which page numbers to show
+    let startPage = Math.max(1, currentPage - 2);
+    let endPage = Math.min(totalPages, startPage + 4);
+    
+    // Adjust if we're showing fewer than 5 pages
+    if (endPage - startPage < 4) {
+        startPage = Math.max(1, endPage - 4);
+    }
+    
+    // Add page numbers
+    for (let i = startPage; i <= endPage; i++) {
+        paginationHTML += `
+            <li class="page-item ${i === currentPage ? 'active' : ''}">
+                <a class="page-link" href="#" data-page="${i}">${i}</a>
+            </li>
+        `;
+    }
+    
+    paginationHTML += `
+            <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
+                <a class="page-link" href="#" data-page="next">&raquo;</a>
+            </li>
+        </ul>
+        <div class="text-center mt-2">
+            <small>Showing ${totalItems === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1} to ${Math.min(currentPage * itemsPerPage, totalItems)} of ${totalItems} ${resourceConfig[currentResourceType].displayName.toLowerCase()}s</small>
+        </div>
+    `;
+    
+    // Update pagination container
+    paginationContainer.innerHTML = paginationHTML;
+    
+    // Add click handlers to pagination links
+    paginationContainer.querySelectorAll('.page-link').forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            const page = this.dataset.page;
+            
+            if (page === 'prev') {
+                if (currentPage > 1) {
+                    currentPage--;
+                    renderResourceTable(resourceConfig[currentResourceType]);
+                }
+            } else if (page === 'next') {
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    renderResourceTable(resourceConfig[currentResourceType]);
+                }
+            } else {
+                currentPage = parseInt(page);
+                renderResourceTable(resourceConfig[currentResourceType]);
+            }
+            
+            // Update URL with the page number
+            updateUrlParam('page', currentPage);
+        });
+    });
 }
 
 // Open the resource modal for adding/editing

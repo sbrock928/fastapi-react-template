@@ -9,7 +9,7 @@ from app.middleware import RequestLoggerMiddleware  # Import the middleware
 def create_app():
     app = FastAPI()
     
-    # Add request logger middleware
+    # # Add request logger middleware
     app.add_middleware(RequestLoggerMiddleware)
     
     # Mount static files

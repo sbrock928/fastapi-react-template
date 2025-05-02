@@ -51,6 +51,11 @@ const reportConfig = {
 let currentReportData = [];
 let currentReportType = '';
 
+// Pagination variables
+let currentReportPage = 1;
+const reportItemsPerPage = 10;
+let totalReportPages = 1;
+
 // Initialize the page
 document.addEventListener('DOMContentLoaded', function() {
     // Set up report selector
@@ -178,6 +183,12 @@ function runReport() {
 
 // Display report results in the table
 function displayReportResults(data, config) {
+    // Reset pagination to first page when running a new report
+    currentReportPage = 1;
+    
+    // Store the complete data set
+    currentReportData = data;
+    
     // Clear existing table
     const tableHeader = document.getElementById('reportTableHeader');
     const tableBody = document.getElementById('reportTableBody');
@@ -201,9 +212,27 @@ function displayReportResults(data, config) {
         emptyCell.className = 'text-center';
         emptyCell.textContent = 'No data found';
         emptyRow.appendChild(emptyCell);
-        tableBody.appendChild(emptyRow);
+        
+        // Hide pagination if no data
+        document.getElementById('reportPagination')?.classList.add('d-none');
     } else {
-        data.forEach(item => {
+        // Calculate total pages and ensure current page is valid
+        totalReportPages = Math.ceil(data.length / reportItemsPerPage);
+        if (currentReportPage > totalReportPages) {
+            currentReportPage = totalReportPages;
+        } else if (currentReportPage < 1) {
+            currentReportPage = 1;
+        }
+        
+        // Calculate start and end indices for current page
+        const startIndex = (currentReportPage - 1) * reportItemsPerPage;
+        const endIndex = Math.min(startIndex + reportItemsPerPage, data.length);
+        
+        // Get current page data
+        const currentPageData = data.slice(startIndex, endIndex);
+        
+        // Render current page data
+        currentPageData.forEach(item => {
             const row = document.createElement('tr');
             
             config.columns.forEach(column => {
@@ -228,7 +257,144 @@ function displayReportResults(data, config) {
             
             tableBody.appendChild(row);
         });
+        
+        // Add pagination controls
+        renderReportPagination(data.length);
     }
+}
+
+// Render pagination controls for reports
+function renderReportPagination(totalItems) {
+    // Get or create pagination container
+    let paginationContainer = document.getElementById('reportPagination');
+    
+    if (!paginationContainer) {
+        // Create pagination container if it doesn't exist
+        paginationContainer = document.createElement('nav');
+        paginationContainer.id = 'reportPagination';
+        paginationContainer.setAttribute('aria-label', 'Report pagination');
+        paginationContainer.className = 'mt-3';
+        
+        // Find the table container to append pagination after it
+        const tableContainer = document.querySelector('#reportResultsCard .table-responsive');
+        if (tableContainer && tableContainer.parentNode) {
+            tableContainer.parentNode.insertBefore(paginationContainer, tableContainer.nextSibling);
+        }
+    }
+    
+    // Show pagination container
+    paginationContainer.classList.remove('d-none');
+    
+    // Calculate total pages
+    totalReportPages = Math.ceil(totalItems / reportItemsPerPage);
+    
+    // Create pagination HTML
+    let paginationHTML = `
+        <ul class="pagination justify-content-center">
+            <li class="page-item ${currentReportPage === 1 ? 'disabled' : ''}">
+                <a class="page-link" href="#" data-page="prev">&laquo;</a>
+            </li>
+    `;
+    
+    // Determine which page numbers to show
+    let startPage = Math.max(1, currentReportPage - 2);
+    let endPage = Math.min(totalReportPages, startPage + 4);
+    
+    // Adjust if we're showing fewer than 5 pages
+    if (endPage - startPage < 4) {
+        startPage = Math.max(1, endPage - 4);
+    }
+    
+    // Add page numbers
+    for (let i = startPage; i <= endPage; i++) {
+        paginationHTML += `
+            <li class="page-item ${i === currentReportPage ? 'active' : ''}">
+                <a class="page-link" href="#" data-page="${i}">${i}</a>
+            </li>
+        `;
+    }
+    
+    paginationHTML += `
+            <li class="page-item ${currentReportPage === totalReportPages ? 'disabled' : ''}">
+                <a class="page-link" href="#" data-page="next">&raquo;</a>
+            </li>
+        </ul>
+        <div class="text-center mt-2">
+            <small>Showing ${totalItems === 0 ? 0 : (currentReportPage - 1) * reportItemsPerPage + 1} to ${Math.min(currentReportPage * reportItemsPerPage, totalItems)} of ${totalItems} rows</small>
+        </div>
+    `;
+    
+    // Update pagination container
+    paginationContainer.innerHTML = paginationHTML;
+    
+    // Add click handlers to pagination links
+    paginationContainer.querySelectorAll('.page-link').forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            const page = this.dataset.page;
+            
+            if (page === 'prev') {
+                if (currentReportPage > 1) {
+                    currentReportPage--;
+                    refreshReportTable();
+                }
+            } else if (page === 'next') {
+                if (currentReportPage < totalReportPages) {
+                    currentReportPage++;
+                    refreshReportTable();
+                }
+            } else {
+                currentReportPage = parseInt(page);
+                refreshReportTable();
+            }
+        });
+    });
+}
+
+// Refresh the report table with the current page data
+function refreshReportTable() {
+    const config = reportConfig[currentReportType];
+    if (!config || !currentReportData.length) return;
+    
+    const tableBody = document.getElementById('reportTableBody');
+    tableBody.innerHTML = '';
+    
+    // Calculate start and end indices for current page
+    const startIndex = (currentReportPage - 1) * reportItemsPerPage;
+    const endIndex = Math.min(startIndex + reportItemsPerPage, currentReportData.length);
+    
+    // Get current page data
+    const currentPageData = currentReportData.slice(startIndex, endIndex);
+    
+    // Render current page data
+    currentPageData.forEach(item => {
+        const row = document.createElement('tr');
+        
+        config.columns.forEach(column => {
+            const td = document.createElement('td');
+            
+            // Format cell based on type
+            if (column.type === 'number') {
+                td.className = 'report-num-cell';
+                td.textContent = item[column.field]?.toLocaleString() || '0';
+            } else if (column.type === 'percentage') {
+                td.className = 'report-num-cell';
+                td.textContent = (item[column.field] * 100).toFixed(2) + '%';
+            } else if (column.type === 'date') {
+                td.className = 'report-date-cell';
+                td.textContent = formatDate(item[column.field]);
+            } else {
+                td.textContent = item[column.field] || '';
+            }
+            
+            row.appendChild(td);
+        });
+        
+        tableBody.appendChild(row);
+    });
+    
+    // Update pagination controls
+    renderReportPagination(currentReportData.length);
 }
 
 // Format a date for display
