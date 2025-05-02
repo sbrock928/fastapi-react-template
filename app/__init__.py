@@ -4,13 +4,13 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse, HTMLResponse
 from sqlmodel import Session, select
 import os
-from app.middleware import RequestLoggerMiddleware  # Import the middleware
+from app.middleware import LoggingMiddleware  # Import the middleware
 
 def create_app():
     app = FastAPI()
     
     # # Add request logger middleware
-    app.add_middleware(RequestLoggerMiddleware)
+    app.add_middleware(LoggingMiddleware)
     
     # Mount static files
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
