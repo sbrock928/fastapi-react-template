@@ -44,9 +44,22 @@ document.addEventListener('DOMContentLoaded', function() {
     // Set up resource type selector
     const resourceTypeSelect = document.getElementById('resourceTypeSelect');
     resourceTypeSelect.addEventListener('change', function() {
+        // Clear any existing pagination info elements
+        const existingPaginationInfo = document.querySelector('.pagination-info');
+        if (existingPaginationInfo) {
+            existingPaginationInfo.remove();
+        }
+        
+        // Always reset to page 1 when changing resource type
+        currentPage = 1;
+        
+        // Update resource type
         currentResourceType = this.value;
-        // Update URL with the new resource type
+        
+        // Update URL with the new resource type and reset page to 1
         updateUrlParam('type', currentResourceType);
+        updateUrlParam('page', '1');
+        
         updateResourceView();
     });
 
@@ -75,6 +88,13 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Update the select element to match the current resource type
     resourceTypeSelect.value = currentResourceType;
+
+    // Check URL parameters for page number
+    const urlParams = new URLSearchParams(window.location.search);
+    const pageParam = urlParams.get('page');
+    if (pageParam) {
+        currentPage = parseInt(pageParam) || 1;
+    }
 
     // Initialize with proper view
     updateResourceView();
@@ -145,7 +165,7 @@ function renderResourceTable(config) {
         tableBody.appendChild(emptyRow);
         
         // Hide pagination when no data
-        document.getElementById('resourcePagination')?.classList.add('d-none');
+        document.getElementById('resourcePagination').classList.add('d-none');
     } else {
         // Calculate total pages and ensure current page is valid
         totalPages = Math.ceil(data.length / itemsPerPage);
@@ -202,34 +222,27 @@ function renderResourceTable(config) {
 
 // Render pagination controls
 function renderPagination(totalItems) {
-    // Get or create pagination container
-    let paginationContainer = document.getElementById('resourcePagination');
-    
-    if (!paginationContainer) {
-        // Create pagination container if it doesn't exist
-        paginationContainer = document.createElement('nav');
-        paginationContainer.id = 'resourcePagination';
-        paginationContainer.setAttribute('aria-label', 'Resource pagination');
-        paginationContainer.className = 'mt-3';
-        
-        // Find the table container to append pagination after it
-        const tableContainer = document.querySelector('.table-responsive');
-        if (tableContainer && tableContainer.parentNode) {
-            tableContainer.parentNode.insertBefore(paginationContainer, tableContainer.nextSibling);
-        }
-    }
+    // Get pagination container
+    const paginationContainer = document.getElementById('resourcePagination');
     
     // Show pagination container
     paginationContainer.classList.remove('d-none');
+    // Add custom class for alignment
+    paginationContainer.className = 'mt-3 pagination-actions-aligned';
     
     // Calculate total pages
     totalPages = Math.ceil(totalItems / itemsPerPage);
     
     // Create pagination HTML
     let paginationHTML = `
-        <ul class="pagination justify-content-center">
+        <ul class="pagination">
             <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
-                <a class="page-link" href="#" data-page="prev">&laquo;</a>
+                <a class="page-link" href="#" data-page="first" title="First Page">
+                    <i class="bi bi-chevron-double-left"></i>
+                </a>
+            </li>
+            <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
+                <a class="page-link" href="#" data-page="prev" title="Previous Page">&laquo;</a>
             </li>
     `;
     
@@ -253,16 +266,32 @@ function renderPagination(totalItems) {
     
     paginationHTML += `
             <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
-                <a class="page-link" href="#" data-page="next">&raquo;</a>
+                <a class="page-link" href="#" data-page="next" title="Next Page">&raquo;</a>
+            </li>
+            <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
+                <a class="page-link" href="#" data-page="last" title="Last Page">
+                    <i class="bi bi-chevron-double-right"></i>
+                </a>
             </li>
         </ul>
-        <div class="text-center mt-2">
-            <small>Showing ${totalItems === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1} to ${Math.min(currentPage * itemsPerPage, totalItems)} of ${totalItems} ${resourceConfig[currentResourceType].displayName.toLowerCase()}s</small>
-        </div>
     `;
     
     // Update pagination container
     paginationContainer.innerHTML = paginationHTML;
+    
+    // Remove any existing pagination info element
+    const existingPaginationInfo = document.querySelector('.pagination-info');
+    if (existingPaginationInfo) {
+        existingPaginationInfo.remove();
+    }
+    
+    // Create the "showing X to Y of Z" info
+    const paginationInfo = document.createElement('div');
+    paginationInfo.className = 'mt-2 pagination-info';
+    paginationInfo.innerHTML = `<small>Showing ${totalItems === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1} to ${Math.min(currentPage * itemsPerPage, totalItems)} of ${totalItems} ${resourceConfig[currentResourceType].displayName.toLowerCase()}s</small>`;
+    
+    // Append after the pagination container
+    paginationContainer.after(paginationInfo);
     
     // Add click handlers to pagination links
     paginationContainer.querySelectorAll('.page-link').forEach(link => {
@@ -270,23 +299,26 @@ function renderPagination(totalItems) {
             e.preventDefault();
             const page = this.dataset.page;
             
-            if (page === 'prev') {
+            if (page === "first") {
+                currentPage = 1;
+            } else if (page === "last") {
+                currentPage = totalPages;
+            } else if (page === "prev") {
                 if (currentPage > 1) {
                     currentPage--;
-                    renderResourceTable(resourceConfig[currentResourceType]);
                 }
-            } else if (page === 'next') {
+            } else if (page === "next") {
                 if (currentPage < totalPages) {
                     currentPage++;
-                    renderResourceTable(resourceConfig[currentResourceType]);
                 }
             } else {
                 currentPage = parseInt(page);
-                renderResourceTable(resourceConfig[currentResourceType]);
             }
             
             // Update URL with the page number
             updateUrlParam('page', currentPage);
+            // Re-render the table with the new page
+            renderResourceTable(resourceConfig[currentResourceType]);
         });
     });
 }

@@ -132,6 +132,15 @@ function runReport() {
     
     const config = reportConfig[reportType];
     
+    // Reset pagination to first page when running a new report
+    currentReportPage = 1;
+    
+    // Remove any existing pagination info element
+    const existingPaginationInfo = document.querySelector('.pagination-info');
+    if (existingPaginationInfo) {
+        existingPaginationInfo.remove();
+    }
+    
     // Show loading overlay
     document.getElementById('loadingOverlay').classList.remove('d-none');
     
@@ -273,7 +282,7 @@ function renderReportPagination(totalItems) {
         paginationContainer = document.createElement('nav');
         paginationContainer.id = 'reportPagination';
         paginationContainer.setAttribute('aria-label', 'Report pagination');
-        paginationContainer.className = 'mt-3';
+        paginationContainer.className = 'mt-3 pagination-actions-aligned';
         
         // Find the table container to append pagination after it
         const tableContainer = document.querySelector('#reportResultsCard .table-responsive');
@@ -282,17 +291,23 @@ function renderReportPagination(totalItems) {
         }
     }
     
-    // Show pagination container
+    // Show pagination container and ensure it has the right class
     paginationContainer.classList.remove('d-none');
+    paginationContainer.className = 'mt-3 pagination-actions-aligned';
     
     // Calculate total pages
     totalReportPages = Math.ceil(totalItems / reportItemsPerPage);
     
     // Create pagination HTML
     let paginationHTML = `
-        <ul class="pagination justify-content-center">
+        <ul class="pagination">
             <li class="page-item ${currentReportPage === 1 ? 'disabled' : ''}">
-                <a class="page-link" href="#" data-page="prev">&laquo;</a>
+                <a class="page-link" href="#" data-page="first" title="First Page">
+                    <i class="bi bi-chevron-double-left"></i>
+                </a>
+            </li>
+            <li class="page-item ${currentReportPage === 1 ? 'disabled' : ''}">
+                <a class="page-link" href="#" data-page="prev" title="Previous Page">&laquo;</a>
             </li>
     `;
     
@@ -316,16 +331,29 @@ function renderReportPagination(totalItems) {
     
     paginationHTML += `
             <li class="page-item ${currentReportPage === totalReportPages ? 'disabled' : ''}">
-                <a class="page-link" href="#" data-page="next">&raquo;</a>
+                <a class="page-link" href="#" data-page="next" title="Next Page">&raquo;</a>
+            </li>
+            <li class="page-item ${currentReportPage === totalReportPages ? 'disabled' : ''}">
+                <a class="page-link" href="#" data-page="last" title="Last Page">
+                    <i class="bi bi-chevron-double-right"></i>
+                </a>
             </li>
         </ul>
-        <div class="text-center mt-2">
-            <small>Showing ${totalItems === 0 ? 0 : (currentReportPage - 1) * reportItemsPerPage + 1} to ${Math.min(currentReportPage * reportItemsPerPage, totalItems)} of ${totalItems} rows</small>
-        </div>
     `;
     
     // Update pagination container
     paginationContainer.innerHTML = paginationHTML;
+    
+    // Create the "showing X to Y of Z" info
+    const paginationInfo = document.createElement('div');
+    paginationInfo.className = 'mt-2 pagination-info';
+    paginationInfo.innerHTML = `<small>Showing ${totalItems === 0 ? 0 : (currentReportPage - 1) * reportItemsPerPage + 1} to ${Math.min(currentReportPage * reportItemsPerPage, totalItems)} of ${totalItems} rows</small>`;
+    
+    // Append after the pagination container
+    if (paginationContainer.nextElementSibling && paginationContainer.nextElementSibling.classList.contains('pagination-info')) {
+        paginationContainer.nextElementSibling.remove();
+    }
+    paginationContainer.after(paginationInfo);
     
     // Add click handlers to pagination links
     paginationContainer.querySelectorAll('.page-link').forEach(link => {
@@ -333,7 +361,13 @@ function renderReportPagination(totalItems) {
             e.preventDefault();
             const page = this.dataset.page;
             
-            if (page === 'prev') {
+            if (page === "first") {
+                currentReportPage = 1;
+                refreshReportTable();
+            } else if (page === "last") {
+                currentReportPage = totalReportPages;
+                refreshReportTable();
+            } else if (page === 'prev') {
                 if (currentReportPage > 1) {
                     currentReportPage--;
                     refreshReportTable();
