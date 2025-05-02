@@ -2,6 +2,7 @@ from typing import Optional
 from sqlmodel import Field, SQLModel
 from pydantic import EmailStr, validator
 from sqlalchemy.exc import IntegrityError
+from datetime import datetime
 
 class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -28,3 +29,16 @@ class Employee(SQLModel, table=True):
         if not v.startswith('EMP-'):
             raise ValueError('Employee ID must start with EMP-')
         return v
+
+class Log(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    timestamp: datetime = Field(default_factory=datetime.now)
+    method: str
+    path: str
+    status_code: int
+    client_ip: Optional[str] = None
+    request_headers: Optional[str] = None
+    request_body: Optional[str] = None
+    response_body: Optional[str] = None
+    processing_time: Optional[float] = None  # in milliseconds
+    user_agent: Optional[str] = None

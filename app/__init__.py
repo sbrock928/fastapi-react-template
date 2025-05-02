@@ -4,9 +4,13 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse, HTMLResponse
 from sqlmodel import Session, select
 import os
+from app.middleware import RequestLoggerMiddleware  # Import the middleware
 
 def create_app():
     app = FastAPI()
+    
+    # Add request logger middleware
+    app.add_middleware(RequestLoggerMiddleware)
     
     # Mount static files
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -23,13 +27,15 @@ def create_app():
     from app.api.user_router import router as user_router
     from app.api.employee_router import router as employee_router
     from app.api.report_router import router as report_router
+    from app.api.log_router import router as log_router
     from app.database import get_session
-    from app.models.base import User, Employee
+    from app.models.base import User, Employee, Log
     
     # Only include API routes, not page routes
     app.include_router(user_router)
     app.include_router(employee_router)
     app.include_router(report_router)
+    app.include_router(log_router)
     
     # Combined resources route with dynamic model-based tables
     @app.get("/resources", response_class=HTMLResponse)
@@ -80,5 +86,10 @@ def create_app():
     @app.get("/documentation", response_class=HTMLResponse)
     async def documentation_page(request: Request):
         return templates.TemplateResponse("documentation.html", {"request": request})
+    
+    # Logs page route
+    @app.get("/logs", response_class=HTMLResponse)
+    async def logs_page(request: Request):
+        return templates.TemplateResponse("logs.html", {"request": request})
     
     return app, templates

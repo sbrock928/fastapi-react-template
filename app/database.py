@@ -6,7 +6,7 @@ engine = create_engine(SQLITE_DATABASE_URL, connect_args={"check_same_thread": F
 
 def init_db():
     # Make sure we import all models here
-    from app.models.base import User, Employee
+    from app.models.base import User, Employee, Log
     
     # Create tables
     SQLModel.metadata.create_all(engine)
