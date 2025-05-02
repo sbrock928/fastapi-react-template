@@ -7,8 +7,8 @@
     <h1>Resource Management</h1>
     <div class="d-flex gap-3">
         <select id="resourceTypeSelect" class="form-select" style="width: auto;">
-            <option value="users">Users</option>
-            <option value="employees">Employees</option>
+            <option value="users" {% if initial_resource_type == 'users' %}selected{% endif %}>Users</option>
+            <option value="employees" {% if initial_resource_type == 'employees' %}selected{% endif %}>Employees</option>
         </select>
         <button class="btn btn-primary" onclick="openModal()">Add <span id="resourceType">User</span></button>
     </div>
@@ -60,6 +60,8 @@
     // Store the data for dynamic rendering
     const usersData = {{ users|tojson }};
     const employeesData = {{ employees|tojson }};
+    // Initialize with the resource type from the server
+    const initialResourceType = "{{ initial_resource_type }}";
 </script>
 <script src="{{ url_for('static', path='js/resources.js') }}"></script>
 {% endblock %}

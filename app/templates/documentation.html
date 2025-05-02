@@ -1,0 +1,16 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}API Documentation | Vibes + Hype{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h2 class="mb-4">API Documentation</h2>
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="ratio ratio-16x9" style="min-height: 800px;">
+                <iframe src="/docs" title="API Documentation" allowfullscreen></iframe>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

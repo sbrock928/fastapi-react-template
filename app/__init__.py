@@ -55,12 +55,19 @@ def create_app():
             except AttributeError:
                 employees_data.append(employee.model_dump())
         
+        # Get initial resource type from URL param, if provided
+        resource_type = request.query_params.get('type', 'users')
+        # Validate resource type
+        if resource_type not in ['users', 'employees']:
+            resource_type = 'users'
+        
         return templates.TemplateResponse(
             "resources.html",
             {
                 "request": request, 
                 "users": users_data, 
-                "employees": employees_data
+                "employees": employees_data,
+                "initial_resource_type": resource_type
             }
         )
     
@@ -68,5 +75,10 @@ def create_app():
     @app.get("/reporting", response_class=HTMLResponse)
     async def reporting_page(request: Request):
         return templates.TemplateResponse("reporting.html", {"request": request})
+    
+    # Documentation page route
+    @app.get("/documentation", response_class=HTMLResponse)
+    async def documentation_page(request: Request):
+        return templates.TemplateResponse("documentation.html", {"request": request})
     
     return app, templates

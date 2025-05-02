@@ -40,6 +40,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const resourceTypeSelect = document.getElementById('resourceTypeSelect');
     resourceTypeSelect.addEventListener('change', function() {
         currentResourceType = this.value;
+        // Update URL with the new resource type
+        updateUrlParam('type', currentResourceType);
         updateResourceView();
     });
 
@@ -54,9 +56,31 @@ document.addEventListener('DOMContentLoaded', function() {
         employees: employeesData || []
     };
 
-    // Initialize with default view
+    // Set the initial resource type from the server-provided value if available
+    if (typeof initialResourceType !== 'undefined' && resourceConfig[initialResourceType]) {
+        currentResourceType = initialResourceType;
+    } else {
+        // Check URL parameters as fallback
+        const urlParams = new URLSearchParams(window.location.search);
+        const typeParam = urlParams.get('type');
+        if (typeParam && resourceConfig[typeParam]) {
+            currentResourceType = typeParam;
+        }
+    }
+    
+    // Update the select element to match the current resource type
+    resourceTypeSelect.value = currentResourceType;
+
+    // Initialize with proper view
     updateResourceView();
 });
+
+// Update URL parameter without refreshing the page
+function updateUrlParam(key, value) {
+    const url = new URL(window.location);
+    url.searchParams.set(key, value);
+    window.history.pushState({}, '', url);
+}
 
 // Update the view based on selected resource type
 function updateResourceView() {
@@ -350,10 +374,10 @@ function saveResource(resourceType) {
         return response.json();
     })
     .then(() => {
-        // Hide modal and reload page
+        // Hide modal and reload page with the current resource type preserved
         const modal = bootstrap.Modal.getInstance(document.getElementById('resourceModal'));
         modal.hide();
-        window.location.reload();
+        window.location.href = `/resources?type=${currentResourceType}`;
     })
     .catch(error => handleValidationErrors(error, resourceType));
 }
@@ -371,6 +395,9 @@ function deleteResource(resourceId) {
         fetch(`${config.apiEndpoint}/${resourceId}`, {
             method: 'DELETE'
         })
-        .then(() => window.location.reload());
+        .then(() => {
+            // Reload the page with the resource type preserved
+            window.location.href = `/resources?type=${currentResourceType}`;
+        });
     }
 }
