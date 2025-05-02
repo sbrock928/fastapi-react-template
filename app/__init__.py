@@ -22,12 +22,14 @@ def create_app():
     # Import and include routers
     from app.api.user_router import router as user_router
     from app.api.employee_router import router as employee_router
+    from app.api.report_router import router as report_router
     from app.database import get_session
     from app.models.base import User, Employee
     
     # Only include API routes, not page routes
     app.include_router(user_router)
     app.include_router(employee_router)
+    app.include_router(report_router)
     
     # Combined resources route with dynamic model-based tables
     @app.get("/resources", response_class=HTMLResponse)
@@ -61,5 +63,10 @@ def create_app():
                 "employees": employees_data
             }
         )
+    
+    # Reporting page route
+    @app.get("/reporting", response_class=HTMLResponse)
+    async def reporting_page(request: Request):
+        return templates.TemplateResponse("reporting.html", {"request": request})
     
     return app, templates
