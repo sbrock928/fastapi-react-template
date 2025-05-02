@@ -50,6 +50,7 @@ const reportConfig = {
 // Current report data
 let currentReportData = [];
 let currentReportType = '';
+let filteredReportData = []; // New variable to store filtered data
 
 // Pagination variables
 let currentReportPage = 1;
@@ -67,6 +68,26 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Set up run report button
     document.getElementById('runReportBtn').addEventListener('click', runReport);
+
+    // Set up filter input event listener
+    const reportFilterInput = document.getElementById('reportFilterInput');
+    if (reportFilterInput) {
+        // Add a clear button to the filter input
+        const filterInputParent = reportFilterInput.parentElement;
+        const clearButton = document.createElement('button');
+        clearButton.type = 'button';
+        clearButton.className = 'btn btn-outline-secondary d-none';
+        clearButton.id = 'clearReportFilterBtn';
+        clearButton.innerHTML = '<i class="bi bi-x"></i>';
+        clearButton.title = 'Clear filter';
+        clearButton.addEventListener('click', clearReportFilter);
+        
+        // Insert the clear button after the input but before the end of input-group
+        filterInputParent.appendChild(clearButton);
+        
+        // Update event listener to show/hide clear button
+        reportFilterInput.addEventListener('input', filterReportData);
+    }
 
     // Set up export buttons
     document.getElementById('exportCsvBtn').addEventListener('click', () => exportReport('csv'));
@@ -197,6 +218,8 @@ function displayReportResults(data, config) {
     
     // Store the complete data set
     currentReportData = data;
+    // Initialize filtered data
+    filteredReportData = [...data];
     
     // Clear existing table
     const tableHeader = document.getElementById('reportTableHeader');
@@ -535,4 +558,125 @@ function downloadFile(url, fileName) {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+}
+
+// Clear the report filter input and reset the filtered data
+function clearReportFilter() {
+    const filterInput = document.getElementById('reportFilterInput');
+    if (filterInput) {
+        filterInput.value = '';
+        
+        // Hide the clear button
+        const clearButton = document.getElementById('clearReportFilterBtn');
+        if (clearButton) {
+            clearButton.classList.add('d-none');
+        }
+        
+        // Reset filtered data to all data
+        filteredReportData = [...currentReportData];
+        
+        // Reset to first page
+        currentReportPage = 1;
+        
+        // Re-render the table with all data
+        refreshFilteredReportTable();
+    }
+}
+
+// Filter report data based on user input
+function filterReportData() {
+    const filterInput = document.getElementById('reportFilterInput');
+    const filterText = filterInput.value.toLowerCase();
+    const config = reportConfig[currentReportType];
+    
+    // Show or hide the clear button based on input value
+    const clearButton = document.getElementById('clearReportFilterBtn');
+    if (clearButton) {
+        if (filterText.length > 0) {
+            clearButton.classList.remove('d-none');
+        } else {
+            clearButton.classList.add('d-none');
+        }
+    }
+    
+    if (!filterText.trim()) {
+        // If filter is empty, use all data
+        filteredReportData = [...currentReportData];
+    } else {
+        // Filter the data based on all visible columns
+        filteredReportData = currentReportData.filter(item => {
+            return config.columns.some(column => {
+                if (item[column.field] !== undefined && item[column.field] !== null) {
+                    return item[column.field].toString().toLowerCase().includes(filterText);
+                }
+                return false;
+            });
+        });
+    }
+    
+    // Reset to first page after filtering
+    currentReportPage = 1;
+    
+    // Refresh the table with filtered data
+    refreshFilteredReportTable();
+}
+
+// Refresh the report table with the filtered data
+function refreshFilteredReportTable() {
+    const config = reportConfig[currentReportType];
+    if (!config || !filteredReportData.length) {
+        // Handle empty filter results
+        const tableBody = document.getElementById('reportTableBody');
+        tableBody.innerHTML = `
+            <tr>
+                <td colspan="${config.columns.length}" class="text-center py-4">
+                    No matching data found. Try changing your filter.
+                </td>
+            </tr>
+        `;
+        
+        // Update pagination info
+        renderReportPagination(0);
+        return;
+    }
+    
+    const tableBody = document.getElementById('reportTableBody');
+    tableBody.innerHTML = '';
+    
+    // Calculate start and end indices for current page
+    const startIndex = (currentReportPage - 1) * reportItemsPerPage;
+    const endIndex = Math.min(startIndex + reportItemsPerPage, filteredReportData.length);
+    
+    // Get current page data
+    const currentPageData = filteredReportData.slice(startIndex, endIndex);
+    
+    // Render current page data
+    currentPageData.forEach(item => {
+        const row = document.createElement('tr');
+        
+        config.columns.forEach(column => {
+            const td = document.createElement('td');
+            
+            // Format cell based on type
+            if (column.type === 'number') {
+                td.className = 'report-num-cell';
+                td.textContent = item[column.field]?.toLocaleString() || '0';
+            } else if (column.type === 'percentage') {
+                td.className = 'report-num-cell';
+                td.textContent = (item[column.field] * 100).toFixed(2) + '%';
+            } else if (column.type === 'date') {
+                td.className = 'report-date-cell';
+                td.textContent = formatDate(item[column.field]);
+            } else {
+                td.textContent = item[column.field] || '';
+            }
+            
+            row.appendChild(td);
+        });
+        
+        tableBody.appendChild(row);
+    });
+    
+    // Update pagination controls
+    renderReportPagination(filteredReportData.length);
 }

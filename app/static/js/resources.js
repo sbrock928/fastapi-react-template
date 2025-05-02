@@ -33,6 +33,7 @@ const resourceConfig = {
 // Current resource type (default: users)
 let currentResourceType = 'users';
 let resourceData = {};
+let filteredResourceData = {}; // New variable to store filtered data
 
 // Pagination variables
 let currentPage = 1;
@@ -63,6 +64,26 @@ document.addEventListener('DOMContentLoaded', function() {
         updateResourceView();
     });
 
+    // Set up filter input event listener
+    const filterInput = document.getElementById('resourceFilterInput');
+    if (filterInput) {
+        // Add a clear button after the filter input
+        const filterInputParent = filterInput.parentElement;
+        const clearButton = document.createElement('button');
+        clearButton.type = 'button';
+        clearButton.className = 'btn btn-outline-secondary d-none';
+        clearButton.id = 'clearFilterBtn';
+        clearButton.innerHTML = '<i class="bi bi-x"></i>';
+        clearButton.title = 'Clear filter';
+        clearButton.addEventListener('click', clearFilter);
+        
+        // Insert the clear button after the input but before the end of input-group
+        filterInputParent.appendChild(clearButton);
+        
+        // Add input event to show/hide clear button
+        filterInput.addEventListener('input', filterResources);
+    }
+
     // Set up save button event listener
     document.getElementById('saveResourceBtn').addEventListener('click', function() {
         saveResource(currentResourceType);
@@ -73,6 +94,11 @@ document.addEventListener('DOMContentLoaded', function() {
         users: usersData || [],
         employees: employeesData || []
     };
+
+    // Initialize filtered data
+    for (const key in resourceData) {
+        filteredResourceData[key] = [...resourceData[key]];
+    }
 
     // Set the initial resource type from the server-provided value if available
     if (typeof initialResourceType !== 'undefined' && resourceConfig[initialResourceType]) {
@@ -153,7 +179,7 @@ function renderResourceTable(config) {
     const tableBody = document.getElementById('dynamicTableBody');
     tableBody.innerHTML = '';
     
-    const data = resourceData[currentResourceType] || [];
+    const data = filteredResourceData[currentResourceType] || [];
     
     if (data.length === 0) {
         const emptyRow = document.createElement('tr');
@@ -559,4 +585,59 @@ function deleteResource(resourceId) {
             window.location.href = `/resources?type=${currentResourceType}`;
         });
     }
+}
+
+// Clear the filter input and reset the filtered data
+function clearFilter() {
+    const filterInput = document.getElementById('resourceFilterInput');
+    if (filterInput) {
+        filterInput.value = '';
+        
+        // Hide the clear button
+        const clearButton = document.getElementById('clearFilterBtn');
+        if (clearButton) {
+            clearButton.classList.add('d-none');
+        }
+        
+        // Reset filtered data to all data
+        filteredResourceData[currentResourceType] = [...resourceData[currentResourceType]];
+        
+        // Reset to first page
+        currentPage = 1;
+        updateUrlParam('page', '1');
+        
+        // Re-render the table
+        renderResourceTable(resourceConfig[currentResourceType]);
+    }
+}
+
+// Filter resources based on input
+function filterResources() {
+    const filterInput = document.getElementById('resourceFilterInput');
+    const filterValue = filterInput.value.toLowerCase();
+    const config = resourceConfig[currentResourceType];
+    
+    // Show or hide the clear button based on input value
+    const clearButton = document.getElementById('clearFilterBtn');
+    if (clearButton) {
+        if (filterValue.length > 0) {
+            clearButton.classList.remove('d-none');
+        } else {
+            clearButton.classList.add('d-none');
+        }
+    }
+    
+    filteredResourceData[currentResourceType] = resourceData[currentResourceType].filter(item => {
+        return config.columns.some(column => {
+            if (column.type !== 'hidden' && item[column.field]) {
+                return item[column.field].toString().toLowerCase().includes(filterValue);
+            }
+            return false;
+        });
+    });
+    
+    // Reset to first page after filtering
+    currentPage = 1;
+    updateUrlParam('page', '1');
+    renderResourceTable(config);
 }
