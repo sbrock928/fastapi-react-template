@@ -10,7 +10,8 @@ SessionLocal = sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
 
 def init_db():
     # Make sure we import all models here
-    from app.models.base import User, Employee, Log
+    from app.resources.models import User, Employee
+    from app.logging.models import Log
     
     # Create tables
     SQLModel.metadata.create_all(engine)

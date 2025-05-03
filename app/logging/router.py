@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from typing import List
 from app.database import get_session
-from app.models.base import Log, LogBase
+from app.logging.models import Log, LogBase
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timedelta
 

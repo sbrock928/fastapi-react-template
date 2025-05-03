@@ -1,15 +1,16 @@
 from typing import List, Dict, Any
 from fastapi import HTTPException
 from sqlmodel import Session, select, func, text
-from app.dao.report_dao import ReportDAO
-from app.models.base import Log, User, Employee
+from app.reporting.dao import ReportingDAO
+from app.resources.models import User, Employee
+from app.logging.models import Log
 from datetime import datetime, timedelta
 import pandas as pd
 from io import BytesIO
 
-class ReportService:
+class ReportingService:
     def __init__(self, session: Session):
-        self.report_dao = ReportDAO(session)
+        self.report_dao = ReportingDAO(session)
         self.session = session
     
     async def get_summary_statistics(self) -> Dict[str, Any]:

@@ -4,7 +4,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse, HTMLResponse
 from sqlmodel import Session, select
 import os
-from app.middleware import LoggingMiddleware  # Import the middleware
+from app.logging.middleware import LoggingMiddleware  # Import the middleware
 
 def create_app():
     app = FastAPI()
@@ -24,16 +24,15 @@ def create_app():
         return templates.TemplateResponse("home.html", {"request": request})
     
     # Import and include routers
-    from app.api.user_router import router as user_router
-    from app.api.employee_router import router as employee_router
-    from app.api.report_router import router as report_router
-    from app.api.log_router import router as log_router
+    from app.resources.router import router as resource_router
+    from app.reporting.router import router as report_router
+    from app.logging.router import router as log_router
     from app.database import get_session
-    from app.models.base import User, Employee, Log
+    from app.resources.models import User, Employee
+    from app.logging.models import Log
     
     # Only include API routes, not page routes
-    app.include_router(user_router)
-    app.include_router(employee_router)
+    app.include_router(resource_router)
     app.include_router(report_router)
     app.include_router(log_router)
     

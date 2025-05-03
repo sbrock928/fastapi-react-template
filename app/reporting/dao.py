@@ -1,9 +1,10 @@
 from sqlmodel import Session, select, func
 from typing import List, Dict, Any
-from app.models.base import User, Employee, Log
+from app.resources.models import User, Employee
+from app.logging.models import Log
 from datetime import datetime, timedelta
 
-class ReportDAO:
+class ReportingDAO:
     def __init__(self, session: Session):
         self.session = session
     

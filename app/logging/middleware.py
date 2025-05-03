@@ -9,7 +9,7 @@ from typing import Callable, Awaitable, List, Dict, Any
 from datetime import datetime
 from starlette.background import BackgroundTask
 from sqlmodel import Session
-from app.models.base import Log  # Adjust import as needed
+from app.logging.models import Log  # Adjust import as needed
 from app.database import SessionLocal  # Your session generator
 import time
 
