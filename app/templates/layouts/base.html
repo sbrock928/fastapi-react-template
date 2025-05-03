@@ -17,21 +17,32 @@
                 <h3>Vibes + Hype</h3>
             </div>
             <div class="list-group list-group-flush">
-                <a href="/" class="list-group-item list-group-item-action bg-dark text-white">
-                    <i class="bi bi-house me-2"></i> Home
-                </a>
-                <a href="/resources" class="list-group-item list-group-item-action bg-dark text-white">
-                    <i class="bi bi-grid me-2"></i> Resources
-                </a>
-                <a href="/reporting" class="list-group-item list-group-item-action bg-dark text-white">
-                    <i class="bi bi-bar-chart me-2"></i> Reporting
-                </a>
-                <a href="/documentation" class="list-group-item list-group-item-action bg-dark text-white">
-                    <i class="bi bi-file-text me-2"></i> Documentation
-                </a>
-                <a href="/logs" class="list-group-item list-group-item-action bg-dark text-white">
-                    <i class="bi bi-journal-text me-2"></i> Logs
-                </a>
+                <div class="sidebar">
+                    <ul class="nav flex-column">
+                        <!-- Add 'active' class to the current page link -->
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.url.path == '/' %}active{% endif %}" href="/">
+                                <i class="bi bi-house-door"></i> Dashboard
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.url.path.startswith('/resources') %}active{% endif %}" href="/resources">
+                                <i class="bi bi-people"></i> Resources
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.url.path.startswith('/reporting') %}active{% endif %}" href="/reporting">
+                                <i class="bi bi-bar-chart"></i> Reporting
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.url.path.startswith('/logs') %}active{% endif %}" href="/logs">
+                                <i class="bi bi-journal-text"></i> Logs
+                            </a>
+                        </li>
+                        <!-- Add more menu items as needed -->
+                    </ul>
+                </div>
             </div>
         </div>
         

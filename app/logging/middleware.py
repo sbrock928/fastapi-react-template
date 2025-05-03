@@ -19,10 +19,11 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
 
     async def dispatch(self, request: Request, call_next: Callable):
-        # Skip logging for:
-        # 1. API log requests
-        # 2. Static files (js, css, images, etc.)
-        if request.url.path.startswith('/api/logs') or request.url.path.startswith('/static'):
+        # Define paths that should be excluded from logging
+        excluded_paths = ["/api/logs", "/static", "/logs"]
+
+        # Skip logging for excluded paths
+        if any(request.url.path.startswith(path) for path in excluded_paths):
             return await call_next(request)
 
         # --- Start timer ---
@@ -50,7 +51,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 content=response_body,
                 status_code=response.status_code,
                 headers=dict(response.headers),
-                media_type=response.media_type
+                media_type=response.media_type,
             )
         else:
             original_body_iterator = response.body_iterator
@@ -72,8 +73,8 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         # Only log HTML response bodies for error responses (status >= 400)
         should_log_body = True
         is_html = False
-        content_type = new_response.headers.get('content-type', '')
-        if 'text/html' in content_type:
+        content_type = new_response.headers.get("content-type", "")
+        if "text/html" in content_type:
             is_html = True
             if new_response.status_code < 400:  # Not an error response
                 should_log_body = False
@@ -100,7 +101,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                     request_body=request_body,
                     response_body=body_to_log,
                     processing_time=duration_ms,
-                    user_agent=request.headers.get("user-agent")
+                    user_agent=request.headers.get("user-agent"),
                 )
                 session.add(log)
                 session.commit()

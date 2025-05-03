@@ -6,7 +6,7 @@ import os
 import sys
 
 # Get the application directory - differs between normal execution and PyInstaller
-if getattr(sys, 'frozen', False):
+if getattr(sys, "frozen", False):
     # If the application is run as a bundle (PyInstaller executable)
     application_path = os.path.dirname(sys.executable)
     # Change working directory to executable location
@@ -18,20 +18,22 @@ else:
 # Create the FastAPI app
 app, templates = create_app()
 
+
 @app.on_event("startup")
 async def on_startup():
     init_db()
 
+
 if __name__ == "__main__":
     # In packaged mode, we don't want auto-reload and we need to be careful about host binding
-    debug_mode = not getattr(sys, 'frozen', False)
-    
+    debug_mode = not getattr(sys, "frozen", False)
+
     # When packaged, don't use reload and use a more restrictive host
-    host = "127.0.0.1" if getattr(sys, 'frozen', False) else "0.0.0.0"
-    reload_enabled = False if getattr(sys, 'frozen', False) else True
-    
+    host = "127.0.0.1" if getattr(sys, "frozen", False) else "0.0.0.0"
+    reload_enabled = False if getattr(sys, "frozen", False) else True
+
     print(f"Starting Vibez application on {host}:8000")
     print(f"Debug mode: {debug_mode}")
     print(f"Application path: {application_path}")
-    
+
     uvicorn.run("main:app", host=host, port=8000, reload=reload_enabled)

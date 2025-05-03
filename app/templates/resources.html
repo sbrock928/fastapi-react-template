@@ -9,6 +9,7 @@
         <select id="resourceTypeSelect" class="form-select" style="width: auto;">
             <option value="users" {% if initial_resource_type == 'users' %}selected{% endif %}>Users</option>
             <option value="employees" {% if initial_resource_type == 'employees' %}selected{% endif %}>Employees</option>
+            <option value="subscribers" {% if initial_resource_type == 'subscribers' %}selected{% endif %}>Subscribers</option>
         </select>
         <button class="btn btn-primary" onclick="openModal()">Add <span id="resourceType">User</span></button>
     </div>
@@ -73,6 +74,7 @@
     // Store the data for dynamic rendering
     const usersData = {{ users|tojson }};
     const employeesData = {{ employees|tojson }};
+    const subscribersData = {{ subscribers|tojson }};
     // Initialize with the resource type from the server
     const initialResourceType = "{{ initial_resource_type }}";
 </script>

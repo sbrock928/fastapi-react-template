@@ -8,14 +8,16 @@ engine = create_engine(SQLITE_DATABASE_URL, connect_args={"check_same_thread": F
 
 SessionLocal = sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
 
+
 def init_db():
     # Make sure we import all models here
     from app.resources.models import User, Employee
     from app.logging.models import Log
-    
+
     # Create tables
     SQLModel.metadata.create_all(engine)
     print("Database tables created successfully.")
+
 
 def get_session():
     with Session(engine) as session:

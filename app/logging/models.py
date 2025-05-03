@@ -2,6 +2,7 @@ from typing import Optional
 from sqlmodel import Field, SQLModel
 from datetime import datetime
 
+
 class LogBase(SQLModel):
     timestamp: datetime = Field(default_factory=datetime.now)
     method: str
@@ -13,10 +14,11 @@ class LogBase(SQLModel):
     response_body: Optional[str] = None
     processing_time: Optional[float] = None  # in milliseconds
     user_agent: Optional[str] = None
-    
+
     class Config:
         orm_mode = True
         extra = "forbid"
+
 
 # Database table model (inherits from base model)
 class Log(LogBase, table=True):

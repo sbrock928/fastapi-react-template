@@ -51,6 +51,48 @@
     background-color: #2c3e50 !important;
 }
 
+/* Add this after your existing sidebar styles */
+
+/* Active menu item highlighting in sidebar */
+.list-group-item.active {
+    background-color: #0d6efd !important;
+    color: white !important;
+    border-color: #0d6efd !important;
+}
+
+/* Keep active state visible when sidebar is open */
+#wrapper:not(.toggled) .list-group-item.active {
+    background-color: #0d6efd !important;
+    color: white !important;
+}
+
+/* Ensure active state is visible when toggled */
+#wrapper.toggled .list-group-item.active {
+    background-color: #0d6efd !important;
+    color: white !important;
+}
+
+/* Add a slight indicator on the left side for active items */
+.list-group-item.active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 4px;
+    height: 100%;
+    background-color: white;
+}
+
+/* Maintain text color for icons in active menu items */
+.list-group-item.active i {
+    color: white !important;
+}
+
+/* Transition for smoother color changes */
+.list-group-item {
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
 /* Loading overlay for reports */
 #loadingOverlay {
     position: fixed;
@@ -113,4 +155,45 @@
     #wrapper.toggled #sidebar-wrapper {
         margin-left: -250px;
     }
+}
+
+/* Update sidebar nav link styles */
+
+/* Base nav-link styling */
+.sidebar .nav-link {
+    color: rgba(255, 255, 255, 0.8);
+    padding: 0.75rem 1.25rem;
+    transition: all 0.3s ease;
+}
+
+/* Active nav link styling */
+.sidebar .nav-link.active {
+    color: white;
+    background-color: rgba(13, 110, 253, 0.8); /* Bootstrap primary with opacity */
+    border-left: 4px solid white;
+    padding-left: calc(1.25rem - 4px); /* Adjust padding to compensate for border */
+}
+
+/* Hover effect for non-active nav links */
+.sidebar .nav-link:not(.active):hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: white;
+}
+
+/* Ensure active state remains visible when sidebar is toggled */
+#wrapper.toggled .sidebar .nav-link.active {
+    background-color: rgba(13, 110, 253, 0.8);
+    color: white;
+}
+
+/* Icon styling in nav links */
+.sidebar .nav-link i {
+    margin-right: 8px;
+    width: 24px;
+    text-align: center;
+}
+
+/* Icon in active nav links */
+.sidebar .nav-link.active i {
+    color: white;
 }

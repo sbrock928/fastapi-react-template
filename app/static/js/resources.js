@@ -27,6 +27,28 @@ const resourceConfig = {
             { field: 'position', header: 'Position', type: 'text', required: true }
         ],
         displayName: 'Employee'
+    },
+    subscribers: {
+        apiEndpoint: '/subscribers',
+        modelName: 'Subscriber',
+        idField: 'resourceId',
+        columns: [
+            { field: 'id', header: 'ID', type: 'hidden' },
+            { field: 'email', header: 'Email', type: 'email', required: true },
+            { field: 'full_name', header: 'Full Name', type: 'text', required: true, minLength: 2 },
+            { field: 'subscription_tier', header: 'Subscription Tier', type: 'select', required: true,
+              options: [
+                { value: 'free', text: 'Free' },
+                { value: 'basic', text: 'Basic' },
+                { value: 'premium', text: 'Premium' },
+                { value: 'enterprise', text: 'Enterprise' }
+              ]
+            },
+            { field: 'signup_date', header: 'Signup Date', type: 'datetime-local', required: true },
+            { field: 'last_billing_date', header: 'Last Billing Date', type: 'datetime-local', required: false },
+            { field: 'is_active', header: 'Active', type: 'checkbox', required: false }
+        ],
+        displayName: 'Subscriber'
     }
 };
 
@@ -92,7 +114,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initial resource data setup
     resourceData = {
         users: usersData || [],
-        employees: employeesData || []
+        employees: employeesData || [],
+        subscribers: subscribersData || []
     };
 
     // Initialize filtered data
@@ -373,34 +396,87 @@ function openModal(resourceId = null) {
             const formGroup = document.createElement('div');
             formGroup.className = 'mb-3';
             
-            const label = document.createElement('label');
-            label.htmlFor = column.field;
-            label.className = 'form-label';
-            label.textContent = column.header;
+            // For checkbox type, create a different layout
+            if (column.type === 'checkbox') {
+                formGroup.className = 'mb-3 form-check';
+                
+                const input = document.createElement('input');
+                input.type = 'checkbox';
+                input.className = 'form-check-input';
+                input.id = column.field;
+                input.name = column.field;
+                
+                const label = document.createElement('label');
+                label.htmlFor = column.field;
+                label.className = 'form-check-label';
+                label.textContent = column.header;
+                
+                if (column.required) input.required = true;
+                
+                // Add input event listener for validation reset
+                input.addEventListener('input', () => {
+                    input.classList.remove('is-invalid');
+                    const feedback = formGroup.querySelector('.invalid-feedback');
+                    if (feedback) feedback.remove();
+                });
+                
+                const feedback = document.createElement('div');
+                feedback.className = 'invalid-feedback';
+                
+                formGroup.appendChild(input);
+                formGroup.appendChild(label);
+                formGroup.appendChild(feedback);
+            } else {
+                // Standard form layout for non-checkbox types
+                const label = document.createElement('label');
+                label.htmlFor = column.field;
+                label.className = 'form-label';
+                label.textContent = column.header;
+                
+                let input;
+                if (column.type === 'select') {
+                    input = document.createElement('select');
+                    input.className = 'form-select';
+                    column.options.forEach(option => {
+                        const optionElement = document.createElement('option');
+                        optionElement.value = option.value;
+                        optionElement.textContent = option.text;
+                        input.appendChild(optionElement);
+                    });
+                } else {
+                    input = document.createElement('input');
+                    input.type = column.type;
+                    input.className = 'form-control';
+                }
+                
+                input.id = column.field;
+                input.name = column.field;
+                
+                if (column.required) input.required = true;
+                if (column.minLength) input.minLength = column.minLength;
+                if (column.pattern) input.pattern = column.pattern;
+                if (column.placeholder) input.placeholder = column.placeholder;
+                
+                // For datetime-local inputs, set step to allow seconds
+                if (column.type === 'datetime-local') {
+                    input.step = 1; // Allow seconds in datetime-local input
+                }
+                
+                // Add input event listener for validation reset
+                input.addEventListener('input', () => {
+                    input.classList.remove('is-invalid');
+                    const feedback = formGroup.querySelector('.invalid-feedback');
+                    if (feedback) feedback.remove();
+                });
+                
+                const feedback = document.createElement('div');
+                feedback.className = 'invalid-feedback';
+                
+                formGroup.appendChild(label);
+                formGroup.appendChild(input);
+                formGroup.appendChild(feedback);
+            }
             
-            const input = document.createElement('input');
-            input.type = column.type;
-            input.className = 'form-control';
-            input.id = column.field;
-            input.name = column.field;
-            
-            if (column.required) input.required = true;
-            if (column.minLength) input.minLength = column.minLength;
-            if (column.pattern) input.pattern = column.pattern;
-            if (column.placeholder) input.placeholder = column.placeholder;
-            
-            // Add input event listener for validation reset
-            input.addEventListener('input', () => {
-                input.classList.remove('is-invalid');
-                input.nextElementSibling?.remove();
-            });
-            
-            const feedback = document.createElement('div');
-            feedback.className = 'invalid-feedback';
-            
-            formGroup.appendChild(label);
-            formGroup.appendChild(input);
-            formGroup.appendChild(feedback);
             formContainer.appendChild(formGroup);
         }
     });
@@ -414,13 +490,46 @@ function openModal(resourceId = null) {
                 config.columns.forEach(column => {
                     const input = document.getElementById(column.field);
                     if (input && data[column.field] !== undefined) {
-                        input.value = data[column.field];
+                        if (column.type === 'checkbox') {
+                            input.checked = data[column.field];
+                        } else if (column.type === 'datetime-local' && data[column.field]) {
+                            // Format datetime for input element
+                            const dateObj = new Date(data[column.field]);
+                            if (!isNaN(dateObj.getTime())) {
+                                // Format as YYYY-MM-DDThh:mm:ss
+                                const isoString = dateObj.toISOString();
+                                input.value = isoString.substring(0, 19);
+                            }
+                        } else {
+                            input.value = data[column.field];
+                        }
                     }
                 });
             });
     } else {
-        // Clear form for new resource
+        // Clear form for new resource and set defaults
         document.getElementById('resourceForm').reset();
+        
+        // Set default values for certain fields
+        config.columns.forEach(column => {
+            if (column.field === 'is_active' && column.type === 'checkbox') {
+                document.getElementById(column.field).checked = true;
+            }
+            
+            // For subscription_tier, default to 'free'
+            if (column.field === 'subscription_tier' && column.type === 'select') {
+                document.getElementById(column.field).value = 'free';
+            }
+            
+            // For signup_date, default to current date/time
+            if (column.field === 'signup_date' && column.type === 'datetime-local') {
+                const now = new Date();
+                const isoString = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+                    .toISOString()
+                    .substring(0, 19);
+                document.getElementById(column.field).value = isoString;
+            }
+        });
     }
     
     modal.show();
@@ -536,8 +645,19 @@ function saveResource(resourceType) {
     config.columns.forEach(column => {
         if (column.field !== 'id') {  // Skip ID field
             const field = document.getElementById(column.field);
-            if (field && field.value) {
-                resourceData[column.field] = field.value;
+            if (field) {
+                // Handle different field types differently
+                if (column.type === 'checkbox') {
+                    resourceData[column.field] = field.checked;
+                } else if (column.type === 'datetime-local') {
+                    // Only include if field has a value
+                    if (field.value) {
+                        resourceData[column.field] = field.value;
+                    }
+                } else {
+                    // For all other field types (text, email, select, etc.)
+                    resourceData[column.field] = field.value;
+                }
             }
         }
     });
