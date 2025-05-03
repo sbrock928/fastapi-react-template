@@ -1,68 +1,132 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
-from typing import List
+from typing import List, Type, Callable, Any
 from app.database import get_session
 from app.resources.models import User, UserBase, Employee, EmployeeBase
-from app.resources.service import ResourcesService
+from app.resources.registry import registry  # Import registry instead of ResourcesService
 
 router = APIRouter(tags=["Resources"])
 
-# User routes
-@router.get("/users", response_model=List[User], tags=["Users"])
-async def list_users(session: Session = Depends(get_session)):
-    resource_service = ResourcesService(session)
-    return await resource_service.get_all_users()
+# Function to create dynamic routes for all registered resources
+def create_dynamic_resource_routes():
+    """Create routes for all registered resources"""
+    
+    for config in registry.get_all_configs():
+        resource_name = config.name
+        model_cls = config.model_cls
+        base_model_cls = config.base_model_cls
+        tag = config.tag
+        
+        # GET all
+        @router.get(
+            f"/{resource_name}", 
+            response_model=List[model_cls], 
+            tags=[tag]
+        )
+        async def get_all(
+            resource=resource_name,  # Capture the resource name in the closure
+            session: Session = Depends(get_session)
+        ):
+            config = registry.get_config(resource)
+            service = config.get_service(session)
+            return await service.get_all()
+        
+        # POST - create
+        @router.post(
+            f"/{resource_name}", 
+            response_model=model_cls, 
+            tags=[tag]
+        )
+        async def create(
+            item_data: base_model_cls,
+            resource=resource_name,  # Capture the resource name in the closure
+            session: Session = Depends(get_session)
+        ):
+            config = registry.get_config(resource)
+            service = config.get_service(session)
+            return await service.create(item_data)
+        
+        # GET by ID
+        @router.get(
+            f"/{resource_name}/{{item_id}}", 
+            response_model=model_cls, 
+            tags=[tag]
+        )
+        async def get_by_id(
+            item_id: int,
+            resource=resource_name,  # Capture the resource name in the closure
+            session: Session = Depends(get_session)
+        ):
+            config = registry.get_config(resource)
+            service = config.get_service(session)
+            item = await service.get_by_id(item_id)
+            if not item:
+                raise HTTPException(status_code=404, detail=f"{tag} not found")
+            return item
+        
+        # PATCH - update
+        @router.patch(
+            f"/{resource_name}/{{item_id}}", 
+            response_model=model_cls, 
+            tags=[tag]
+        )
+        async def update(
+            item_id: int,
+            item_data: base_model_cls,
+            resource=resource_name,  # Capture the resource name in the closure
+            session: Session = Depends(get_session)
+        ):
+            config = registry.get_config(resource)
+            service = config.get_service(session)
+            updated_item = await service.update(item_id, item_data)
+            if not updated_item:
+                raise HTTPException(status_code=404, detail=f"{tag} not found")
+            return updated_item
+        
+        # DELETE
+        @router.delete(
+            f"/{resource_name}/{{item_id}}", 
+            tags=[tag]
+        )
+        async def delete(
+            item_id: int,
+            resource=resource_name,  # Capture the resource name in the closure
+            session: Session = Depends(get_session)
+        ):
+            config = registry.get_config(resource)
+            service = config.get_service(session)
+            result = await service.delete(item_id)
+            if not result:
+                raise HTTPException(status_code=404, detail=f"{tag} not found")
+            return {"message": f"{tag} deleted successfully"}
 
-@router.post("/users", response_model=User, tags=["Users"])
-async def create_user(user_data: UserBase, session: Session = Depends(get_session)):
-    resource_service = ResourcesService(session)
-    return await resource_service.create_user(user_data)
+# Create all the dynamic routes
+create_dynamic_resource_routes()
 
-@router.get("/users/{user_id}", response_model=User, tags=["Users"])
-async def get_user(user_id: int, session: Session = Depends(get_session)):
-    resource_service = ResourcesService(session)
-    return await resource_service.get_user_by_id(user_id)
-
-@router.patch("/users/{user_id}", response_model=User,  tags=["Users"])
-async def update_user(
-    user_id: int,
-    user_update: UserBase,
+# Add custom resource-specific routes that don't fit the CRUD pattern
+@router.get("/users/by-username/{username}", response_model=User, tags=["Users"])
+async def get_user_by_username(
+    username: str,
     session: Session = Depends(get_session)
 ):
-    resource_service = ResourcesService(session)
-    return await resource_service.update_user(user_id, user_update)
+    config = registry.get_config("users")
+    service = config.get_service(session)
+    return await service.get_by_username(username)
 
-@router.delete("/users/{user_id}", tags=["Users"])  
-async def delete_user(user_id: int, session: Session = Depends(get_session)):
-    resource_service = ResourcesService(session)
-    return await resource_service.delete_user(user_id)
-
-# Employee routes
-@router.get("/employees", response_model=List[Employee], tags=["Employees"])    
-async def list_employees(session: Session = Depends(get_session)):
-    resource_service = ResourcesService(session)
-    return await resource_service.get_all_employees()
-
-@router.post("/employees", response_model=Employee, tags=["Employees"])
-async def create_employee(employee_data: EmployeeBase, session: Session = Depends(get_session)):
-    resource_service = ResourcesService(session)
-    return await resource_service.create_employee(employee_data)
-
-@router.get("/employees/{employee_id}", response_model=Employee, tags=["Employees"])
-async def get_employee(employee_id: int, session: Session = Depends(get_session)):
-    resource_service = ResourcesService(session)
-    return await resource_service.get_employee_by_id(employee_id)
-
-@router.patch("/employees/{employee_id}", response_model=Employee,  tags=["Employees"])
-async def update_employee(
-    employee_id: int,
-    employee_update: EmployeeBase,
+@router.get("/employees/by-department/{department}", response_model=List[Employee], tags=["Employees"])
+async def get_employees_by_department(
+    department: str,
     session: Session = Depends(get_session)
 ):
-    resource_service = ResourcesService(session)
-    return await resource_service.update_employee(employee_id, employee_update)
+    config = registry.get_config("employees")
+    service = config.get_service(session)
+    return await service.get_employees_by_department(department)
 
-@router.delete("/employees/{employee_id}", tags=["Employees"])
-async def delete_employee(employee_id: int, session: Session = Depends(get_session)):
-    resource_service = ResourcesService(session)
-    return await resource_service.delete_employee(employee_id)
+@router.get("/employees/by-position/{position}", response_model=List[Employee], tags=["Employees"])
+async def get_employees_by_position(
+    position: str,
+    session: Session = Depends(get_session)
+):
+    config = registry.get_config("employees")
+    service = config.get_service(session)
+    return await service.get_employees_by_position(position)

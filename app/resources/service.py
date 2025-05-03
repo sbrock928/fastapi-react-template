@@ -1,172 +1,104 @@
-from typing import List, Optional, Dict, Any
-from fastapi import HTTPException
 from sqlmodel import Session
-from app.resources.dao import ResourcesDAO
+from typing import List, Optional
+from fastapi import HTTPException
 from app.resources.models import User, UserBase, Employee, EmployeeBase
+from app.resources.dao import UserDAO, EmployeeDAO
+from app.common.base_service import GenericService
 
-class ResourcesService:
+class UserService(GenericService[User, UserBase]):
+    """User-specific service with custom validations"""
+    
     def __init__(self, session: Session):
-        self.resources_dao = ResourcesDAO(session)
-        self.session = session
+        super().__init__(session, User, UserBase)
+        self.dao = UserDAO(session, User)
     
-    # User service methods
-    async def get_all_users(self) -> List[User]:
-        """Get all users"""
-        return await self.resources_dao.get_all_users()
+    async def before_create(self, user_data: UserBase) -> UserBase:
+        """Custom validation before user creation"""
+        # Check if username already exists
+        existing_user = await self.dao.get_by_username(user_data.username)
+        if existing_user:
+            raise HTTPException(status_code=409, detail="Username already taken")
+            
+        # Check if email already exists
+        existing_email = await self.dao.get_by_email(user_data.email)
+        if existing_email:
+            raise HTTPException(status_code=409, detail="Email already registered")
+            
+        return user_data
     
-    async def get_user_by_id(self, user_id: int) -> User:
-        """Get a user by ID, raising an exception if not found"""
-        user = await self.resources_dao.get_user_by_id(user_id)
+    async def before_update(self, user_id: int, user_data: UserBase) -> UserBase:
+        """Custom validation before user update"""
+        # Get fields that were provided for update
+        update_data = user_data.dict(exclude_unset=True)
+        
+        # If username was provided, check if it's unique
+        if "username" in update_data:
+            existing_user = await self.dao.get_by_username(update_data["username"])
+            if existing_user and existing_user.id != user_id:
+                raise HTTPException(status_code=409, detail="Username already taken")
+                
+        # If email was provided, check if it's unique
+        if "email" in update_data:
+            existing_email = await self.dao.get_by_email(update_data["email"])
+            if existing_email and existing_email.id != user_id:
+                raise HTTPException(status_code=409, detail="Email already registered")
+                
+        return user_data
+
+    # Custom methods that don't fit the CRUD pattern
+    async def get_by_username(self, username: str) -> User:
+        """Get a user by username with proper error handling"""
+        user = await self.dao.get_by_username(username)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         return user
+
+
+class EmployeeService(GenericService[Employee, EmployeeBase]):
+    """Employee-specific service with custom validations"""
     
-    async def check_user_exists(self, username: str, email: str, exclude_id: int = None) -> None:
-        """Check if a user with the given username or email already exists"""
-        # Check username
-        existing_username = await self.resources_dao.get_user_by_username(username)
-        if existing_username and (exclude_id is None or existing_username.id != exclude_id):
-            raise HTTPException(status_code=400, detail={"username": "Username already exists"})
-        
-        # Check email
-        existing_email = await self.resources_dao.get_user_by_email(email)
-        if existing_email and (exclude_id is None or existing_email.id != exclude_id):
-            raise HTTPException(status_code=400, detail={"email": "Email already exists"})
+    def __init__(self, session: Session):
+        super().__init__(session, Employee, EmployeeBase)
+        self.dao = EmployeeDAO(session, Employee)
     
-    async def create_user(self, user_data: UserBase) -> User:
-        """Create a new user after validating data"""
-        # Create a User instance from UserBase
-        user = User.from_orm(user_data) if hasattr(User, "from_orm") else User(**user_data.dict())
-        
-        # Check if username or email already exists
-        await self.check_user_exists(user.username, user.email)
-        
-        try:
-            return await self.resources_dao.create_user(user)
-        except Exception as e:
-            self.session.rollback()
-            if isinstance(e, Exception):
-                raise HTTPException(status_code=400, detail="Database constraint violated")
-            raise HTTPException(status_code=400, detail=str(e))
+    async def before_create(self, employee_data: EmployeeBase) -> EmployeeBase:
+        """Custom validation before employee creation"""
+        # Check if employee_id already exists
+        existing_emp = await self.dao.get_by_employee_id(employee_data.employee_id)
+        if existing_emp:
+            raise HTTPException(status_code=409, detail="Employee ID already exists")
+            
+        # Check if email already exists
+        existing_email = await self.dao.get_by_email(employee_data.email)
+        if existing_email:
+            raise HTTPException(status_code=409, detail="Email already registered")
+            
+        return employee_data
     
-    async def update_user(self, user_id: int, user_update: UserBase) -> User:
-        """Update a user after validating data"""
-        # Get the existing user
-        db_user = await self.get_user_by_id(user_id)
+    async def before_update(self, employee_id: int, employee_data: EmployeeBase) -> EmployeeBase:
+        """Custom validation before employee update"""
+        # Get fields that were provided for update
+        update_data = employee_data.dict(exclude_unset=True)
         
-        # Get only the fields that were provided in the request
-        try:
-            update_data = user_update.dict(exclude_unset=True)
-        except AttributeError:
-            # For newer versions of SQLModel/Pydantic
-            update_data = user_update.model_dump(exclude_unset=True)
+        # If employee_id was provided, check if it's unique
+        if "employee_id" in update_data:
+            existing_emp = await self.dao.get_by_employee_id(update_data["employee_id"])
+            if existing_emp and existing_emp.id != employee_id:
+                raise HTTPException(status_code=409, detail="Employee ID already exists")
+                
+        # If email was provided, check if it's unique
+        if "email" in update_data:
+            existing_email = await self.dao.get_by_email(update_data["email"])
+            if existing_email and existing_email.id != employee_id:
+                raise HTTPException(status_code=409, detail="Email already registered")
+                
+        return employee_data
         
-        # Remove id from update data to prevent changing it
-        if "id" in update_data:
-            del update_data["id"]
+    # Custom methods for employee-specific operations
+    async def get_employees_by_department(self, department: str) -> List[Employee]:
+        """Get all employees in a specific department"""
+        return await self.dao.get_by_department(department)
         
-        # Check uniqueness for username and email if they are being updated
-        if update_data.get('username') or update_data.get('email'):
-            await self.check_user_exists(
-                username=update_data.get('username', db_user.username),
-                email=update_data.get('email', db_user.email),
-                exclude_id=user_id
-            )
-        
-        # Update the user object with the provided fields
-        for key, value in update_data.items():
-            setattr(db_user, key, value)
-        
-        try:
-            return await self.resources_dao.update_user(db_user)
-        except Exception as e:
-            self.session.rollback()
-            if isinstance(e, Exception):
-                raise HTTPException(status_code=400, detail="Database constraint violated")
-            raise HTTPException(status_code=400, detail=str(e))
-    
-    async def delete_user(self, user_id: int) -> Dict[str, str]:
-        """Delete a user"""
-        user = await self.get_user_by_id(user_id)
-        
-        await self.resources_dao.delete_user(user)
-        return {"status": "success"}
-    
-    # Employee service methods
-    async def get_all_employees(self) -> List[Employee]:
-        """Get all employees"""
-        return await self.resources_dao.get_all_employees()
-    
-    async def get_employee_by_id(self, employee_id: int) -> Employee:
-        """Get an employee by ID, raising an exception if not found"""
-        employee = await self.resources_dao.get_employee_by_id(employee_id)
-        if not employee:
-            raise HTTPException(status_code=404, detail="Employee not found")
-        return employee
-    
-    async def check_employee_exists(self, employee_id: str, email: str, exclude_id: int = None) -> None:
-        """Check if an employee with the given employee_id or email already exists"""
-        # Check employee_id
-        existing_employee_id = await self.resources_dao.get_employee_by_employee_id(employee_id)
-        if existing_employee_id and (exclude_id is None or existing_employee_id.id != exclude_id):
-            raise HTTPException(status_code=400, detail={"employee_id": "Employee ID already exists"})
-        
-        # Check email
-        existing_email = await self.resources_dao.get_employee_by_email(email)
-        if existing_email and (exclude_id is None or existing_email.id != exclude_id):
-            raise HTTPException(status_code=400, detail={"email": "Email already exists"})
-    
-    async def create_employee(self, employee_data: EmployeeBase) -> Employee:
-        """Create a new employee after validating data"""
-        # Create an Employee instance from EmployeeBase
-        employee = Employee.from_orm(employee_data) if hasattr(Employee, "from_orm") else Employee(**employee_data.dict())
-        
-        # Check if employee_id or email already exists
-        await self.check_employee_exists(employee.employee_id, employee.email)
-        
-        try:
-            return await self.resources_dao.create_employee(employee)
-        except Exception as e:
-            self.session.rollback()
-            if isinstance(e, Exception):
-                raise HTTPException(status_code=400, detail="Database constraint violated")
-            raise HTTPException(status_code=400, detail=str(e))
-    
-    async def update_employee(self, employee_id: int, employee_update: EmployeeBase) -> Employee:
-        """Update an employee after validating data"""
-        # Get the existing employee
-        db_employee = await self.get_employee_by_id(employee_id)
-        
-        # Get only the fields that were provided in the request
-        try:
-            update_data = employee_update.dict(exclude_unset=True)
-        except AttributeError:
-            # For newer versions of SQLModel/Pydantic
-            update_data = employee_update.model_dump(exclude_unset=True)
-        
-        # Check uniqueness for employee_id and email if they are being updated
-        if update_data.get('employee_id') or update_data.get('email'):
-            await self.check_employee_exists(
-                employee_id=update_data.get('employee_id', db_employee.employee_id),
-                email=update_data.get('email', db_employee.email),
-                exclude_id=employee_id
-            )
-        
-        # Update the employee object with the provided fields
-        for key, value in update_data.items():
-            setattr(db_employee, key, value)
-        
-        try:
-            return await self.resources_dao.update_employee(db_employee)
-        except Exception as e:
-            self.session.rollback()
-            if isinstance(e, Exception):
-                raise HTTPException(status_code=400, detail="Database constraint violated")
-            raise HTTPException(status_code=400, detail=str(e))
-    
-    async def delete_employee(self, employee_id: int) -> Dict[str, str]:
-        """Delete an employee"""
-        employee = await self.get_employee_by_id(employee_id)
-        
-        await self.resources_dao.delete_employee(employee)
-        return {"status": "success"}
+    async def get_employees_by_position(self, position: str) -> List[Employee]:
+        """Get all employees with a specific position"""
+        return await self.dao.get_by_position(position)
