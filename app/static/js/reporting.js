@@ -4,7 +4,7 @@
 // Configuration for different report types
 const reportConfig = {
     users_by_creation: {
-        apiEndpoint: '/api/reports/users-by-creation',
+        apiEndpoint: '/reports/users-by-creation',
         title: 'Users by Creation Date',
         columns: [
             { field: 'date', header: 'Date', type: 'date' },
@@ -27,7 +27,7 @@ const reportConfig = {
         ]
     },
     employees_by_department: {
-        apiEndpoint: '/api/reports/employees-by-department',
+        apiEndpoint: '/reports/employees-by-department',
         title: 'Employees by Department',
         columns: [
             { field: 'department', header: 'Department', type: 'text' },
@@ -37,7 +37,7 @@ const reportConfig = {
         parameters: []
     },
     resource_counts: {
-        apiEndpoint: '/api/reports/resource-counts',
+        apiEndpoint: '/reports/resource-counts',
         title: 'Resource Counts Summary',
         columns: [
             { field: 'resource_type', header: 'Resource Type', type: 'text' },
@@ -526,7 +526,7 @@ function exportToXlsx(fileName, config) {
     };
     
     // Call API endpoint to generate XLSX
-    fetch('/api/reports/export-xlsx', {
+    fetch('/reports/export-xlsx', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

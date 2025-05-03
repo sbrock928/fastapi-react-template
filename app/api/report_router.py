@@ -1,33 +1,109 @@
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select, func, text
-from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
-import json
-from io import BytesIO
-import pandas as pd
-
+from typing import List, Dict, Any
 from app.database import get_session
-from app.models.base import User, Employee
+from app.models.base import User, Employee, Log
+from datetime import datetime, timedelta
+import pandas as pd
+from io import BytesIO
 
-router = APIRouter(prefix="/api/reports")
+router = APIRouter(prefix='/reports', tags=["Reports"])
 
-# Helper function to get date ranges
-def get_date_range(range_type: str):
-    today = datetime.now().date()
-    
-    if range_type == 'last_7_days':
-        start_date = today - timedelta(days=7)
-    elif range_type == 'last_30_days':
-        start_date = today - timedelta(days=30)
-    elif range_type == 'last_90_days':
-        start_date = today - timedelta(days=90)
-    elif range_type == 'year_to_date':
-        start_date = datetime(today.year, 1, 1).date()
-    else:  # all_time
-        start_date = datetime(2000, 1, 1).date()
-    
-    return start_date, today
+@router.get("/reports/statistics", response_model=Dict[str, Any])
+async def get_summary_statistics(session: Session = Depends(get_session)):
+    """Get summary statistics for the dashboard"""
+    try:
+        user_count = session.exec(select(func.count()).select_from(User)).one()
+        employee_count = session.exec(select(func.count()).select_from(Employee)).one()
+        log_count = session.exec(select(func.count()).select_from(Log)).one()
+        
+        return {
+            "user_count": user_count,
+            "employee_count": employee_count,
+            "log_count": log_count,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating summary statistics: {str(e)}")
+
+@router.get("/reports/recent-activities", response_model=Dict[str, Any])
+async def get_recent_activities(
+    days: int = Query(7, ge=1, le=30),
+    session: Session = Depends(get_session)
+):
+    """Get recent activities for the dashboard"""
+    if days <= 0:
+        raise HTTPException(status_code=400, detail="Days must be greater than 0")
+        
+    try:
+        cutoff_date = datetime.now() - timedelta(days=days)
+        query = select(Log).where(Log.timestamp >= cutoff_date).order_by(Log.timestamp.desc()).limit(10)
+        recent_logs = session.exec(query).all()
+        
+        # Format logs
+        formatted_logs = []
+        for log in recent_logs:
+            # Handle both older and newer pydantic versions
+            try:
+                log_dict = log.dict()
+            except AttributeError:
+                log_dict = log.model_dump()
+                
+            # Add status category
+            status_code = log_dict.get("status_code", 0)
+            if 200 <= status_code < 300:
+                log_dict["status_category"] = "Success"
+            elif 300 <= status_code < 400:
+                log_dict["status_category"] = "Redirection"
+            elif 400 <= status_code < 500:
+                log_dict["status_category"] = "Client Error"
+            elif 500 <= status_code < 600:
+                log_dict["status_category"] = "Server Error"
+            else:
+                log_dict["status_category"] = "Unknown"
+                
+            formatted_logs.append(log_dict)
+        
+        return {
+            "recent_logs": formatted_logs,
+            "days": days,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating recent activities: {str(e)}")
+
+@router.get("/reports/status-distribution", response_model=Dict[str, Any])
+async def get_status_distribution(session: Session = Depends(get_session)):
+    """Get distribution of logs by status code"""
+    try:
+        query = select(Log.status_code, func.count(Log.id).label("count")).group_by(Log.status_code)
+        results = session.exec(query).all()
+        
+        distribution = []
+        for status_code, count in results:
+            item = {"status_code": status_code, "count": count}
+            
+            # Add description
+            if 200 <= status_code < 300:
+                item["description"] = "Success"
+            elif 300 <= status_code < 400:
+                item["description"] = "Redirection"
+            elif 400 <= status_code < 500:
+                item["description"] = "Client Error"
+            elif 500 <= status_code < 600:
+                item["description"] = "Server Error"
+            else:
+                item["description"] = "Unknown"
+                
+            distribution.append(item)
+            
+        return {
+            "status_distribution": distribution,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating status distribution: {str(e)}")
 
 @router.post("/users-by-creation")
 async def get_users_by_creation(
@@ -36,7 +112,19 @@ async def get_users_by_creation(
 ):
     """Report showing user creation by date"""
     date_range = params.get('date_range', 'last_30_days')
-    start_date, end_date = get_date_range(date_range)
+    today = datetime.now().date()
+    
+    # Determine date range
+    if date_range == 'last_7_days':
+        start_date = today - timedelta(days=7)
+    elif date_range == 'last_30_days':
+        start_date = today - timedelta(days=30)
+    elif date_range == 'last_90_days':
+        start_date = today - timedelta(days=90)
+    elif date_range == 'year_to_date':
+        start_date = datetime(today.year, 1, 1).date()
+    else:  # all_time
+        start_date = datetime(2000, 1, 1).date()
     
     # This is a simplified approach since we don't have a creation_date field in the model
     # In a real application, you would use the actual creation date field
@@ -69,7 +157,6 @@ async def get_users_by_creation(
 @router.post("/employees-by-department")
 async def get_employees_by_department(session: Session = Depends(get_session)):
     """Report showing employee count by department"""
-    
     # Get employees grouped by department
     query = select(
         Employee.department,
@@ -103,7 +190,6 @@ async def get_employees_by_department(session: Session = Depends(get_session)):
 @router.post("/resource-counts")
 async def get_resource_counts(session: Session = Depends(get_session)):
     """Report showing count of different resource types"""
-    
     # Get counts for different resource types
     user_count = session.exec(select(func.count(User.id))).one()
     employee_count = session.exec(select(func.count(Employee.id))).one()
@@ -125,7 +211,6 @@ async def export_to_xlsx(
     try:
         report_type = export_data.get('reportType')
         data = export_data.get('data', [])
-        file_name = export_data.get('fileName', 'report')
         
         if not data:
             raise HTTPException(status_code=400, detail="No data to export")
@@ -162,9 +247,10 @@ async def export_to_xlsx(
                 ) + 2
                 worksheet.set_column(i, i, max_length)
         
-        # Set up the response
+        # Reset file pointer
         output.seek(0)
         
+        file_name = export_data.get('fileName', 'report')
         headers = {
             'Content-Disposition': f'attachment; filename="{file_name}.xlsx"'
         }

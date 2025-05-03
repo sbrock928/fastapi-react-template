@@ -3,3 +3,4 @@ venv
 .idea
 .vscode
 sql_app.db
+.DS_Store
