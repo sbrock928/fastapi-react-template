@@ -1,99 +1,22 @@
-import { useState } from 'react'
-import axios from 'axios'
-
-// Define report configuration type
-interface ReportColumn {
-  field: string;
-  header: string;
-  type: string;
-}
-
-interface ReportParameter {
-  field: string;
-  label: string;
-  type: string;
-  options?: {value: string, label: string}[];
-}
-
-interface ReportConfig {
-  apiEndpoint: string;
-  title: string;
-  columns: ReportColumn[];
-  parameters: ReportParameter[];
-}
-
-const reportConfig: Record<string, ReportConfig> = {
-  users_by_creation: {
-    apiEndpoint: '/reports/users-by-creation',
-    title: 'Users by Creation Date',
-    columns: [
-      { field: 'date', header: 'Date', type: 'date' },
-      { field: 'count', header: 'Number of Users', type: 'number' },
-      { field: 'cumulative', header: 'Cumulative Users', type: 'number' }
-    ],
-    parameters: [
-      { 
-        field: 'date_range', 
-        label: 'Date Range', 
-        type: 'select',
-        options: [
-          { value: 'last_7_days', label: 'Last 7 Days' },
-          { value: 'last_30_days', label: 'Last 30 Days' },
-          { value: 'last_90_days', label: 'Last 90 Days' },
-          { value: 'year_to_date', label: 'Year to Date' },
-          { value: 'all_time', label: 'All Time' }
-        ]
-      }
-    ]
-  },
-  employees_by_department: {
-    apiEndpoint: '/reports/employees-by-department',
-    title: 'Employees by Department',
-    columns: [
-      { field: 'department', header: 'Department', type: 'text' },
-      { field: 'count', header: 'Number of Employees', type: 'number' },
-      { field: 'percentage', header: 'Percentage', type: 'percentage' }
-    ],
-    parameters: []
-  },
-  resource_counts: {
-    apiEndpoint: '/reports/resource-counts',
-    title: 'Resource Counts Summary',
-    columns: [
-      { field: 'resource_type', header: 'Resource Type', type: 'text' },
-      { field: 'count', header: 'Count', type: 'number' }
-    ],
-    parameters: []
-  }
-};
-
-// Type for report data
-type ReportRow = Record<string, any>;
+import { useState } from 'react';
+import { reportsApi } from '@/services/api';
+import reportConfig from '@/config/reports';
+import { formatDate, formatNumber, formatPercentage } from '@/utils/formatters';
+import type { ReportRow } from '@/types';
 
 const Reporting = () => {
   // State variables
-  const [activeReport, setActiveReport] = useState<string>('')
-  const [reportData, setReportData] = useState<ReportRow[]>([])
-  const [filteredReportData, setFilteredReportData] = useState<ReportRow[]>([])
-  const [loading, setLoading] = useState<boolean>(false)
+  const [activeReport, setActiveReport] = useState<string>('');
+  const [reportData, setReportData] = useState<ReportRow[]>([]);
+  const [filteredReportData, setFilteredReportData] = useState<ReportRow[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
   const [parameters, setParameters] = useState<Record<string, string>>({
     date_range: 'last_30_days'
-  })
-  const [filterText, setFilterText] = useState<string>('')
-  const [currentPage, setCurrentPage] = useState<number>(1)
-  const [showResults, setShowResults] = useState<boolean>(false)
-  const itemsPerPage = 10
-  
-  // Format a date for display
-  const formatDate = (dateStr: string) => {
-    if (!dateStr) return '';
-    const date = new Date(dateStr);
-    return new Intl.DateTimeFormat('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    }).format(date);
-  }
+  });
+  const [filterText, setFilterText] = useState<string>('');
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [showResults, setShowResults] = useState<boolean>(false);
+  const itemsPerPage = 10;
   
   // Handle report type selection
   const handleReportChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -130,7 +53,7 @@ const Reporting = () => {
         }
       });
     }
-  }
+  };
   
   // Handle parameter changes
   const handleParameterChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
@@ -139,7 +62,7 @@ const Reporting = () => {
       ...prev,
       [name]: value
     }));
-  }
+  };
   
   // Run the selected report
   const runReport = async () => {
@@ -154,7 +77,7 @@ const Reporting = () => {
     try {
       const config = reportConfig[activeReport];
       
-      const response = await axios.post(`/api${config.apiEndpoint}`, parameters);
+      const response = await reportsApi.runReport(config.apiEndpoint, parameters);
       
       setReportData(response.data);
       setFilteredReportData(response.data);
@@ -167,7 +90,7 @@ const Reporting = () => {
     } finally {
       setLoading(false);
     }
-  }
+  };
   
   // Filter report data based on search input
   const filterReportData = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -191,14 +114,14 @@ const Reporting = () => {
     }
     
     setCurrentPage(1);
-  }
+  };
   
   // Clear filter
   const clearFilter = () => {
     setFilterText('');
     setFilteredReportData(reportData);
     setCurrentPage(1);
-  }
+  };
   
   // Export to CSV
   const exportToCsv = () => {
@@ -218,9 +141,11 @@ const Reporting = () => {
         let value = row[col.field];
         
         // Format based on column type
-        if (col.type === 'percentage') {
-          value = `${(value * 100).toFixed(2)}%`;
-        } else if (col.type === 'date' && value) {
+        if (col.type === 'number') {
+          value = formatNumber(value);
+        } else if (col.type === 'percentage') {
+          value = formatPercentage(value);
+        } else if (col.type === 'date') {
           value = formatDate(value);
         }
         
@@ -241,7 +166,7 @@ const Reporting = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }
+  };
   
   // Export to XLSX
   const exportToXlsx = async () => {
@@ -262,9 +187,7 @@ const Reporting = () => {
         fileName: fileName
       };
       
-      const response = await axios.post('/api/reports/export-xlsx', exportData, {
-        responseType: 'blob'
-      });
+      const response = await reportsApi.exportXlsx(exportData);
       
       // Create and download the file
       const blob = new Blob([response.data], { 
@@ -285,7 +208,7 @@ const Reporting = () => {
     } finally {
       setLoading(false);
     }
-  }
+  };
   
   // Render dynamic parameter inputs
   const renderReportParameters = () => {
@@ -330,7 +253,7 @@ const Reporting = () => {
         ))}
       </>
     );
-  }
+  };
   
   // Render the report table
   const renderReportTable = () => {
@@ -391,10 +314,10 @@ const Reporting = () => {
                   // Format cell based on type
                   if (column.type === 'number') {
                     className = 'report-num-cell';
-                    cellValue = cellValue?.toLocaleString() || '0';
+                    cellValue = formatNumber(cellValue);
                   } else if (column.type === 'percentage') {
                     className = 'report-num-cell';
-                    cellValue = (cellValue * 100).toFixed(2) + '%';
+                    cellValue = formatPercentage(cellValue);
                   } else if (column.type === 'date') {
                     className = 'report-date-cell';
                     cellValue = formatDate(cellValue);
@@ -438,11 +361,9 @@ const Reporting = () => {
               
               {/* Page numbers */}
               {Array.from({length: Math.min(5, totalPages)}, (_, i) => {
-                // Show pages around current page
                 let startPage = Math.max(1, validCurrentPage - 2);
                 let endPage = Math.min(totalPages, startPage + 4);
                 
-                // Adjust if we're showing fewer than 5 pages
                 if (endPage - startPage < 4) {
                   startPage = Math.max(1, endPage - 4);
                 }
@@ -498,7 +419,7 @@ const Reporting = () => {
         </div>
       </>
     );
-  }
+  };
   
   return (
     <div>
@@ -523,9 +444,11 @@ const Reporting = () => {
                 onChange={handleReportChange}
               >
                 <option value="" disabled>Choose a report...</option>
-                <option value="users_by_creation">Users by Creation Date</option>
-                <option value="employees_by_department">Employees by Department</option>
-                <option value="resource_counts">Resource Counts Summary</option>
+                {Object.entries(reportConfig).map(([key, config]) => (
+                  <option key={key} value={key}>
+                    {config.title}
+                  </option>
+                ))}
               </select>
             </div>
             

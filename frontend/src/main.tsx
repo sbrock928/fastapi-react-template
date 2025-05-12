@@ -4,7 +4,8 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App.tsx'
 import './index.css'
 import 'bootstrap/dist/css/bootstrap.min.css'
-import 'bootstrap-icons/font/bootstrap-icons.css'
+// Import our custom CSS file that handles bootstrap-icons
+import './styles/bootstrap-icons.css'
 
 // Import Bootstrap JS
 import * as bootstrap from 'bootstrap'

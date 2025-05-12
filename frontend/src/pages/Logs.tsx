@@ -1,117 +1,104 @@
-import { useState, useEffect } from 'react'
-import axios from 'axios'
-import LogDetailsModal from '../components/LogDetailsModal'
-import StatusDistributionChart from '../components/StatusDistributionChart'
-
-interface Log {
-  id: number;
-  timestamp: string;
-  method: string;
-  path: string;
-  status_code: number;
-  client_ip: string;
-  processing_time: number;
-  request_headers?: string;
-  request_body?: string;
-  response_body?: string;
-  status_category?: string;
-  username?: string;  // Changed from server_username
-  hostname?: string;  // Added hostname field
-}
-
-interface StatusDistribution {
-  status_code: number;
-  count: number;
-  description: string;
-}
+import { useState, useEffect } from 'react';
+import { logsApi } from '@/services/api';
+import LogDetailsModal from '@/components/LogDetailsModal';
+import StatusDistributionChart from '@/components/StatusDistributionChart';
+import type { Log, StatusDistribution } from '@/types';
 
 const Logs = () => {
   // State
-  const [allLogs, setAllLogs] = useState<Log[]>([])
-  const [filteredLogs, setFilteredLogs] = useState<Log[]>([])
-  const [timeRange, setTimeRange] = useState<string>('24')
-  const [filterText, setFilterText] = useState<string>('')
-  const [currentOffset, setCurrentOffset] = useState<number>(0)
-  const [isLoading, setIsLoading] = useState<boolean>(false)
-  const [selectedLog, setSelectedLog] = useState<Log | null>(null)
-  const [showModal, setShowModal] = useState<boolean>(false)
+  const [allLogs, setAllLogs] = useState<Log[]>([]);
+  const [filteredLogs, setFilteredLogs] = useState<Log[]>([]);
+  const [timeRange, setTimeRange] = useState<string>('24');
+  const [filterText, setFilterText] = useState<string>('');
+  const [currentOffset, setCurrentOffset] = useState<number>(0);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [selectedLog, setSelectedLog] = useState<Log | null>(null);
+  const [showModal, setShowModal] = useState<boolean>(false);
   
   // Add a refresh timer state
-  const [autoRefresh, setAutoRefresh] = useState<boolean>(false)
-  const [refreshInterval, setRefreshInterval] = useState<number>(30) // seconds
-  const [refreshTimerId, setRefreshTimerId] = useState<number | null>(null)
+  const [autoRefresh, setAutoRefresh] = useState<boolean>(false);
+  const [refreshInterval, setRefreshInterval] = useState<number>(30); // seconds
+  const [refreshTimerId, setRefreshTimerId] = useState<number | null>(null);
   
   // Add status distribution states
-  const [statusDistribution, setStatusDistribution] = useState<StatusDistribution[]>([])
-  const [selectedStatusCategory, setSelectedStatusCategory] = useState<string | null>(null)
-  const [loadingDistribution, setLoadingDistribution] = useState<boolean>(false)
+  const [statusDistribution, setStatusDistribution] = useState<StatusDistribution[]>([]);
+  const [selectedStatusCategory, setSelectedStatusCategory] = useState<string | null>(null);
+  const [loadingDistribution, setLoadingDistribution] = useState<boolean>(false);
   
-  const limit = 50
+  const limit = 50;
   // Add pagination state
-  const [currentPage, setCurrentPage] = useState<number>(1)
-  const [pagesCount, setPagesCount] = useState<number>(1)
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pagesCount, setPagesCount] = useState<number>(1);
   // Add state to track total log count
-  const [totalCount, setTotalCount] = useState<number>(0)
+  const [totalCount, setTotalCount] = useState<number>(0);
 
   // Load logs on component mount and when dependencies change
   useEffect(() => {
-    loadLogs()
-    loadStatusDistribution()
-  }, [timeRange, currentOffset])
+    loadLogs();
+    loadStatusDistribution();
+  }, [timeRange, currentOffset]);
   
   // Filter logs when filter text, selected status category, or all logs change
   useEffect(() => {
-    filterLogs()
-  }, [filterText, selectedStatusCategory, allLogs])
+    filterLogs();
+  }, [filterText, selectedStatusCategory, allLogs]);
   
   // Auto-refresh functionality
   useEffect(() => {
     if (autoRefresh) {
       const timerId = window.setInterval(() => {
-        console.log('Auto-refreshing logs...')
-        loadLogs()
-        loadStatusDistribution()
-      }, refreshInterval * 1000)
+        console.log('Auto-refreshing logs...');
+        loadLogs();
+        loadStatusDistribution();
+      }, refreshInterval * 1000);
       
-      setRefreshTimerId(timerId as unknown as number)
+      setRefreshTimerId(timerId as unknown as number);
       
       return () => {
         if (refreshTimerId) {
-          window.clearInterval(refreshTimerId)
+          window.clearInterval(refreshTimerId);
         }
-      }
+      };
     } else if (refreshTimerId) {
-      window.clearInterval(refreshTimerId)
-      setRefreshTimerId(null)
+      window.clearInterval(refreshTimerId);
+      setRefreshTimerId(null);
     }
-  }, [autoRefresh, refreshInterval])
+  }, [autoRefresh, refreshInterval]);
   
   const loadLogs = async (append = false) => {
-    setIsLoading(true)
+    setIsLoading(true);
     try {
       // Build the URL with status filter if present
-      let url = `/api/logs/?limit=${limit}&offset=${currentOffset}&hours=${timeRange}`
+      const params: Record<string, string | number> = {
+        limit,
+        offset: currentOffset,
+        hours: timeRange
+      };
       
       // Add status code filter based on selected category
       if (selectedStatusCategory) {
         if (selectedStatusCategory === "Success") {
-          url += "&status_min=200&status_max=299"
+          params.status_min = 200;
+          params.status_max = 299;
         } else if (selectedStatusCategory === "Redirection") {
-          url += "&status_min=300&status_max=399"
+          params.status_min = 300;
+          params.status_max = 399;
         } else if (selectedStatusCategory === "Client Error") {
-          url += "&status_min=400&status_max=499"
+          params.status_min = 400;
+          params.status_max = 499;
         } else if (selectedStatusCategory === "Server Error") {
-          url += "&status_min=500&status_max=599"
+          params.status_min = 500;
+          params.status_max = 599;
         }
       }
       
-      const response = await axios.get(url)
+      const response = await logsApi.getLogs(params);
       
       // Get total count from headers or response data
-      const totalCount = parseInt(response.headers['x-total-count'] || '0')
+      const totalCount = parseInt(response.headers['x-total-count'] || '0');
       if (totalCount > 0) {
-        setPagesCount(Math.ceil(totalCount / limit))
-        setTotalCount(totalCount) // Store the total count
+        setPagesCount(Math.ceil(totalCount / limit));
+        setTotalCount(totalCount); // Store the total count
       }
       
       // Assign status category to each log
@@ -125,47 +112,41 @@ const Logs = () => {
         else if (status >= 200) statusCategory = "Success";
         else statusCategory = "Unknown";
         
-        // Log each category assignment for debugging
-        if (status >= 400 && status < 500) {
-          console.log(`Assigning Client Error to status ${status}`, log.path);
-        }
-        
         return {...log, status_category: statusCategory};
       });
       
       if (!append) {
-        setAllLogs(logsWithCategory)
-        setFilteredLogs(logsWithCategory) // Set filtered logs directly
+        setAllLogs(logsWithCategory);
+        setFilteredLogs(logsWithCategory); // Set filtered logs directly
       } else {
-        const newLogs = [...allLogs, ...logsWithCategory]
-        setAllLogs(newLogs)
-        setFilteredLogs(newLogs) // Set filtered logs directly
+        const newLogs = [...allLogs, ...logsWithCategory];
+        setAllLogs(newLogs);
+        setFilteredLogs(newLogs); // Set filtered logs directly
       }
     } catch (error) {
-      console.error('Error loading logs:', error)
+      console.error('Error loading logs:', error);
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
   
   const loadStatusDistribution = async () => {
-    setLoadingDistribution(true)
+    setLoadingDistribution(true);
     try {
-      // Fix the API path to match the router prefix in the backend
-      const response = await axios.get(`/api/reports/status-distribution?hours=${timeRange}`)
+      const response = await logsApi.getStatusDistribution(timeRange);
       if (response.data && response.data.status_distribution) {
-        setStatusDistribution(response.data.status_distribution)
+        setStatusDistribution(response.data.status_distribution);
       } else {
-        console.error('Invalid response format:', response.data)
-        setStatusDistribution([])
+        console.error('Invalid response format:', response.data);
+        setStatusDistribution([]);
       }
     } catch (error) {
-      console.error('Error loading status distribution:', error)
-      setStatusDistribution([])
+      console.error('Error loading status distribution:', error);
+      setStatusDistribution([]);
     } finally {
-      setLoadingDistribution(false)
+      setLoadingDistribution(false);
     }
-  }
+  };
   
   // Modify filterLogs to include searching by username
   const filterLogs = () => {
@@ -183,68 +164,61 @@ const Logs = () => {
       );
       setFilteredLogs(filtered);
     }
-  }
+  };
 
   const handleRefresh = () => {
-    setCurrentOffset(0)
-    loadLogs()
-    loadStatusDistribution()
-  }
+    setCurrentOffset(0);
+    loadLogs();
+    loadStatusDistribution();
+  };
 
   const handleTimeRangeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setTimeRange(e.target.value)
-    setCurrentOffset(0)
-  }
+    setTimeRange(e.target.value);
+    setCurrentOffset(0);
+  };
 
   const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFilterText(e.target.value)
-  }
+    setFilterText(e.target.value);
+  };
 
-  // Modify handleStatusCategoryClick to reset offset and reload logs
   const handleStatusCategoryClick = (statusCategory: string) => {
-    setCurrentOffset(0) // Reset pagination
+    setCurrentOffset(0); // Reset pagination
     if (selectedStatusCategory === statusCategory) {
       // If clicking the already selected category, clear the filter
-      setSelectedStatusCategory(null)
+      setSelectedStatusCategory(null);
     } else {
-      setSelectedStatusCategory(statusCategory)
-      console.log(`Filtering by status category: ${statusCategory}`)
-      // Log current logs with this category to debug
-      const matchingLogs = allLogs.filter(log => log.status_category === statusCategory)
-      console.log(`Found ${matchingLogs.length} matching logs`)
-      console.log('Sample log:', matchingLogs.length > 0 ? matchingLogs[0] : 'No logs found')
+      setSelectedStatusCategory(statusCategory);
     }
-    // Logs will be reloaded due to the useEffect for selectedStatusCategory
-  }
+  };
 
   const showLogDetails = async (logId: number) => {
     try {
-      const response = await axios.get(`/api/logs/?limit=1&offset=0&log_id=${logId}`)
+      const response = await logsApi.getLogDetail(logId);
       if (response.data.length > 0) {
-        setSelectedLog(response.data[0])
-        setShowModal(true)
+        setSelectedLog(response.data[0]);
+        setShowModal(true);
       }
     } catch (error) {
-      console.error('Error fetching log details:', error)
+      console.error('Error fetching log details:', error);
     }
-  }
+  };
 
   const handleAutoRefreshChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setAutoRefresh(e.target.checked)
-  }
+    setAutoRefresh(e.target.checked);
+  };
 
   const handleRefreshIntervalChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setRefreshInterval(parseInt(e.target.value))
-  }
+    setRefreshInterval(parseInt(e.target.value));
+  };
 
   // Add useEffect to reload logs when selectedStatusCategory changes
   useEffect(() => {
     if (currentOffset === 0) {
-      loadLogs()
+      loadLogs();
     } else {
-      setCurrentOffset(0) // This will trigger loadLogs via the other useEffect
+      setCurrentOffset(0); // This will trigger loadLogs via the other useEffect
     }
-  }, [selectedStatusCategory])
+  }, [selectedStatusCategory]);
 
   const handlePageChange = (page: number) => {
     if (page < 1 || page > pagesCount || page === currentPage) {
@@ -253,14 +227,14 @@ const Logs = () => {
     setCurrentPage(page);
     setCurrentOffset((page - 1) * limit);
     // Logs will be loaded by the useEffect that watches currentOffset
-  }
+  };
 
   const handleFirstPage = () => {
     if (currentPage !== 1) {
       setCurrentPage(1);
       setCurrentOffset(0);
     }
-  }
+  };
 
   const handlePreviousPage = () => {
     if (currentPage > 1) {
@@ -268,7 +242,7 @@ const Logs = () => {
       setCurrentPage(newPage);
       setCurrentOffset((newPage - 1) * limit);
     }
-  }
+  };
 
   const handleNextPage = () => {
     if (currentPage < pagesCount) {
@@ -276,14 +250,14 @@ const Logs = () => {
       setCurrentPage(newPage);
       setCurrentOffset((newPage - 1) * limit);
     }
-  }
+  };
 
   const handleLastPage = () => {
     if (currentPage !== pagesCount) {
       setCurrentPage(pagesCount);
       setCurrentOffset((pagesCount - 1) * limit);
     }
-  }
+  };
 
   // Generate pagination items
   const renderPaginationItems = () => {
@@ -326,7 +300,7 @@ const Logs = () => {
       );
     }
     return items;
-  }
+  };
 
   // Update useEffect to also update current page when currentOffset changes
   useEffect(() => {
@@ -574,7 +548,7 @@ const Logs = () => {
         />
       )}
     </div>
-  )
-}
+  );
+};
 
-export default Logs
+export default Logs;

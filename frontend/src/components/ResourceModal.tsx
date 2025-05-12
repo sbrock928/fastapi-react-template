@@ -1,27 +1,31 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
+import useModal from '@/hooks/useModal';
 
 interface ResourceModalProps {
   resourceType: string;
   resourceConfig: any;
+  editingResource?: any | null;
+  show: boolean;
   onClose: () => void;
   onSave: () => void;
-  editingResource?: any | null;
+
 }
 
 const ResourceModal = ({ 
   resourceConfig, 
   onClose, 
   onSave,
-  editingResource = null 
+  editingResource = null,
+  show 
 }: ResourceModalProps) => {
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [validationSummary, setValidationSummary] = useState<string>('Please fix the validation errors below.');
   const [showValidationSummary, setShowValidationSummary] = useState<boolean>(false);
   
-  const modalRef = useRef<HTMLDivElement>(null);
-  const bootstrapModalRef = useRef<any>(null);
+  // Use the useModal hook to handle the Bootstrap modal
+  const modalRef = useModal(show, onClose);
   
   // Initialize form data when the component mounts or editingResource changes
   useEffect(() => {
@@ -64,28 +68,7 @@ const ResourceModal = ({
     }
   }, [editingResource, resourceConfig]);
 
-  // Initialize Bootstrap modal
-  useEffect(() => {
-    if (modalRef.current) {
-      // Create and show a new Bootstrap modal
-      // @ts-ignore - Bootstrap is loaded globally
-      bootstrapModalRef.current = new window.bootstrap.Modal(modalRef.current);
-      bootstrapModalRef.current.show();
-      
-      // Add event listener for when modal is hidden
-      modalRef.current.addEventListener('hidden.bs.modal', onClose);
-    }
-    
-    return () => {
-      if (bootstrapModalRef.current) {
-        bootstrapModalRef.current.dispose();
-      }
-      if (modalRef.current) {
-        modalRef.current.removeEventListener('hidden.bs.modal', onClose);
-      }
-    };
-  }, [onClose]);
-
+  // Handle form input changes
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target as HTMLInputElement;
     
@@ -112,6 +95,7 @@ const ResourceModal = ({
     }
   };
 
+  // Validate form data
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {};
     let isValid = true;
@@ -151,6 +135,7 @@ const ResourceModal = ({
     return isValid;
   };
 
+  // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -160,7 +145,6 @@ const ResourceModal = ({
       const payload = {...formData};
       
       // Remove the ID from the payload for both new and edit requests
-      // The ID should be in the URL for edit requests, not in the payload
       delete payload.id;
       
       // Format dates for API
@@ -174,18 +158,38 @@ const ResourceModal = ({
       
       if (editingResource) {
         // Update existing resource
-        await axios.patch(`/api${resourceConfig.apiEndpoint}/${editingResource.id}`, payload);
+        const response = await axios.patch(`/api${resourceConfig.apiEndpoint}/${editingResource.id}`, payload);
+        // Only notify parent if successful (status 200 or 201)
+        if (response.status === 200 || response.status === 201) {
+          // Add a success message to the console
+          console.log(`Successfully updated ${resourceConfig.displayName}`);
+          // Clear the form data
+          setFormData({});
+          // Reset any form errors
+          setFormErrors({});
+          setShowValidationSummary(false);
+          
+          // Let parent component handle modal closing completely
+          onSave();
+        }
       } else {
         // Create new resource
-        await axios.post(`/api${resourceConfig.apiEndpoint}`, payload);
+        const response = await axios.post(`/api${resourceConfig.apiEndpoint}`, payload);
+        // Only notify parent if successful (status 200 or 201)
+        if (response.status === 200 || response.status === 201) {
+          // Add a success message to the console
+          console.log(`Successfully created new ${resourceConfig.displayName}`);
+          // Clear the form data
+          setFormData({});
+          // Reset any form errors
+          setFormErrors({});
+          setShowValidationSummary(false);
+          
+          // IMPORTANT: Only call onSave() - do NOT call onClose() here
+          // Let the parent component handle the state changes
+          onSave();
+        }
       }
-      
-      // Close modal and notify parent of the specific resource type that was changed
-      if (bootstrapModalRef.current) {
-        bootstrapModalRef.current.hide();
-      }
-      // Pass the resource type that was modified so parent can selectively refresh
-      onSave();
       
     } catch (error: any) {
       console.error('Error saving resource:', error);
@@ -322,12 +326,7 @@ const ResourceModal = ({
             <h5 className="modal-title" id="resourceModalLabel">
               {editingResource ? `Edit ${resourceConfig.displayName}` : `Add ${resourceConfig.displayName}`}
             </h5>
-            <button 
-              type="button" 
-              className="btn-close" 
-              data-bs-dismiss="modal" 
-              aria-label="Close"
-            ></button>
+            <button type="button" className="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
           <div className="modal-body">
             {/* Validation Summary */}

@@ -1,22 +1,6 @@
-import { useEffect, useRef } from 'react'
-
-// Remove the global declaration since it's now in main.tsx
-
-interface Log {
-  id: number;
-  timestamp: string;
-  method: string;
-  path: string;
-  status_code: number;
-  client_ip: string;
-  processing_time: number;
-  request_headers?: string;
-  request_body?: string;
-  response_body?: string;
-  status_category?: string; // Add this property to match the interface in Logs.tsx
-  username?: string;  // Changed from server_username
-  hostname?: string;  // Added hostname field
-}
+import useModal from '@/hooks/useModal';
+import { formatJsonString } from '@/utils/formatters';
+import type { Log } from '@/types';
 
 interface LogDetailsModalProps {
   log: Log;
@@ -25,44 +9,7 @@ interface LogDetailsModalProps {
 }
 
 const LogDetailsModal = ({ log, show, onHide }: LogDetailsModalProps) => {
-  const modalRef = useRef<HTMLDivElement>(null)
-  const bootstrapModalRef = useRef<any>(null)
-  
-  useEffect(() => {
-    // Bootstrap is loaded globally via script tag
-    if (modalRef.current && window.bootstrap) {
-      bootstrapModalRef.current = new window.bootstrap.Modal(modalRef.current)
-      
-      if (show) {
-        bootstrapModalRef.current.show()
-      } else {
-        bootstrapModalRef.current.hide()
-      }
-      
-      // Event listener for when modal is hidden
-      modalRef.current.addEventListener('hidden.bs.modal', onHide)
-    }
-    
-    return () => {
-      if (bootstrapModalRef.current) {
-        bootstrapModalRef.current.dispose()
-      }
-      if (modalRef.current) {
-        modalRef.current.removeEventListener('hidden.bs.modal', onHide)
-      }
-    }
-  }, [show, onHide])
-  
-  const formatJsonDisplay = (jsonString: string | undefined): string => {
-    if (!jsonString) return ''
-    
-    try {
-      const parsed = JSON.parse(jsonString)
-      return JSON.stringify(parsed, null, 2)
-    } catch {
-      return jsonString
-    }
-  }
+  const modalRef = useModal(show, onHide);
   
   return (
     <div className="modal fade" id="logDetailsModal" tabIndex={-1} ref={modalRef}>
@@ -147,13 +94,13 @@ const LogDetailsModal = ({ log, show, onHide }: LogDetailsModalProps) => {
             
             <div className="tab-content p-3 border border-top-0 rounded-bottom" id="logDetailsTabContent">
               <div className="tab-pane fade show active" id="headers-tab-pane" role="tabpanel" aria-labelledby="headers-tab" tabIndex={0}>
-                <pre className="bg-light p-3 rounded" id="detailHeaders">{formatJsonDisplay(log.request_headers)}</pre>
+                <pre className="bg-light p-3 rounded" id="detailHeaders">{formatJsonString(log.request_headers)}</pre>
               </div>
               <div className="tab-pane fade" id="body-tab-pane" role="tabpanel" aria-labelledby="body-tab" tabIndex={0}>
-                <pre className="bg-light p-3 rounded" id="detailBody">{formatJsonDisplay(log.request_body)}</pre>
+                <pre className="bg-light p-3 rounded" id="detailBody">{formatJsonString(log.request_body)}</pre>
               </div>
               <div className="tab-pane fade" id="response-tab-pane" role="tabpanel" aria-labelledby="response-tab" tabIndex={0}>
-                <pre className="bg-light p-3 rounded" id="detailResponseBody">{formatJsonDisplay(log.response_body)}</pre>
+                <pre className="bg-light p-3 rounded" id="detailResponseBody">{formatJsonString(log.response_body)}</pre>
               </div>
             </div>
           </div>
@@ -163,7 +110,7 @@ const LogDetailsModal = ({ log, show, onHide }: LogDetailsModalProps) => {
         </div>
       </div>
     </div>
-  )
-}
+  );
+};
 
-export default LogDetailsModal
+export default LogDetailsModal;
