@@ -27,6 +27,7 @@ def create_app():
     from app.resources.router import router as resource_router
     from app.reporting.router import router as report_router
     from app.logging.router import router as log_router
+    from app.user_guide.router import router as user_guide_router
     from app.database import get_session
     from app.resources.models import User, Employee, Subscriber
     from app.logging.models import Log
@@ -35,6 +36,7 @@ def create_app():
     app.include_router(resource_router, prefix='/api')  # Remove the prefix as it's added in the frontend
     app.include_router(report_router, prefix='/api')    # Remove the prefix as it's added in the frontend
     app.include_router(log_router)
+    app.include_router(user_guide_router)
 
     # Determine if we're in development or production mode
     # In development, we still want to use the Jinja2 templates

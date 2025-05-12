@@ -4,6 +4,12 @@
   width: 250px;
   margin-left: -250px;
   transition: margin 0.25s ease-out;
+  min-width: 250px;
+  max-width: 250px;
+  transition: margin-left 0.3s;
+  height: 100vh;
+  position: sticky;
+  top: 0;
 }
 
 #sidebar-wrapper .sidebar-heading {
@@ -18,10 +24,13 @@
 #page-content-wrapper {
   min-width: 100vw;
   transition: margin-left 0.25s ease-out;
+  flex: 1;
+  width: 100%;
+  min-width: 0;
 }
 
 #wrapper:not(.toggled) #page-content-wrapper {
-  margin-left: 250px;
+  margin-left: 0px;
 }
 
 /* Nav styling */
@@ -56,10 +65,14 @@
 @media (max-width: 768px) {
   #sidebar-wrapper {
     margin-left: -250px;
+    position: fixed;
+    z-index: 1050;
+    left: 0;
   }
   
   #wrapper.toggled #sidebar-wrapper {
     margin-left: 0;
+    left: -250px;
   }
   
   #page-content-wrapper {
@@ -71,4 +84,32 @@
   #wrapper.toggled #page-content-wrapper {
     margin-left: 250px;
   }
+}
+
+/* Add these styles to ensure proper layout behavior */
+#wrapper {
+  display: flex;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+.toggled #sidebar-wrapper {
+  margin-left: -250px;
+}
+
+.container-fluid {
+  width: 100%;
+  max-width: 100%;
+}
+
+/* Fix for iframe */
+.ratio iframe {
+  width: 100% !important;
+  height: 100% !important;
+  border: 0;
+}
+
+/* Ensure all cards stretch to available width */
+.card {
+  width: 100%;
 }

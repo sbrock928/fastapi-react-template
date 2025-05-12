@@ -7,9 +7,10 @@ import Resources from './pages/Resources'
 import Reporting from './pages/Reporting'
 import Logs from './pages/Logs'
 import Documentation from './pages/Documentation'
+import './index.css'  // Import the new layout styles
 
 function App() {
-  const [sidebarToggled, setSidebarToggled] = useState(false)
+  const [sidebarToggled, setSidebarToggled] = useState(true)
   const location = useLocation()
 
   // Toggle sidebar
