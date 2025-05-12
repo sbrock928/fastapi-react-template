@@ -74,6 +74,12 @@ class SubscriberBase(SQLModel):
         if not v:
             raise ValueError("Email is required")
         return v
+        
+    @validator("last_billing_date", pre=True)
+    def validate_last_billing_date(cls, v):
+        if v == "":
+            return None
+        return v
 
 
 # Database table model

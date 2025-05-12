@@ -1,0 +1,637 @@
+import { useState } from 'react'
+import axios from 'axios'
+
+// Define report configuration type
+interface ReportColumn {
+  field: string;
+  header: string;
+  type: string;
+}
+
+interface ReportParameter {
+  field: string;
+  label: string;
+  type: string;
+  options?: {value: string, label: string}[];
+}
+
+interface ReportConfig {
+  apiEndpoint: string;
+  title: string;
+  columns: ReportColumn[];
+  parameters: ReportParameter[];
+}
+
+const reportConfig: Record<string, ReportConfig> = {
+  users_by_creation: {
+    apiEndpoint: '/reports/users-by-creation',
+    title: 'Users by Creation Date',
+    columns: [
+      { field: 'date', header: 'Date', type: 'date' },
+      { field: 'count', header: 'Number of Users', type: 'number' },
+      { field: 'cumulative', header: 'Cumulative Users', type: 'number' }
+    ],
+    parameters: [
+      { 
+        field: 'date_range', 
+        label: 'Date Range', 
+        type: 'select',
+        options: [
+          { value: 'last_7_days', label: 'Last 7 Days' },
+          { value: 'last_30_days', label: 'Last 30 Days' },
+          { value: 'last_90_days', label: 'Last 90 Days' },
+          { value: 'year_to_date', label: 'Year to Date' },
+          { value: 'all_time', label: 'All Time' }
+        ]
+      }
+    ]
+  },
+  employees_by_department: {
+    apiEndpoint: '/reports/employees-by-department',
+    title: 'Employees by Department',
+    columns: [
+      { field: 'department', header: 'Department', type: 'text' },
+      { field: 'count', header: 'Number of Employees', type: 'number' },
+      { field: 'percentage', header: 'Percentage', type: 'percentage' }
+    ],
+    parameters: []
+  },
+  resource_counts: {
+    apiEndpoint: '/reports/resource-counts',
+    title: 'Resource Counts Summary',
+    columns: [
+      { field: 'resource_type', header: 'Resource Type', type: 'text' },
+      { field: 'count', header: 'Count', type: 'number' }
+    ],
+    parameters: []
+  }
+};
+
+// Type for report data
+type ReportRow = Record<string, any>;
+
+const Reporting = () => {
+  // State variables
+  const [activeReport, setActiveReport] = useState<string>('')
+  const [reportData, setReportData] = useState<ReportRow[]>([])
+  const [filteredReportData, setFilteredReportData] = useState<ReportRow[]>([])
+  const [loading, setLoading] = useState<boolean>(false)
+  const [parameters, setParameters] = useState<Record<string, string>>({
+    date_range: 'last_30_days'
+  })
+  const [filterText, setFilterText] = useState<string>('')
+  const [currentPage, setCurrentPage] = useState<number>(1)
+  const [showResults, setShowResults] = useState<boolean>(false)
+  const itemsPerPage = 10
+  
+  // Format a date for display
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    return new Intl.DateTimeFormat('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    }).format(date);
+  }
+  
+  // Handle report type selection
+  const handleReportChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const reportType = e.target.value;
+    setActiveReport(reportType);
+    setShowResults(false);
+    
+    // Reset parameters for the new report type
+    if (reportType) {
+      const config = reportConfig[reportType];
+      const newParams: Record<string, string> = {};
+      
+      config.parameters.forEach(param => {
+        if (param.field === 'date_range') {
+          newParams[param.field] = 'last_30_days';
+        } else if (param.options && param.options.length > 0) {
+          newParams[param.field] = param.options[0].value;
+        } else {
+          newParams[param.field] = '';
+        }
+      });
+      
+      setParameters(newParams);
+      
+      // Also update the form elements if they exist
+      config.parameters.forEach(param => {
+        const element = document.getElementById(param.field) as HTMLSelectElement | HTMLInputElement;
+        if (element) {
+          if (param.type === 'select') {
+            (element as HTMLSelectElement).value = newParams[param.field] || '';
+          } else {
+            (element as HTMLInputElement).value = newParams[param.field] || '';
+          }
+        }
+      });
+    }
+  }
+  
+  // Handle parameter changes
+  const handleParameterChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setParameters(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  }
+  
+  // Run the selected report
+  const runReport = async () => {
+    if (!activeReport) {
+      alert('Please select a report to run');
+      return;
+    }
+    
+    setLoading(true);
+    setCurrentPage(1);
+    
+    try {
+      const config = reportConfig[activeReport];
+      
+      const response = await axios.post(`/api${config.apiEndpoint}`, parameters);
+      
+      setReportData(response.data);
+      setFilteredReportData(response.data);
+      setShowResults(true);
+      setFilterText('');
+      
+    } catch (error) {
+      console.error('Error running report:', error);
+      alert('Error running report. See console for details.');
+    } finally {
+      setLoading(false);
+    }
+  }
+  
+  // Filter report data based on search input
+  const filterReportData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const filterValue = e.target.value.toLowerCase();
+    setFilterText(filterValue);
+    
+    if (!filterValue.trim()) {
+      setFilteredReportData(reportData);
+    } else {
+      const config = reportConfig[activeReport];
+      const filtered = reportData.filter(item => {
+        return config.columns.some(column => {
+          if (item[column.field] !== undefined && item[column.field] !== null) {
+            return item[column.field].toString().toLowerCase().includes(filterValue);
+          }
+          return false;
+        });
+      });
+      
+      setFilteredReportData(filtered);
+    }
+    
+    setCurrentPage(1);
+  }
+  
+  // Clear filter
+  const clearFilter = () => {
+    setFilterText('');
+    setFilteredReportData(reportData);
+    setCurrentPage(1);
+  }
+  
+  // Export to CSV
+  const exportToCsv = () => {
+    if (reportData.length === 0) {
+      alert('No data to export');
+      return;
+    }
+    
+    const config = reportConfig[activeReport];
+    
+    // Create CSV header
+    let csvContent = config.columns.map(col => `"${col.header}"`).join(',') + '\n';
+    
+    // Add data rows
+    reportData.forEach(row => {
+      const csvRow = config.columns.map(col => {
+        let value = row[col.field];
+        
+        // Format based on column type
+        if (col.type === 'percentage') {
+          value = `${(value * 100).toFixed(2)}%`;
+        } else if (col.type === 'date' && value) {
+          value = formatDate(value);
+        }
+        
+        // Escape quotes and wrap in quotes
+        return `"${String(value).replace(/"/g, '""')}"`;
+      }).join(',');
+      
+      csvContent += csvRow + '\n';
+    });
+    
+    // Create and download the file
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${config.title.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+  
+  // Export to XLSX
+  const exportToXlsx = async () => {
+    if (reportData.length === 0) {
+      alert('No data to export');
+      return;
+    }
+    
+    setLoading(true);
+    
+    try {
+      const config = reportConfig[activeReport];
+      const fileName = `${config.title.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}`;
+      
+      const exportData = {
+        reportType: activeReport,
+        data: reportData,
+        fileName: fileName
+      };
+      
+      const response = await axios.post('/api/reports/export-xlsx', exportData, {
+        responseType: 'blob'
+      });
+      
+      // Create and download the file
+      const blob = new Blob([response.data], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `${fileName}.xlsx`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+    } catch (error) {
+      console.error('Error exporting to XLSX:', error);
+      alert('Error exporting to XLSX. See console for details.');
+    } finally {
+      setLoading(false);
+    }
+  }
+  
+  // Render dynamic parameter inputs
+  const renderReportParameters = () => {
+    if (!activeReport) return null;
+    
+    const config = reportConfig[activeReport];
+    
+    if (config.parameters.length === 0) {
+      return <div className="col-md-6"><p className="form-text text-muted">This report has no parameters.</p></div>;
+    }
+    
+    return (
+      <>
+        {config.parameters.map(param => (
+          <div className="col-md-6" key={param.field}>
+            <label htmlFor={param.field} className="form-label">{param.label}</label>
+            {param.type === 'select' ? (
+              <select 
+                id={param.field}
+                name={param.field}
+                className="form-select"
+                value={parameters[param.field] || ''}
+                onChange={handleParameterChange}
+              >
+                {param.options?.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input 
+                type={param.type}
+                id={param.field}
+                name={param.field}
+                className="form-control"
+                value={parameters[param.field] || ''}
+                onChange={handleParameterChange}
+              />
+            )}
+          </div>
+        ))}
+      </>
+    );
+  }
+  
+  // Render the report table
+  const renderReportTable = () => {
+    if (!showResults || !activeReport) return null;
+    
+    const config = reportConfig[activeReport];
+    const data = filteredReportData;
+    
+    if (data.length === 0) {
+      return (
+        <table className="table table-striped" id="reportTable">
+          <thead>
+            <tr>
+              {config.columns.map(column => (
+                <th key={column.field}>{column.header}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td colSpan={config.columns.length} className="text-center py-4">
+                No matching data found. Try changing your filter or report parameters.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      );
+    }
+    
+    // Calculate pagination
+    const totalPages = Math.ceil(data.length / itemsPerPage);
+    const validCurrentPage = Math.max(1, Math.min(currentPage, totalPages));
+    
+    // Calculate start and end indices for current page
+    const startIndex = (validCurrentPage - 1) * itemsPerPage;
+    const endIndex = Math.min(startIndex + itemsPerPage, data.length);
+    
+    // Get current page data
+    const currentPageData = data.slice(startIndex, endIndex);
+    
+    return (
+      <>
+        <table className="table table-striped" id="reportTable">
+          <thead>
+            <tr>
+              {config.columns.map(column => (
+                <th key={column.field}>{column.header}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {currentPageData.map((row, idx) => (
+              <tr key={idx}>
+                {config.columns.map(column => {
+                  let cellValue = row[column.field];
+                  let className = '';
+                  
+                  // Format cell based on type
+                  if (column.type === 'number') {
+                    className = 'report-num-cell';
+                    cellValue = cellValue?.toLocaleString() || '0';
+                  } else if (column.type === 'percentage') {
+                    className = 'report-num-cell';
+                    cellValue = (cellValue * 100).toFixed(2) + '%';
+                  } else if (column.type === 'date') {
+                    className = 'report-date-cell';
+                    cellValue = formatDate(cellValue);
+                  }
+                  
+                  return (
+                    <td key={column.field} className={className}>
+                      {cellValue}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        
+        {/* Pagination controls */}
+        {totalPages > 1 && (
+          <nav aria-label="Report pagination" id="reportPagination" className="mt-3 pagination-actions-aligned">
+            <ul className="pagination">
+              <li className={`page-item ${validCurrentPage === 1 ? 'disabled' : ''}`}>
+                <button 
+                  className="page-link" 
+                  onClick={() => setCurrentPage(1)}
+                  disabled={validCurrentPage === 1}
+                  title="First Page"
+                >
+                  <i className="bi bi-chevron-double-left"></i>
+                </button>
+              </li>
+              <li className={`page-item ${validCurrentPage === 1 ? 'disabled' : ''}`}>
+                <button 
+                  className="page-link"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={validCurrentPage === 1}
+                  title="Previous Page"
+                >
+                  &laquo;
+                </button>
+              </li>
+              
+              {/* Page numbers */}
+              {Array.from({length: Math.min(5, totalPages)}, (_, i) => {
+                // Show pages around current page
+                let startPage = Math.max(1, validCurrentPage - 2);
+                let endPage = Math.min(totalPages, startPage + 4);
+                
+                // Adjust if we're showing fewer than 5 pages
+                if (endPage - startPage < 4) {
+                  startPage = Math.max(1, endPage - 4);
+                }
+                
+                const pageNum = i + startPage;
+                
+                if (pageNum <= endPage) {
+                  return (
+                    <li 
+                      key={pageNum} 
+                      className={`page-item ${pageNum === validCurrentPage ? 'active' : ''}`}
+                    >
+                      <button 
+                        className="page-link"
+                        onClick={() => setCurrentPage(pageNum)}
+                      >
+                        {pageNum}
+                      </button>
+                    </li>
+                  );
+                }
+                return null;
+              })}
+              
+              <li className={`page-item ${validCurrentPage === totalPages ? 'disabled' : ''}`}>
+                <button 
+                  className="page-link"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={validCurrentPage === totalPages}
+                  title="Next Page"
+                >
+                  &raquo;
+                </button>
+              </li>
+              <li className={`page-item ${validCurrentPage === totalPages ? 'disabled' : ''}`}>
+                <button 
+                  className="page-link"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={validCurrentPage === totalPages}
+                  title="Last Page"
+                >
+                  <i className="bi bi-chevron-double-right"></i>
+                </button>
+              </li>
+            </ul>
+          </nav>
+        )}
+        
+        <div className="mt-2 pagination-info">
+          <small>
+            Showing {data.length === 0 ? 0 : startIndex + 1} to {endIndex} of {data.length} rows
+          </small>
+        </div>
+      </>
+    );
+  }
+  
+  return (
+    <div>
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <h1>Reporting Dashboard</h1>
+      </div>
+
+      {/* Report Parameters Card */}
+      <div className="card mb-4">
+        <div className="card-header bg-primary text-white">
+          <h5 className="card-title mb-0">Report Parameters</h5>
+        </div>
+        <div className="card-body">
+          <form id="reportForm" className="row g-3">
+            <div className="col-md-6">
+              <label htmlFor="reportSelect" className="form-label">Select Report</label>
+              <select 
+                id="reportSelect" 
+                className="form-select" 
+                required
+                value={activeReport}
+                onChange={handleReportChange}
+              >
+                <option value="" disabled>Choose a report...</option>
+                <option value="users_by_creation">Users by Creation Date</option>
+                <option value="employees_by_department">Employees by Department</option>
+                <option value="resource_counts">Resource Counts Summary</option>
+              </select>
+            </div>
+            
+            {/* Dynamic parameters based on report type */}
+            {renderReportParameters()}
+            
+            <div className="col-12 mt-3">
+              <button 
+                type="button" 
+                id="runReportBtn" 
+                className="btn btn-primary"
+                onClick={runReport}
+                disabled={loading || !activeReport}
+              >
+                {loading ? (
+                  <>
+                    <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                    <span className="ms-2">Running...</span>
+                  </>
+                ) : (
+                  <>
+                    <i className="bi bi-play-fill"></i> Run Report
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      {/* Report Results Card */}
+      {showResults && (
+        <div id="reportResultsCard" className="card">
+          <div className="card-header bg-success text-white d-flex justify-content-between align-items-center">
+            <h5 className="card-title mb-0" id="reportTitle">
+              {activeReport ? reportConfig[activeReport].title : 'Report Results'}
+            </h5>
+            <div className="btn-group">
+              <button 
+                type="button" 
+                id="exportCsvBtn" 
+                className="btn btn-sm btn-light"
+                onClick={exportToCsv}
+                disabled={reportData.length === 0}
+              >
+                <i className="bi bi-file-earmark-text"></i> Export CSV
+              </button>
+              <button 
+                type="button" 
+                id="exportXlsxBtn" 
+                className="btn btn-sm btn-light ms-2"
+                onClick={exportToXlsx}
+                disabled={reportData.length === 0 || loading}
+              >
+                <i className="bi bi-file-earmark-excel"></i> Export XLSX
+              </button>
+            </div>
+          </div>
+          <div className="card-body">
+            {/* Search bar for filtering report results */}
+            <div className="mb-3">
+              <div className="input-group">
+                <span className="input-group-text"><i className="bi bi-search"></i></span>
+                <input 
+                  type="text" 
+                  id="reportFilterInput" 
+                  className="form-control" 
+                  placeholder="Filter results..."
+                  value={filterText}
+                  onChange={filterReportData}
+                />
+                {filterText && (
+                  <button 
+                    className="btn btn-outline-secondary" 
+                    type="button"
+                    onClick={clearFilter}
+                    title="Clear filter"
+                  >
+                    <i className="bi bi-x"></i>
+                  </button>
+                )}
+              </div>
+            </div>
+            
+            {/* Report Table */}
+            <div className="table-responsive">
+              {renderReportTable()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Loading overlay */}
+      {loading && (
+        <div className="position-fixed top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center" 
+            style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 9999 }}>
+          <div className="bg-white p-4 rounded text-center">
+            <div className="spinner-border text-primary" role="status">
+              <span className="visually-hidden">Loading...</span>
+            </div>
+            <p className="mt-2 mb-0">Running report...</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default Reporting;

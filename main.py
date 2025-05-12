@@ -15,6 +15,13 @@ else:
     # If running as a script
     application_path = os.path.dirname(os.path.abspath(__file__))
 
+# Check if running in development mode
+is_dev_mode = os.getenv("VIBEZ_DEV_MODE", "false").lower() == "true"
+if is_dev_mode:
+    print("Running in DEVELOPMENT mode with Jinja2 templates")
+else:
+    print("Running in PRODUCTION mode with React frontend")
+
 # Create the FastAPI app
 app, templates = create_app()
 
