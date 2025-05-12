@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Routes, Route, useLocation } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Routes, Route } from 'react-router-dom'
 import Sidebar from './components/Sidebar'
 import TopNavigation from './components/TopNavigation'
 import Dashboard from './pages/Dashboard'
@@ -10,37 +10,60 @@ import Documentation from './pages/Documentation'
 import './index.css'  // Import the new layout styles
 
 function App() {
-  const [sidebarToggled, setSidebarToggled] = useState(true)
-  const location = useLocation()
-
-  // Toggle sidebar
+  // Toggle sidebar collapsed state
   const toggleSidebar = () => {
-    setSidebarToggled(!sidebarToggled)
+    document.body.classList.toggle('sidebar-collapsed');
   }
 
-  // Reset sidebar toggle when changing routes on mobile
+  // Add a listener for screen size changes
   useEffect(() => {
-    if (window.innerWidth < 768) {
-      setSidebarToggled(false)
-    }
-  }, [location.pathname])
+    const handleResize = () => {
+      if (window.innerWidth >= 768) {
+        // Default to expanded on larger screens
+        document.body.classList.remove('sidebar-collapsed');
+      } else {
+        // Default to collapsed on smaller screens
+        document.body.classList.add('sidebar-collapsed');
+      }
+    };
+
+    // Set initial state
+    handleResize();
+    
+    // Listen for window resize
+    window.addEventListener('resize', handleResize);
+    
+    // Cleanup
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
 
   return (
-    <div className={`d-flex ${sidebarToggled ? 'toggled' : ''}`} id="wrapper">
-      <Sidebar />
+    <div className="app-container">
+      {/* Fixed top navigation */}
+      <TopNavigation />
       
-      <div id="page-content-wrapper">
-        <TopNavigation toggleSidebar={toggleSidebar} />
+      {/* Main content area with sidebar and page content */}
+      <div className="content-container">
+        <Sidebar />
         
-        <div className="container-fluid p-4">
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/resources" element={<Resources />} />
-            <Route path="/reporting" element={<Reporting />} />
-            <Route path="/logs" element={<Logs />} />
-            <Route path="/documentation" element={<Documentation />} />
-          </Routes>
+        <div id="page-content-wrapper">
+          <div className="container-fluid p-4">
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/resources" element={<Resources />} />
+              <Route path="/reporting" element={<Reporting />} />
+              <Route path="/logs" element={<Logs />} />
+              <Route path="/documentation" element={<Documentation />} />
+            </Routes>
+          </div>
         </div>
+      </div>
+      
+      {/* Sidebar toggle button at bottom of screen */}
+      <div className="sidebar-toggle-btn d-none d-md-flex" onClick={toggleSidebar}>
+        <i className="bi bi-arrows-angle-expand"></i>
       </div>
     </div>
   )

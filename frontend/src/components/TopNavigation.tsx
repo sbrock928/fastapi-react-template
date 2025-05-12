@@ -1,16 +1,14 @@
-interface TopNavigationProps {
-  toggleSidebar: () => void;
-}
 
-const TopNavigation = ({ toggleSidebar }: TopNavigationProps) => {
+const TopNavigation = () => {
   return (
-    <nav className="navbar navbar-expand-lg navbar-light bg-light border-bottom">
+    <nav className="navbar navbar-expand-lg navbar-dark bg-primary border-bottom top-navbar">
       <div className="container-fluid">
-        <button className="btn btn-primary" id="sidebarToggle" onClick={toggleSidebar}>
-          <i className="bi bi-list"></i>
-        </button>
+        <a className="navbar-brand" href="/">
+          <i className="bi bi-soundwave me-2"></i>
+          Vibez Admin
+        </a>
         <div className="ms-auto d-flex">
-          <span className="navbar-text">
+          <span className="navbar-text text-white">
             Welcome to Vibes + Hype
           </span>
         </div>

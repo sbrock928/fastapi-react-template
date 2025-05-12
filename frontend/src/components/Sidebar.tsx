@@ -8,42 +8,41 @@ const Sidebar = () => {
   
   return (
     <div className="bg-light border-right" id="sidebar-wrapper">
-      <div className="sidebar-heading">Vibez Admin</div>
       <div className="list-group list-group-flush">
         <Link 
           to="/" 
-          className={`list-group-item list-group-item-action ${isActive('/') ? 'active' : ''}`}
+          className={`list-group-item list-group-item-action d-flex align-items-center ${isActive('/') ? 'active' : ''}`}
         >
-          <i className="bi bi-speedometer2 me-2"></i>
-          Dashboard
+          <i className="bi bi-speedometer2 me-3"></i>
+          <span className="sidebar-text">Dashboard</span>
         </Link>
         <Link 
           to="/resources" 
-          className={`list-group-item list-group-item-action ${isActive('/resources') ? 'active' : ''}`}
+          className={`list-group-item list-group-item-action d-flex align-items-center ${isActive('/resources') ? 'active' : ''}`}
         >
-          <i className="bi bi-people me-2"></i>
-          Resources
+          <i className="bi bi-people me-3"></i>
+          <span className="sidebar-text">Resources</span>
         </Link>
         <Link 
           to="/reporting" 
-          className={`list-group-item list-group-item-action ${isActive('/reporting') ? 'active' : ''}`}
+          className={`list-group-item list-group-item-action d-flex align-items-center ${isActive('/reporting') ? 'active' : ''}`}
         >
-          <i className="bi bi-bar-chart me-2"></i>
-          Reporting
+          <i className="bi bi-bar-chart me-3"></i>
+          <span className="sidebar-text">Reporting</span>
         </Link>
         <Link 
           to="/logs" 
-          className={`list-group-item list-group-item-action ${isActive('/logs') ? 'active' : ''}`}
+          className={`list-group-item list-group-item-action d-flex align-items-center ${isActive('/logs') ? 'active' : ''}`}
         >
-          <i className="bi bi-list-ul me-2"></i>
-          Logs
+          <i className="bi bi-list-ul me-3"></i>
+          <span className="sidebar-text">Logs</span>
         </Link>
         <Link 
           to="/documentation" 
-          className={`list-group-item list-group-item-action ${isActive('/documentation') ? 'active' : ''}`}
+          className={`list-group-item list-group-item-action d-flex align-items-center ${isActive('/documentation') ? 'active' : ''}`}
         >
-          <i className="bi bi-file-earmark-text me-2"></i>
-          Documentation
+          <i className="bi bi-file-earmark-text me-3"></i>
+          <span className="sidebar-text">Documentation</span>
         </Link>
       </div>
     </div>
