@@ -14,6 +14,8 @@ class LogBase(SQLModel):
     response_body: Optional[str] = None
     processing_time: Optional[float] = None  # in milliseconds
     user_agent: Optional[str] = None
+    username: Optional[str] = None  # Changed from server_username to username
+    hostname: Optional[str] = None  # Added computer name field
 
     class Config:
         orm_mode = True

@@ -8,14 +8,14 @@ from app.reporting.service import ReportingService
 router = APIRouter(prefix="/reports", tags=["Reports"])
 
 
-@router.get("/reports/statistics", response_model=Dict[str, Any])
+@router.get("/statistics", response_model=Dict[str, Any])
 async def get_summary_statistics(session: Session = Depends(get_session)):
     """Get summary statistics for the dashboard"""
     reporting_service = ReportingService(session)
     return await reporting_service.get_summary_statistics()
 
 
-@router.get("/reports/recent-activities", response_model=Dict[str, Any])
+@router.get("/recent-activities", response_model=Dict[str, Any])
 async def get_recent_activities(
     days: int = Query(7, ge=1, le=30), session: Session = Depends(get_session)
 ):
@@ -24,11 +24,14 @@ async def get_recent_activities(
     return await reporting_service.get_recent_activities(days=days)
 
 
-@router.get("/reports/status-distribution", response_model=Dict[str, Any])
-async def get_status_distribution(session: Session = Depends(get_session)):
+@router.get("/status-distribution", response_model=Dict[str, Any])
+async def get_status_distribution(
+    hours: int = Query(24, ge=1, le=168), 
+    session: Session = Depends(get_session)
+):
     """Get distribution of logs by status code"""
     reporting_service = ReportingService(session)
-    return await reporting_service.get_status_distribution()
+    return await reporting_service.get_status_distribution(hours=hours)
 
 
 @router.post("/users-by-creation")

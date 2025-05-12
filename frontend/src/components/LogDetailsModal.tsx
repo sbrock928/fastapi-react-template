@@ -13,6 +13,9 @@ interface Log {
   request_headers?: string;
   request_body?: string;
   response_body?: string;
+  status_category?: string; // Add this property to match the interface in Logs.tsx
+  username?: string;  // Changed from server_username
+  hostname?: string;  // Added hostname field
 }
 
 interface LogDetailsModalProps {
@@ -102,12 +105,24 @@ const LogDetailsModal = ({ log, show, onHide }: LogDetailsModalProps) => {
                   </div>
                 </div>
                 <div className="mb-3">
-                  <label className="form-label fw-bold">Client IP:</label>
-                  <div id="detailIp">{log.client_ip || 'Unknown'}</div>
+                  <label className="form-label fw-bold">Client IP / User:</label>
+                  <div id="detailIp">
+                    {log.client_ip || 'Unknown'}
+                    {log.username && (
+                      <div className="small">
+                        <i className="bi bi-person-circle me-1"></i>
+                        {log.username}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="mb-3">
                   <label className="form-label fw-bold">Processing Time:</label>
                   <div id="detailTime">{log.processing_time ? `${log.processing_time.toFixed(2)} ms` : 'N/A'}</div>
+                </div>
+                <div className="mb-3">
+                  <label className="form-label fw-bold">Server:</label>
+                  <div id="detailServer">{log.hostname || 'Not available'}</div>
                 </div>
               </div>
             </div>

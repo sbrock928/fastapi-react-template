@@ -1,5 +1,9 @@
 import time
 import json
+import os
+import getpass
+import platform
+import socket
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
@@ -17,6 +21,20 @@ import time
 class LoggingMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp):
         super().__init__(app)
+        # Get the current username when middleware is initialized
+        try:
+            # Try multiple methods to get the username for cross-platform support
+            self.username = os.environ.get('USER') or os.environ.get('USERNAME') or getpass.getuser() or "unknown_user"
+        except Exception:
+            self.username = "unknown_user"
+            
+        # Get the computer hostname
+        try:
+            self.hostname = socket.gethostname() or platform.node() or "unknown_host"
+        except Exception:
+            self.hostname = "unknown_host"
+            
+        print(f"Logging middleware initialized with username: {self.username} on host: {self.hostname}")
 
     async def dispatch(self, request: Request, call_next: Callable):
         # Define paths that should be excluded from logging
@@ -102,6 +120,8 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                     response_body=body_to_log,
                     processing_time=duration_ms,
                     user_agent=request.headers.get("user-agent"),
+                    username=self.username,  # Changed from server_username to username
+                    hostname=self.hostname,  # Added hostname
                 )
                 session.add(log)
                 session.commit()
