@@ -112,14 +112,15 @@ build/
 
 # Large data files
 *.csv
+# Exclude configuration files from being ignored
+!tsconfig*.json
+!package.json
+!package-lock.json
+# Other data files to ignore
 *.json
 *.xml
 *.yaml
 *.yml
-!package.json
-!tsconfig.json
-!vite.config.ts
-!important-config.yml
 
 # PyInstaller files
 *.spec
@@ -131,4 +132,3 @@ build/
 env.local
 .env.local
 sql_app.db
-frontend/vite.config.ts
