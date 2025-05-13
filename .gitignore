@@ -8,8 +8,7 @@ node_modules/
 /frontend/coverage
 
 # Production build files
-/frontend/build/
-/frontend/dist/
+/static/
 
 # Development
 .DS_Store
@@ -132,3 +131,4 @@ build/
 env.local
 .env.local
 sql_app.db
+frontend/vite.config.ts

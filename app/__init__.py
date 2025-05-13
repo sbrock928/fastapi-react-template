@@ -38,18 +38,18 @@ def create_app():
     app.include_router(log_router)
     app.include_router(user_guide_router)
 
-    # Mount the built React assets
-    app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
+    # Mount the built React assets from the new static directory
+    app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
 
-    # Serve the static files from the React build
+    # Serve the static files from the React build in the new static directory
     @app.get("/{full_path:path}")
     async def serve_react_app(request: Request, full_path: str):
         # If it's an API request, let it pass through to the API endpoints
         if full_path.startswith("api/"):
             return RedirectResponse(url=f"/api/{full_path[4:]}")
 
-        # For all other routes, serve the React app's index.html
-        with open("frontend/dist/index.html", "r") as f:
+        # For all other routes, serve the React app's index.html from the new static directory
+        with open("static/index.html", "r") as f:
             html_content = f.read()
 
         return HTMLResponse(content=html_content)
