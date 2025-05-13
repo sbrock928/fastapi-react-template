@@ -20,19 +20,42 @@ interface PaginationResult<T> {
   itemsPerPage: number;
   startIndex: number;
   endIndex: number;
+  setTotalPages: (totalItems: number) => void;
 }
 
 export default function usePagination<T>({
   initialPage = 1,
   itemsPerPage: initialItemsPerPage = 10,
   updateUrl = false,
-}: PaginationProps): (items: T[]) => PaginationResult<T> {
+}: PaginationProps): (items: T[], totalItems?: number) => PaginationResult<T> {
   const [currentPage, setCurrentPage] = useState(initialPage);
   const [itemsPerPage, setItemsPerPage] = useState(initialItemsPerPage);
+  const [overrideTotalPages, setOverrideTotalPages] = useState<number | null>(null);
 
   // Calculate total pages
   const getTotalPages = useCallback(
-    (items: T[]) => Math.ceil(items.length / itemsPerPage),
+    (items: T[], totalItems?: number) => {
+      // If overrideTotalPages is set, use that value
+      if (overrideTotalPages !== null) {
+        return overrideTotalPages;
+      }
+      
+      // If totalItems is provided, use it to calculate total pages
+      if (totalItems !== undefined) {
+        return Math.ceil(totalItems / itemsPerPage);
+      }
+      
+      // Otherwise use the items array length
+      return Math.ceil(items.length / itemsPerPage);
+    },
+    [itemsPerPage, overrideTotalPages]
+  );
+
+  // Set total pages directly
+  const setTotalPages = useCallback(
+    (totalItems: number) => {
+      setOverrideTotalPages(Math.ceil(totalItems / itemsPerPage));
+    },
     [itemsPerPage]
   );
 
@@ -48,8 +71,8 @@ export default function usePagination<T>({
 
   // Page navigation functions
   const goToPage = useCallback(
-    (page: number, items: T[]) => {
-      const totalPages = getTotalPages(items);
+    (page: number, items: T[], totalItems?: number) => {
+      const totalPages = getTotalPages(items, totalItems);
       if (page < 1 || page > totalPages || page === currentPage) {
         return;
       }
@@ -81,8 +104,8 @@ export default function usePagination<T>({
   );
 
   const goToNextPage = useCallback(
-    (items: T[]) => {
-      const totalPages = getTotalPages(items);
+    (items: T[], totalItems?: number) => {
+      const totalPages = getTotalPages(items, totalItems);
       if (currentPage < totalPages) {
         const newPage = currentPage + 1;
         setCurrentPage(newPage);
@@ -93,8 +116,8 @@ export default function usePagination<T>({
   );
 
   const goToLastPage = useCallback(
-    (items: T[]) => {
-      const totalPages = getTotalPages(items);
+    (items: T[], totalItems?: number) => {
+      const totalPages = getTotalPages(items, totalItems);
       if (currentPage !== totalPages) {
         setCurrentPage(totalPages);
         updatePageUrl(totalPages);
@@ -105,8 +128,8 @@ export default function usePagination<T>({
 
   // Return the pagination object
   return useCallback(
-    (items: T[]) => {
-      const totalPages = getTotalPages(items);
+    (items: T[], totalItems?: number) => {
+      const totalPages = getTotalPages(items, totalItems);
       
       // Ensure current page is valid
       const validCurrentPage = Math.max(1, Math.min(currentPage, totalPages || 1));
@@ -116,21 +139,22 @@ export default function usePagination<T>({
       
       // Calculate start and end indices
       const startIndex = (validCurrentPage - 1) * itemsPerPage;
-      const endIndex = Math.min(startIndex + itemsPerPage, items.length);
+      const endIndex = Math.min(startIndex + itemsPerPage, totalItems || items.length);
       
       return {
         currentPage: validCurrentPage,
         totalPages,
-        pageItems: items.slice(startIndex, endIndex),
-        goToPage: (page: number) => goToPage(page, items),
+        pageItems: items.slice(startIndex, endIndex), // Fixed: removed duplicate slice
+        goToPage: (page: number) => goToPage(page, items, totalItems),
         goToFirstPage: () => goToFirstPage(),
         goToPreviousPage: () => goToPreviousPage(),
-        goToNextPage: () => goToNextPage(items),
-        goToLastPage: () => goToLastPage(items),
+        goToNextPage: () => goToNextPage(items, totalItems),
+        goToLastPage: () => goToLastPage(items, totalItems),
         setItemsPerPage,
         itemsPerPage,
         startIndex,
         endIndex,
+        setTotalPages,
       };
     },
     [
@@ -142,6 +166,7 @@ export default function usePagination<T>({
       goToPreviousPage,
       goToNextPage,
       goToLastPage,
+      setTotalPages,
     ]
   );
 }

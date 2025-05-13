@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { logsApi } from '@/services/api';
 import LogDetailsModal from '@/components/LogDetailsModal';
 import StatusDistributionChart from '@/components/StatusDistributionChart';
+import usePagination from '@/hooks/usePagination';
 import type { Log, StatusDistribution } from '@/types';
 
 const Logs = () => {
@@ -10,7 +11,6 @@ const Logs = () => {
   const [filteredLogs, setFilteredLogs] = useState<Log[]>([]);
   const [timeRange, setTimeRange] = useState<string>('24');
   const [filterText, setFilterText] = useState<string>('');
-  const [currentOffset, setCurrentOffset] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [selectedLog, setSelectedLog] = useState<Log | null>(null);
   const [showModal, setShowModal] = useState<boolean>(false);
@@ -26,22 +26,39 @@ const Logs = () => {
   const [loadingDistribution, setLoadingDistribution] = useState<boolean>(false);
   
   const limit = 50;
-  // Add pagination state
-  const [currentPage, setCurrentPage] = useState<number>(1);
-  const [pagesCount, setPagesCount] = useState<number>(1);
-  // Add state to track total log count
   const [totalCount, setTotalCount] = useState<number>(0);
+  const [currentOffset, setCurrentOffset] = useState<number>(0);
+  
+  // Add a state to track if filtering is active
+  const [serverFilterActive, setServerFilterActive] = useState<boolean>(false);
+  
+  // Setup the pagination hook
+  const getPagination = usePagination<Log>({ 
+    initialPage: 1, 
+    itemsPerPage: limit, 
+    updateUrl: true 
+  });
+  const pagination = getPagination(filteredLogs, totalCount);
 
-  // Load logs on component mount and when dependencies change
+  // Update pagination's total pages when total count changes
+  useEffect(() => {
+    if (totalCount > 0) {
+      pagination.setTotalPages(totalCount);
+    }
+  }, [totalCount]);
+
+  // Load logs when the offset, time range, filter text or status changes
   useEffect(() => {
     loadLogs();
     loadStatusDistribution();
-  }, [timeRange, currentOffset]);
+  }, [timeRange, currentOffset, selectedStatusCategory, serverFilterActive, filterText]);
   
-  // Filter logs when filter text, selected status category, or all logs change
+  // When pagination page changes, update the offset
   useEffect(() => {
-    filterLogs();
-  }, [filterText, selectedStatusCategory, allLogs]);
+    if (pagination.currentPage !== Math.floor(currentOffset / limit) + 1) {
+      setCurrentOffset((pagination.currentPage - 1) * limit);
+    }
+  }, [pagination.currentPage, limit]);
   
   // Auto-refresh functionality
   useEffect(() => {
@@ -65,7 +82,7 @@ const Logs = () => {
     }
   }, [autoRefresh, refreshInterval]);
   
-  const loadLogs = async (append = false) => {
+  const loadLogs = async () => {
     setIsLoading(true);
     try {
       // Build the URL with status filter if present
@@ -92,12 +109,19 @@ const Logs = () => {
         }
       }
       
+      // Add text filter parameter if filterText is present
+      if (filterText.trim()) {
+        params.search = filterText.trim();
+        setServerFilterActive(true);
+      } else {
+        setServerFilterActive(false);
+      }
+      
       const response = await logsApi.getLogs(params);
       
       // Get total count from headers or response data
       const totalCount = parseInt(response.headers['x-total-count'] || '0');
       if (totalCount > 0) {
-        setPagesCount(Math.ceil(totalCount / limit));
         setTotalCount(totalCount); // Store the total count
       }
       
@@ -115,14 +139,8 @@ const Logs = () => {
         return {...log, status_category: statusCategory};
       });
       
-      if (!append) {
-        setAllLogs(logsWithCategory);
-        setFilteredLogs(logsWithCategory); // Set filtered logs directly
-      } else {
-        const newLogs = [...allLogs, ...logsWithCategory];
-        setAllLogs(newLogs);
-        setFilteredLogs(newLogs); // Set filtered logs directly
-      }
+      setAllLogs(logsWithCategory);
+      setFilteredLogs(logsWithCategory);
     } catch (error) {
       console.error('Error loading logs:', error);
     } finally {
@@ -148,9 +166,8 @@ const Logs = () => {
     }
   };
   
-  // Modify filterLogs to include searching by username
-  const filterLogs = () => {
-    // Only filter by text since status filtering is now server-side
+  // Filter logs with simple client-side filtering
+  useEffect(() => {
     if (!filterText.trim()) {
       setFilteredLogs([...allLogs]);
     } else {
@@ -164,7 +181,7 @@ const Logs = () => {
       );
       setFilteredLogs(filtered);
     }
-  };
+  }, [filterText, allLogs]);
 
   const handleRefresh = () => {
     setCurrentOffset(0);
@@ -177,8 +194,25 @@ const Logs = () => {
     setCurrentOffset(0);
   };
 
+  // Update filter text and apply server-side filtering
   const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFilterText(e.target.value);
+    const newFilterText = e.target.value;
+    setFilterText(newFilterText);
+    
+    // Reset to first page when filter changes
+    if (pagination.currentPage !== 1) {
+      pagination.goToFirstPage();
+    }
+    
+    // Reset offset to ensure we start from the first page with the new filter
+    setCurrentOffset(0);
+  };
+
+  // Clear filter and reload data
+  const clearFilter = () => {
+    setFilterText('');
+    setCurrentOffset(0);
+    setServerFilterActive(false);
   };
 
   const handleStatusCategoryClick = (statusCategory: string) => {
@@ -211,60 +245,17 @@ const Logs = () => {
     setRefreshInterval(parseInt(e.target.value));
   };
 
-  // Add useEffect to reload logs when selectedStatusCategory changes
-  useEffect(() => {
-    if (currentOffset === 0) {
-      loadLogs();
-    } else {
-      setCurrentOffset(0); // This will trigger loadLogs via the other useEffect
-    }
-  }, [selectedStatusCategory]);
-
+  // Handle page change
   const handlePageChange = (page: number) => {
-    if (page < 1 || page > pagesCount || page === currentPage) {
-      return;
-    }
-    setCurrentPage(page);
-    setCurrentOffset((page - 1) * limit);
-    // Logs will be loaded by the useEffect that watches currentOffset
-  };
-
-  const handleFirstPage = () => {
-    if (currentPage !== 1) {
-      setCurrentPage(1);
-      setCurrentOffset(0);
-    }
-  };
-
-  const handlePreviousPage = () => {
-    if (currentPage > 1) {
-      const newPage = currentPage - 1;
-      setCurrentPage(newPage);
-      setCurrentOffset((newPage - 1) * limit);
-    }
-  };
-
-  const handleNextPage = () => {
-    if (currentPage < pagesCount) {
-      const newPage = currentPage + 1;
-      setCurrentPage(newPage);
-      setCurrentOffset((newPage - 1) * limit);
-    }
-  };
-
-  const handleLastPage = () => {
-    if (currentPage !== pagesCount) {
-      setCurrentPage(pagesCount);
-      setCurrentOffset((pagesCount - 1) * limit);
-    }
+    pagination.goToPage(page);
   };
 
   // Generate pagination items
   const renderPaginationItems = () => {
     const items = [];
     const maxVisiblePages = 5;
-    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
-    let endPage = Math.min(pagesCount, startPage + maxVisiblePages - 1);
+    let startPage = Math.max(1, pagination.currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(pagination.totalPages, startPage + maxVisiblePages - 1);
     // Adjust if we're near the end
     if (endPage - startPage + 1 < maxVisiblePages) {
       startPage = Math.max(1, endPage - maxVisiblePages + 1);
@@ -280,11 +271,11 @@ const Logs = () => {
     // Page numbers
     for (let i = startPage; i <= endPage; i++) {
       items.push(
-        <li key={i} className={`page-item ${currentPage === i ? 'active' : ''}`}>
+        <li key={i} className={`page-item ${pagination.currentPage === i ? 'active' : ''}`}>
           <button 
             className="page-link" 
             onClick={() => handlePageChange(i)}
-            disabled={currentPage === i}
+            disabled={pagination.currentPage === i}
           >
             {i}
           </button>
@@ -292,7 +283,7 @@ const Logs = () => {
       );
     }
     // Last ellipsis
-    if (endPage < pagesCount) {
+    if (endPage < pagination.totalPages) {
       items.push(
         <li key="end-ellipsis" className="page-item disabled">
           <span className="page-link">...</span>
@@ -302,13 +293,15 @@ const Logs = () => {
     return items;
   };
 
-  // Update useEffect to also update current page when currentOffset changes
-  useEffect(() => {
-    const newPage = Math.floor(currentOffset / limit) + 1;
-    if (newPage !== currentPage) {
-      setCurrentPage(newPage);
-    }
-  }, [currentOffset]);
+  // Render pagination info
+  const renderPaginationInfo = () => {
+    if (totalCount === 0) return 'No logs available';
+    
+    const start = currentOffset + 1;
+    const end = Math.min(currentOffset + filteredLogs.length, totalCount);
+    
+    return `Showing ${start} to ${end} of ${totalCount} logs${filterText ? ` (filtered)` : ''}`;
+  };
 
   return (
     <div>
@@ -372,7 +365,7 @@ const Logs = () => {
               type="text" 
               id="logFilterInput" 
               className="form-control" 
-              placeholder="Filter by path, status, user, etc..." 
+              placeholder="Search logs (path, method, status, user)..." 
               value={filterText}
               onChange={handleFilterChange}
             />
@@ -380,12 +373,18 @@ const Logs = () => {
               <button 
                 className="btn btn-outline-secondary" 
                 type="button"
-                onClick={() => setFilterText('')}
+                onClick={clearFilter}
               >
                 <i className="bi bi-x"></i>
               </button>
             )}
           </div>
+          {serverFilterActive && (
+            <div className="text-muted small mt-1">
+              <i className="bi bi-funnel-fill me-1"></i> 
+              Filter applied on server
+            </div>
+          )}
         </div>
       </div>
       {/* Status Distribution Chart */}
@@ -425,7 +424,7 @@ const Logs = () => {
             Log Entries
             <span id="totalCount" className="badge bg-secondary ms-2">
               {totalCount > 0 ? `${totalCount} total` : 'No'} logs
-              {filterText && ` (${filteredLogs.length} shown)`}
+              {serverFilterActive && ` (filtered)`}
             </span>
             {autoRefresh && (
               <span className="badge bg-info ms-2">
@@ -443,13 +442,13 @@ const Logs = () => {
                 <th>Method</th>
                 <th>Path</th>
                 <th>Status</th>
-                <th>Client IP / User</th>
+                <th>User</th>
                 <th>Processing Time</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody id="logsTableBody">
-              {isLoading && currentOffset === 0 ? (
+              {isLoading ? (
                 <tr>
                   <td colSpan={7} className="text-center py-4">
                     <div className="spinner-border text-primary" role="status">
@@ -483,13 +482,12 @@ const Logs = () => {
                       </span>
                     </td>
                     <td>
-                      {log.client_ip || 'unknown'}
-                      {log.username && (
-                        <div className="small text-muted">
+                      {log.username ? (
+                        <span>
                           <i className="bi bi-person-circle me-1"></i>
                           {log.username}
-                        </div>
-                      )}
+                        </span>
+                      ) : '-'}
                     </td>
                     <td>{log.processing_time ? `${log.processing_time.toFixed(2)} ms` : 'N/A'}</td>
                     <td>
@@ -509,24 +507,40 @@ const Logs = () => {
         <div className="card-footer d-flex justify-content-between align-items-center">
           <nav aria-label="Log pagination">
             <ul className="pagination mb-0">
-              <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
-                <button className="page-link" onClick={handleFirstPage} disabled={currentPage === 1 || isLoading}>
+              <li className={`page-item ${pagination.currentPage === 1 ? 'disabled' : ''}`}>
+                <button 
+                  className="page-link" 
+                  onClick={pagination.goToFirstPage} 
+                  disabled={pagination.currentPage === 1 || isLoading}
+                >
                   <i className="bi bi-chevron-double-left"></i>
                 </button>
               </li>
-              <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
-                <button className="page-link" onClick={handlePreviousPage} disabled={currentPage === 1 || isLoading}>
+              <li className={`page-item ${pagination.currentPage === 1 ? 'disabled' : ''}`}>
+                <button 
+                  className="page-link" 
+                  onClick={pagination.goToPreviousPage} 
+                  disabled={pagination.currentPage === 1 || isLoading}
+                >
                   <i className="bi bi-chevron-left"></i>
                 </button>
               </li>
               {renderPaginationItems()}
-              <li className={`page-item ${currentPage === pagesCount ? 'disabled' : ''}`}>
-                <button className="page-link" onClick={handleNextPage} disabled={currentPage === pagesCount || isLoading}>
+              <li className={`page-item ${pagination.currentPage === pagination.totalPages ? 'disabled' : ''}`}>
+                <button 
+                  className="page-link" 
+                  onClick={pagination.goToNextPage} 
+                  disabled={pagination.currentPage === pagination.totalPages || isLoading}
+                >
                   <i className="bi bi-chevron-right"></i>
                 </button>
               </li>
-              <li className={`page-item ${currentPage === pagesCount ? 'disabled' : ''}`}>
-                <button className="page-link" onClick={handleLastPage} disabled={currentPage === pagesCount || isLoading}>
+              <li className={`page-item ${pagination.currentPage === pagination.totalPages ? 'disabled' : ''}`}>
+                <button 
+                  className="page-link" 
+                  onClick={pagination.goToLastPage} 
+                  disabled={pagination.currentPage === pagination.totalPages || isLoading}
+                >
                   <i className="bi bi-chevron-double-right"></i>
                 </button>
               </li>
@@ -535,8 +549,9 @@ const Logs = () => {
           <small className="text-muted d-none d-md-block">
             Showing logs from {new Date(Date.now() - parseInt(timeRange) * 60 * 60 * 1000).toLocaleString()}
             {selectedStatusCategory && ` filtered by ${selectedStatusCategory} status`}
+            {serverFilterActive && ` with search: "${filterText}"`}
             <br />
-            Page {currentPage} of {pagesCount} ({filteredLogs.length} of {totalCount} logs)
+            Page {pagination.currentPage} of {pagination.totalPages} ({renderPaginationInfo()})
           </small>
         </div>
       </div>

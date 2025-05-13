@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { resourcesApi } from '@/services/api';
 import resourceConfig from '@/config/resources';
+import usePagination from '@/hooks/usePagination';
 import type { ResourceItem } from '@/types';
 import ResourceModal from '@/components/ResourceModal';
 
@@ -14,8 +15,10 @@ const Resources = () => {
   const [currentItem, setCurrentItem] = useState<ResourceItem | null>(null);
   const [showModal, setShowModal] = useState<boolean>(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
-  const [currentPage, setCurrentPage] = useState<number>(1);
-  const itemsPerPage = 10;
+  
+  // Replace pagination state with usePagination hook
+  const getPagination = usePagination<ResourceItem>({ initialPage: 1, itemsPerPage: 10 });
+  const pagination = getPagination(filteredItems);
 
   // Fetch resources when resource type changes
   useEffect(() => {
@@ -75,7 +78,6 @@ const Resources = () => {
     });
 
     setFilteredItems(filtered);
-    setCurrentPage(1);
   };
 
   // Clear filter
@@ -153,7 +155,6 @@ const Resources = () => {
     const resourceType = e.target.value;
     setActiveResource(resourceType);
     setFilterText('');
-    setCurrentPage(1);
   };
 
   // Render resource table
@@ -172,17 +173,6 @@ const Resources = () => {
       );
     }
     
-    // Calculate pagination
-    const totalPages = Math.ceil(filteredItems.length / itemsPerPage);
-    const validCurrentPage = Math.max(1, Math.min(currentPage, totalPages));
-    
-    // Calculate start and end indices for current page
-    const startIndex = (validCurrentPage - 1) * itemsPerPage;
-    const endIndex = Math.min(startIndex + itemsPerPage, filteredItems.length);
-    
-    // Get current page data
-    const currentPageItems = filteredItems.slice(startIndex, endIndex);
-    
     // Get visible columns (not hidden)
     const visibleColumns = config.columns.filter(col => col.type !== 'hidden');
     
@@ -199,7 +189,7 @@ const Resources = () => {
               </tr>
             </thead>
             <tbody>
-              {currentPageItems.map((item, idx) => (
+              {pagination.pageItems.map((item, idx) => (
                 <tr key={item.id || idx}>
                   {visibleColumns.map(column => {
                     let cellContent = item[column.field];
@@ -240,31 +230,31 @@ const Resources = () => {
           </table>
         </div>
         
-        {totalPages > 1 && (
+        {pagination.totalPages > 1 && (
           <nav aria-label="Resource pagination" className="mt-3">
             <ul className="pagination">
-              <li className={`page-item ${validCurrentPage === 1 ? 'disabled' : ''}`}>
+              <li className={`page-item ${pagination.currentPage === 1 ? 'disabled' : ''}`}>
                 <button 
                   className="page-link" 
-                  onClick={() => setCurrentPage(1)}
-                  disabled={validCurrentPage === 1}
+                  onClick={pagination.goToFirstPage}
+                  disabled={pagination.currentPage === 1}
                 >
                   <i className="bi bi-chevron-double-left"></i>
                 </button>
               </li>
-              <li className={`page-item ${validCurrentPage === 1 ? 'disabled' : ''}`}>
+              <li className={`page-item ${pagination.currentPage === 1 ? 'disabled' : ''}`}>
                 <button 
                   className="page-link"
-                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                  disabled={validCurrentPage === 1}
+                  onClick={pagination.goToPreviousPage}
+                  disabled={pagination.currentPage === 1}
                 >
                   &laquo;
                 </button>
               </li>
               
-              {Array.from({length: Math.min(5, totalPages)}, (_, i) => {
-                let startPage = Math.max(1, validCurrentPage - 2);
-                let endPage = Math.min(totalPages, startPage + 4);
+              {Array.from({length: Math.min(5, pagination.totalPages)}, (_, i) => {
+                let startPage = Math.max(1, pagination.currentPage - 2);
+                let endPage = Math.min(pagination.totalPages, startPage + 4);
                 
                 if (endPage - startPage < 4) {
                   startPage = Math.max(1, endPage - 4);
@@ -276,11 +266,11 @@ const Resources = () => {
                   return (
                     <li 
                       key={pageNum} 
-                      className={`page-item ${pageNum === validCurrentPage ? 'active' : ''}`}
+                      className={`page-item ${pageNum === pagination.currentPage ? 'active' : ''}`}
                     >
                       <button 
                         className="page-link"
-                        onClick={() => setCurrentPage(pageNum)}
+                        onClick={() => pagination.goToPage(pageNum)}
                       >
                         {pageNum}
                       </button>
@@ -290,20 +280,20 @@ const Resources = () => {
                 return null;
               })}
               
-              <li className={`page-item ${validCurrentPage === totalPages ? 'disabled' : ''}`}>
+              <li className={`page-item ${pagination.currentPage === pagination.totalPages ? 'disabled' : ''}`}>
                 <button 
                   className="page-link"
-                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                  disabled={validCurrentPage === totalPages}
+                  onClick={pagination.goToNextPage}
+                  disabled={pagination.currentPage === pagination.totalPages}
                 >
                   &raquo;
                 </button>
               </li>
-              <li className={`page-item ${validCurrentPage === totalPages ? 'disabled' : ''}`}>
+              <li className={`page-item ${pagination.currentPage === pagination.totalPages ? 'disabled' : ''}`}>
                 <button 
                   className="page-link"
-                  onClick={() => setCurrentPage(totalPages)}
-                  disabled={validCurrentPage === totalPages}
+                  onClick={pagination.goToLastPage}
+                  disabled={pagination.currentPage === pagination.totalPages}
                 >
                   <i className="bi bi-chevron-double-right"></i>
                 </button>
@@ -314,7 +304,7 @@ const Resources = () => {
         
         <div className="mt-2">
           <small className="text-muted">
-            Showing {filteredItems.length === 0 ? 0 : startIndex + 1} to {endIndex} of {filteredItems.length} {config.displayName.toLowerCase()}s
+            Showing {filteredItems.length === 0 ? 0 : pagination.startIndex + 1} to {pagination.endIndex} of {filteredItems.length} {config.displayName.toLowerCase()}s
             {filterText && ` (filtered from ${items.length} total)`}
           </small>
         </div>

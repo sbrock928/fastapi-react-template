@@ -52,15 +52,20 @@ const LogDetailsModal = ({ log, show, onHide }: LogDetailsModalProps) => {
                   </div>
                 </div>
                 <div className="mb-3">
-                  <label className="form-label fw-bold">Client IP / User:</label>
+                  <label className="form-label fw-bold">Client IP:</label>
                   <div id="detailIp">
                     {log.client_ip || 'Unknown'}
-                    {log.username && (
-                      <div className="small">
+                  </div>
+                </div>
+                <div className="mb-3">
+                  <label className="form-label fw-bold">User:</label>
+                  <div id="detailUser">
+                    {log.username ? (
+                      <span>
                         <i className="bi bi-person-circle me-1"></i>
                         {log.username}
-                      </div>
-                    )}
+                      </span>
+                    ) : 'Not logged in'}
                   </div>
                 </div>
                 <div className="mb-3">

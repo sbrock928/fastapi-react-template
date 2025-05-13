@@ -22,6 +22,7 @@ async def get_logs(
     log_id: Optional[int] = None,
     status_min: Optional[int] = None,
     status_max: Optional[int] = None,
+    search: Optional[str] = None,
     session: Session = Depends(get_session)
 ):
     """Get logs with pagination and filtering"""
@@ -32,14 +33,16 @@ async def get_logs(
         hours=hours, 
         log_id=log_id,
         status_min=status_min,
-        status_max=status_max
+        status_max=status_max,
+        search=search
     )
     
     # Get total count for pagination
     total_count = await log_service.get_logs_count(
         hours=hours,
         status_min=status_min,
-        status_max=status_max
+        status_max=status_max,
+        search=search
     )
     
     # Set total count in header

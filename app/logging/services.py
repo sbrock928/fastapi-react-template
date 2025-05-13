@@ -4,7 +4,7 @@ from sqlmodel import Session, select
 from app.logging.models import Log
 from app.logging.dao import LogDAO
 from datetime import datetime, timedelta
-
+from sqlalchemy import or_, String
 
 class LogService:
     def __init__(self, session: Session):
@@ -18,30 +18,89 @@ class LogService:
         hours: int = 24, 
         log_id: Optional[int] = None,
         status_min: Optional[int] = None,
-        status_max: Optional[int] = None
+        status_max: Optional[int] = None,
+        search: Optional[str] = None
     ) -> List[Log]:
         """Get logs with pagination and filtering"""
-        return await self.log_dao.get_logs(
-            limit=limit,
-            offset=offset,
-            hours=hours,
-            log_id=log_id,
-            status_min=status_min,
-            status_max=status_max
-        )
+        # Start with a base query
+        query = select(Log)
+        
+        # Apply filters
+        time_limit = datetime.now() - timedelta(hours=hours)
+        query = query.where(Log.timestamp >= time_limit)
+        
+        if log_id:
+            query = query.where(Log.id == log_id)
+        
+        if status_min:
+            query = query.where(Log.status_code >= status_min)
+        
+        if status_max:
+            query = query.where(Log.status_code <= status_max)
+            
+        # Apply search filter if provided
+        if search:
+            search_term = f"%{search}%"
+            query = query.where(
+                or_(
+                    Log.path.ilike(search_term),
+                    Log.method.ilike(search_term),
+                    Log.client_ip.ilike(search_term),
+                    Log.username.ilike(search_term),
+                    Log.hostname.ilike(search_term),
+                    # Convert status_code to string for searching
+                    Log.status_code.cast(String).ilike(search_term)
+                )
+            )
+        
+        # Apply ordering and pagination
+        query = query.order_by(Log.timestamp.desc())
+        query = query.offset(offset).limit(limit)
+        
+        # Execute query
+        result = self.session.exec(query).all()
+        return result
 
     async def get_logs_count(
         self,
         hours: int = 24,
         status_min: Optional[int] = None,
-        status_max: Optional[int] = None
+        status_max: Optional[int] = None,
+        search: Optional[str] = None
     ) -> int:
         """Get total count of logs matching the filters"""
-        return await self.log_dao.get_logs_count(
-            hours=hours,
-            status_min=status_min,
-            status_max=status_max
-        )
+        # Start with a base query
+        from sqlalchemy import func
+        query = select(func.count()).select_from(Log)
+        
+        # Apply filters
+        time_limit = datetime.now() - timedelta(hours=hours)
+        query = query.where(Log.timestamp >= time_limit)
+        
+        if status_min:
+            query = query.where(Log.status_code >= status_min)
+        
+        if status_max:
+            query = query.where(Log.status_code <= status_max)
+            
+        # Apply search filter if provided
+        if search:
+            search_term = f"%{search}%"
+            query = query.where(
+                or_(
+                    Log.path.ilike(search_term),
+                    Log.method.ilike(search_term),
+                    Log.client_ip.ilike(search_term),
+                    Log.username.ilike(search_term),
+                    Log.hostname.ilike(search_term),
+                    # Convert status_code to string for searching
+                    Log.status_code.cast(String).ilike(search_term)
+                )
+            )
+        
+        # Execute query
+        count = self.session.exec(query).one()
+        return count
 
     async def get_status_distribution(self, hours: int = 24) -> Dict[str, Any]:
         """Get distribution of logs by status code with time filter"""

@@ -16,7 +16,7 @@ from sqlmodel import Session
 from app.logging.models import Log  # Adjust import as needed
 from app.database import SessionLocal  # Your session generator
 import time
-
+import os
 
 class LoggingMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp):

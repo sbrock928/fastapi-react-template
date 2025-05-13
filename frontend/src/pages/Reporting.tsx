@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { reportsApi } from '@/services/api';
 import reportConfig from '@/config/reports';
 import { formatDate, formatNumber, formatPercentage } from '@/utils/formatters';
+import usePagination from '@/hooks/usePagination';
 import type { ReportRow } from '@/types';
 
 const Reporting = () => {
@@ -14,9 +15,11 @@ const Reporting = () => {
     date_range: 'last_30_days'
   });
   const [filterText, setFilterText] = useState<string>('');
-  const [currentPage, setCurrentPage] = useState<number>(1);
   const [showResults, setShowResults] = useState<boolean>(false);
-  const itemsPerPage = 10;
+  
+  // Replace pagination state with usePagination hook
+  const getPagination = usePagination<ReportRow>({ initialPage: 1, itemsPerPage: 2 });
+  const pagination = getPagination(filteredReportData);
   
   // Handle report type selection
   const handleReportChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -72,7 +75,6 @@ const Reporting = () => {
     }
     
     setLoading(true);
-    setCurrentPage(1);
     
     try {
       const config = reportConfig[activeReport];
@@ -112,15 +114,12 @@ const Reporting = () => {
       
       setFilteredReportData(filtered);
     }
-    
-    setCurrentPage(1);
   };
   
   // Clear filter
   const clearFilter = () => {
     setFilterText('');
     setFilteredReportData(reportData);
-    setCurrentPage(1);
   };
   
   // Export to CSV
@@ -260,9 +259,8 @@ const Reporting = () => {
     if (!showResults || !activeReport) return null;
     
     const config = reportConfig[activeReport];
-    const data = filteredReportData;
     
-    if (data.length === 0) {
+    if (pagination.pageItems.length === 0) {
       return (
         <table className="table table-striped" id="reportTable">
           <thead>
@@ -283,17 +281,6 @@ const Reporting = () => {
       );
     }
     
-    // Calculate pagination
-    const totalPages = Math.ceil(data.length / itemsPerPage);
-    const validCurrentPage = Math.max(1, Math.min(currentPage, totalPages));
-    
-    // Calculate start and end indices for current page
-    const startIndex = (validCurrentPage - 1) * itemsPerPage;
-    const endIndex = Math.min(startIndex + itemsPerPage, data.length);
-    
-    // Get current page data
-    const currentPageData = data.slice(startIndex, endIndex);
-    
     return (
       <>
         <table className="table table-striped" id="reportTable">
@@ -305,7 +292,7 @@ const Reporting = () => {
             </tr>
           </thead>
           <tbody>
-            {currentPageData.map((row, idx) => (
+            {pagination.pageItems.map((row, idx) => (
               <tr key={idx}>
                 {config.columns.map(column => {
                   let cellValue = row[column.field];
@@ -334,25 +321,25 @@ const Reporting = () => {
           </tbody>
         </table>
         
-        {/* Pagination controls */}
-        {totalPages > 1 && (
+        {/* Replace pagination controls with usePagination */}
+        {pagination.totalPages > 1 && (
           <nav aria-label="Report pagination" id="reportPagination" className="mt-3 pagination-actions-aligned">
             <ul className="pagination">
-              <li className={`page-item ${validCurrentPage === 1 ? 'disabled' : ''}`}>
+              <li className={`page-item ${pagination.currentPage === 1 ? 'disabled' : ''}`}>
                 <button 
                   className="page-link" 
-                  onClick={() => setCurrentPage(1)}
-                  disabled={validCurrentPage === 1}
+                  onClick={pagination.goToFirstPage}
+                  disabled={pagination.currentPage === 1}
                   title="First Page"
                 >
                   <i className="bi bi-chevron-double-left"></i>
                 </button>
               </li>
-              <li className={`page-item ${validCurrentPage === 1 ? 'disabled' : ''}`}>
+              <li className={`page-item ${pagination.currentPage === 1 ? 'disabled' : ''}`}>
                 <button 
                   className="page-link"
-                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                  disabled={validCurrentPage === 1}
+                  onClick={pagination.goToPreviousPage}
+                  disabled={pagination.currentPage === 1}
                   title="Previous Page"
                 >
                   &laquo;
@@ -360,9 +347,9 @@ const Reporting = () => {
               </li>
               
               {/* Page numbers */}
-              {Array.from({length: Math.min(5, totalPages)}, (_, i) => {
-                let startPage = Math.max(1, validCurrentPage - 2);
-                let endPage = Math.min(totalPages, startPage + 4);
+              {Array.from({length: Math.min(5, pagination.totalPages)}, (_, i) => {
+                let startPage = Math.max(1, pagination.currentPage - 2);
+                let endPage = Math.min(pagination.totalPages, startPage + 4);
                 
                 if (endPage - startPage < 4) {
                   startPage = Math.max(1, endPage - 4);
@@ -374,11 +361,11 @@ const Reporting = () => {
                   return (
                     <li 
                       key={pageNum} 
-                      className={`page-item ${pageNum === validCurrentPage ? 'active' : ''}`}
+                      className={`page-item ${pageNum === pagination.currentPage ? 'active' : ''}`}
                     >
                       <button 
                         className="page-link"
-                        onClick={() => setCurrentPage(pageNum)}
+                        onClick={() => pagination.goToPage(pageNum)}
                       >
                         {pageNum}
                       </button>
@@ -388,21 +375,21 @@ const Reporting = () => {
                 return null;
               })}
               
-              <li className={`page-item ${validCurrentPage === totalPages ? 'disabled' : ''}`}>
+              <li className={`page-item ${pagination.currentPage === pagination.totalPages ? 'disabled' : ''}`}>
                 <button 
                   className="page-link"
-                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                  disabled={validCurrentPage === totalPages}
+                  onClick={pagination.goToNextPage}
+                  disabled={pagination.currentPage === pagination.totalPages}
                   title="Next Page"
                 >
                   &raquo;
                 </button>
               </li>
-              <li className={`page-item ${validCurrentPage === totalPages ? 'disabled' : ''}`}>
+              <li className={`page-item ${pagination.currentPage === pagination.totalPages ? 'disabled' : ''}`}>
                 <button 
                   className="page-link"
-                  onClick={() => setCurrentPage(totalPages)}
-                  disabled={validCurrentPage === totalPages}
+                  onClick={pagination.goToLastPage}
+                  disabled={pagination.currentPage === pagination.totalPages}
                   title="Last Page"
                 >
                   <i className="bi bi-chevron-double-right"></i>
@@ -414,7 +401,7 @@ const Reporting = () => {
         
         <div className="mt-2 pagination-info">
           <small>
-            Showing {data.length === 0 ? 0 : startIndex + 1} to {endIndex} of {data.length} rows
+            Showing {filteredReportData.length === 0 ? 0 : pagination.startIndex + 1} to {pagination.endIndex} of {filteredReportData.length} rows
           </small>
         </div>
       </>
