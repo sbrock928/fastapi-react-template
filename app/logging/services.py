@@ -49,7 +49,8 @@ class LogService:
                     Log.username.ilike(search_term),
                     Log.hostname.ilike(search_term),
                     # Convert status_code to string for searching
-                    Log.status_code.cast(String).ilike(search_term)
+                    Log.status_code.cast(String).ilike(search_term),
+                    Log.application_id.cast(String).ilike(search_term),
                 )
             )
         
@@ -94,7 +95,8 @@ class LogService:
                     Log.username.ilike(search_term),
                     Log.hostname.ilike(search_term),
                     # Convert status_code to string for searching
-                    Log.status_code.cast(String).ilike(search_term)
+                    Log.status_code.cast(String).ilike(search_term),
+                    Log.application_id.cast(String).ilike(search_term),
                 )
             )
         

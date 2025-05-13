@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 import json
 from app.logging.middleware import LoggingMiddleware  # Import the middleware
-from app.database_migration import add_missing_columns  # Import migration function
+
 
 
 # Custom JSON encoder to handle datetime objects
@@ -18,8 +18,6 @@ class DateTimeEncoder(json.JSONEncoder):
 
 
 def create_app():
-    # Run database migration to add missing columns
-    add_missing_columns()
     
     app = FastAPI()
 

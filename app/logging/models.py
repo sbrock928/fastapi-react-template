@@ -16,6 +16,7 @@ class LogBase(SQLModel):
     user_agent: Optional[str] = None
     username: Optional[str] = None  # Changed from server_username to username
     hostname: Optional[str] = None  # Added computer name field
+    application_id: Optional[str] = Field(default=None, title="Application ID")
 
     class Config:
         orm_mode = True
@@ -25,3 +26,4 @@ class LogBase(SQLModel):
 # Database table model (inherits from base model)
 class Log(LogBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    __tablename__ = "log"

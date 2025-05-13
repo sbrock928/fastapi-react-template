@@ -58,6 +58,7 @@ export interface Log {
   status_category?: string;
   username?: string;
   hostname?: string;
+  application_id?: string;
 }
 
 export interface StatusDistribution {

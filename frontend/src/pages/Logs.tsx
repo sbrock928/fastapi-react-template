@@ -177,7 +177,8 @@ const Logs = () => {
         log.status_code.toString().includes(filterText) ||
         (log.client_ip && log.client_ip.toLowerCase().includes(filterText.toLowerCase())) ||
         (log.username && log.username.toLowerCase().includes(filterText.toLowerCase())) ||
-        (log.hostname && log.hostname.toLowerCase().includes(filterText.toLowerCase()))
+        (log.hostname && log.hostname.toLowerCase().includes(filterText.toLowerCase())) ||
+        (log.application_id && log.application_id.toLowerCase().includes(filterText.toLowerCase()))
       );
       setFilteredLogs(filtered);
     }
@@ -443,6 +444,7 @@ const Logs = () => {
                 <th>Path</th>
                 <th>Status</th>
                 <th>User</th>
+                <th>App ID</th>
                 <th>Processing Time</th>
                 <th>Actions</th>
               </tr>
@@ -450,7 +452,7 @@ const Logs = () => {
             <tbody id="logsTableBody">
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-4">
+                  <td colSpan={8} className="text-center py-4">
                     <div className="spinner-border text-primary" role="status">
                       <span className="visually-hidden">Loading...</span>
                     </div>
@@ -459,7 +461,7 @@ const Logs = () => {
                 </tr>
               ) : filteredLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-4">
+                  <td colSpan={8} className="text-center py-4">
                     No logs found. Try changing your filter or time range.
                   </td>
                 </tr>
@@ -489,6 +491,7 @@ const Logs = () => {
                         </span>
                       ) : '-'}
                     </td>
+                    <td>{log.application_id || 'N/A'}</td>
                     <td>{log.processing_time ? `${log.processing_time.toFixed(2)} ms` : 'N/A'}</td>
                     <td>
                       <button 

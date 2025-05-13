@@ -34,6 +34,10 @@ const LogDetailsModal = ({ log, show, onHide }: LogDetailsModalProps) => {
                   <label className="form-label fw-bold">Path:</label>
                   <div id="detailPath">{log.path}</div>
                 </div>
+                <div className="mb-3">
+                  <label className="form-label fw-bold">Application ID:</label>
+                  <div id="detailAppId">{log.application_id || 'N/A'}</div>
+                </div>
               </div>
               <div className="col-md-6">
                 <div className="mb-3">

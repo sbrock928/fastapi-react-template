@@ -9,7 +9,6 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 from typing import Callable, Awaitable, List, Dict, Any
 
-
 from datetime import datetime
 from starlette.background import BackgroundTask
 from sqlmodel import Session
@@ -17,6 +16,12 @@ from app.logging.models import Log  # Adjust import as needed
 from app.database import SessionLocal  # Your session generator
 import time
 import os
+
+# Import APPLICATION_ID from environment variables
+from dotenv import load_dotenv
+load_dotenv()
+
+APPLICATION_ID = os.environ.get('APPLICATION_ID', 'Unknown')
 
 class LoggingMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp):
@@ -34,7 +39,10 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         except Exception:
             self.hostname = "unknown_host"
             
-        print(f"Logging middleware initialized with username: {self.username} on host: {self.hostname}")
+        # Store the application ID from environment
+        self.application_id = APPLICATION_ID
+            
+        print(f"Logging middleware initialized with username: {self.username} on host: {self.hostname}, App ID: {self.application_id}")
 
     async def dispatch(self, request: Request, call_next: Callable):
         # Define paths that should be excluded from logging
@@ -122,6 +130,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                     user_agent=request.headers.get("user-agent"),
                     username=self.username,  # Changed from server_username to username
                     hostname=self.hostname,  # Added hostname
+                    application_id=self.application_id,  # Added application_id
                 )
                 session.add(log)
                 session.commit()

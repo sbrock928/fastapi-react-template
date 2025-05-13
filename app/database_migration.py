@@ -40,6 +40,15 @@ def add_missing_columns():
             print("Adding 'hostname' column to log table...")
             cursor.execute("ALTER TABLE log ADD COLUMN hostname TEXT")
         
+        # Check if application_id column exists in log table and add it if it doesn't
+        cursor.execute("PRAGMA table_info(log)")
+        columns = cursor.fetchall()
+        column_names = [column[1] for column in columns]
+        
+        if "application_id" not in column_names:
+            print("Adding application_id column to log table...")
+            cursor.execute("ALTER TABLE log ADD COLUMN application_id TEXT")
+        
         conn.commit()
         print("Migration completed successfully.")
     except Exception as e:

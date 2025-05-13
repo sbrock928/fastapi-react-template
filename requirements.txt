@@ -10,3 +10,4 @@ pandas==2.1.1
 xlsxwriter==3.1.0
 pyinstaller==6.5.0
 black==24.1.1
+dotenv==0.9.9
