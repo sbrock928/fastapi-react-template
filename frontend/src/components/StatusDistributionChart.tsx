@@ -73,7 +73,6 @@ const StatusDistributionChart: React.FC<StatusDistributionChartProps> = ({
                       className="progress flex-grow-1" 
                       style={{ height: '24px', cursor: 'pointer' }}
                       onClick={() => {
-                        console.log(`Clicked on status category: ${group.description}`);
                         onStatusClick(group.description);
                       }}
                       title={`${group.count} logs with ${group.description} status codes (${Math.round((group.count / total) * 100)}%)`}

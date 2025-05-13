@@ -141,17 +141,18 @@ const Reporting = () => {
     
     if (!filterValue.trim()) {
       setFilteredReportData(reportData);
-    } else {
+      return;
+    }
+    
+    // Only filter if we have an active report and data
+    if (activeReport && reportData.length > 0) {
       const config = reportConfig[activeReport];
-      const filtered = reportData.filter(item => {
-        return config.columns.some(column => {
-          if (item[column.field] !== undefined && item[column.field] !== null) {
-            return item[column.field].toString().toLowerCase().includes(filterValue);
-          }
-          return false;
-        });
-      });
-      
+      const filtered = reportData.filter(item => 
+        config.columns.some(column => {
+          const value = item[column.field];
+          return value != null && String(value).toLowerCase().includes(filterValue);
+        })
+      );
       setFilteredReportData(filtered);
     }
   };

@@ -23,12 +23,6 @@ const Documentation = () => {
     category: 'general'
   });
   
-  // Initialize Bootstrap collapse functionality after component mounts
-  useEffect(() => {
-    // Bootstrap functionality will be initialized automatically
-    // because we're including the Bootstrap bundle JS in our main.tsx
-  }, []);
-
   // Load notes when user guide is shown
   useEffect(() => {
     if (showUserGuide) {
