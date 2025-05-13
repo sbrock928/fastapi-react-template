@@ -1,6 +1,7 @@
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request, Depends, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 import os
 from datetime import datetime
@@ -18,10 +19,23 @@ class DateTimeEncoder(json.JSONEncoder):
 
 def create_app():
 
-    app = FastAPI()
+    app = FastAPI(
+        docs_url="/api/docs",
+        redoc_url="/api/redoc",
+        openapi_url="/api/openapi.json"
+    )
 
     # Add request logger middleware
     app.add_middleware(LoggingMiddleware)
+    
+    # Add CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # In production, replace with specific origins
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     # Import and include routers
     from app.resources.router import router as resource_router

@@ -10,6 +10,8 @@ interface Note {
   updated_at: string | null;
 }
 
+type DocType = 'swagger' | 'redoc';
+
 const Documentation = () => {
   const [showApiFrame, setShowApiFrame] = useState(false);
   const [showUserGuide, setShowUserGuide] = useState(false);
@@ -17,6 +19,7 @@ const Documentation = () => {
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [docType, setDocType] = useState<DocType>('swagger');
   const [formData, setFormData] = useState({
     title: '',
     content: '',
@@ -52,6 +55,14 @@ const Documentation = () => {
     e.preventDefault();
     setShowUserGuide(true);
     setShowApiFrame(false);
+  };
+
+  const handleDocTypeChange = (type: DocType) => {
+    setDocType(type);
+  };
+
+  const getDocumentationUrl = () => {
+    return docType === 'swagger' ? '/api/docs' : '/api/redoc';
   };
 
   const handleNoteClick = (note: Note) => {
@@ -288,6 +299,22 @@ const Documentation = () => {
           <div className="card-header bg-primary text-white d-flex justify-content-between align-items-center">
             <div className="d-flex align-items-center">
               <h5 className="mb-0">API Documentation</h5>
+              <div className="btn-group ms-3">
+                <button
+                  type="button"
+                  className={`btn btn-sm ${docType === 'swagger' ? 'btn-light' : 'btn-outline-light'}`}
+                  onClick={() => handleDocTypeChange('swagger')}
+                >
+                  Swagger
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${docType === 'redoc' ? 'btn-light' : 'btn-outline-light'}`}
+                  onClick={() => handleDocTypeChange('redoc')}
+                >
+                  ReDoc
+                </button>
+              </div>
             </div>
             <button 
               className="btn btn-sm btn-outline-light" 
@@ -298,9 +325,16 @@ const Documentation = () => {
             </button>
           </div>
           <div className="card-body p-0">
-            <div className="ratio ratio-16x9" style={{ minHeight: '800px' }}>
-              <iframe src="/docs" title="API Documentation" allowFullScreen style={{ width: '100%' }}></iframe>
-            </div>
+            <iframe 
+              src={getDocumentationUrl()} 
+              style={{ 
+                width: '100%', 
+                height: '800px', 
+                border: 'none',
+                display: 'block'
+              }}
+              title="API Documentation"
+            />
           </div>
         </div>
       ) : showUserGuide ? (

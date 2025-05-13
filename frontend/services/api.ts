@@ -27,43 +27,53 @@ api.interceptors.response.use(
   }
 );
 
+// Path helper to ensure API prefix
+const ensureApiPrefix = (path: string) => {
+  // If path already starts with /api, return as is
+  if (path.startsWith('c')) return path;
+  // If path starts with / but not /api/, add /api prefix
+  if (path.startsWith('/')) return `/api${path}`;
+  // If path doesn't start with /, add /api/ prefix
+  return `/api/${path}`;
+};
+
 // Resources API
 export const resourcesApi = {
-  getAll: (endpoint: string) => api.get(endpoint),
-  getById: (endpoint: string, id: number) => api.get(`${endpoint}/${id}`),
-  create: (endpoint: string, data: ResourceItem) => api.post(endpoint, data),
-  update: (endpoint: string, id: number, data: ResourceItem) => api.patch(`${endpoint}/${id}`, data),
-  delete: (endpoint: string, id: number) => api.delete(`${endpoint}/${id}`),
+  getAll: (endpoint: string) => api.get(ensureApiPrefix(endpoint)),
+  getById: (endpoint: string, id: number) => api.get(ensureApiPrefix(`${endpoint}/${id}`)),
+  create: (endpoint: string, data: ResourceItem) => api.post(ensureApiPrefix(endpoint), data),
+  update: (endpoint: string, id: number, data: ResourceItem) => api.patch(ensureApiPrefix(`${endpoint}/${id}`), data),
+  delete: (endpoint: string, id: number) => api.delete(ensureApiPrefix(`${endpoint}/${id}`)),
 };
 
 // Logs API
 export const logsApi = {
   getLogs: (params: Record<string, string | number>) => 
-    api.get('/logs/', { params }),
+    api.get(ensureApiPrefix('/logs/'), { params }),
   getLogDetail: (logId: number) => 
-    api.get(`/logs/?limit=1&offset=0&log_id=${logId}`),
+    api.get(ensureApiPrefix(`/logs/?limit=1&offset=0&log_id=${logId}`)),
   getStatusDistribution: (hours: string) => 
-    api.get(`/reports/status-distribution?hours=${hours}`),
+    api.get(ensureApiPrefix(`/reports/status-distribution?hours=${hours}`)),
 };
 
 // Reports API
 export const reportsApi = {
   runReport: (endpoint: string, params: Record<string, string>) => 
-    api.post(endpoint, params),
+    api.post(ensureApiPrefix(endpoint), params),
   exportXlsx: (data: { reportType: string, data: ReportRow[], fileName: string }) => 
-    api.post('/reports/export-xlsx', data, { responseType: 'blob' }),
-  getCycleCodes: () => api.get('/reports/cycle-codes'),
+    api.post(ensureApiPrefix('/reports/export-xlsx'), data, { responseType: 'blob' }),
+  getCycleCodes: () => api.get(ensureApiPrefix('/reports/cycle-codes')),
 };
 
 // Documentation API
 export const documentationApi = {
-  getNotes: () => api.get('/user-guide/notes'),
-  getNoteById: (id: number) => api.get(`/user-guide/notes/${id}`),
+  getNotes: () => api.get(ensureApiPrefix('/user-guide/notes')),
+  getNoteById: (id: number) => api.get(ensureApiPrefix(`/user-guide/notes/${id}`)),
   createNote: (note: Omit<Note, 'id' | 'created_at' | 'updated_at'>) => 
-    api.post('/user-guide/notes', note),
+    api.post(ensureApiPrefix('/user-guide/notes'), note),
   updateNote: (id: number, note: Omit<Note, 'id' | 'created_at' | 'updated_at'>) => 
-    api.put(`/user-guide/notes/${id}`, note),
-  deleteNote: (id: number) => api.delete(`/user-guide/notes/${id}`),
+    api.put(ensureApiPrefix(`/user-guide/notes/${id}`), note),
+  deleteNote: (id: number) => api.delete(ensureApiPrefix(`/user-guide/notes/${id}`)),
 };
 
 export default api;
