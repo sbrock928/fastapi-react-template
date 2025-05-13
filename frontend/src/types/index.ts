@@ -32,6 +32,7 @@ export interface ReportParameter {
   label: string;
   type: string;
   options?: {value: string, label: string}[];
+  dynamicOptions?: string; // Used to specify which API to call for dynamic options
 }
 
 export interface ReportConfig {

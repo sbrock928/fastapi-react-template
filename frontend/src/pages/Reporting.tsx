@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { reportsApi } from '@/services/api';
 import reportConfig from '@/config/reports';
 import { formatDate, formatNumber, formatPercentage } from '@/utils/formatters';
@@ -16,10 +16,50 @@ const Reporting = () => {
   });
   const [filterText, setFilterText] = useState<string>('');
   const [showResults, setShowResults] = useState<boolean>(false);
+  const [dynamicOptions, setDynamicOptions] = useState<Record<string, { value: string, label: string }[]>>({});
   
   // Replace pagination state with usePagination hook
   const getPagination = usePagination<ReportRow>({ initialPage: 1, itemsPerPage: 2 });
   const pagination = getPagination(filteredReportData);
+  
+  // Fetch dynamic options when needed
+  useEffect(() => {
+    if (activeReport) {
+      const config = reportConfig[activeReport];
+      // Check if this report has parameters with dynamic options
+      const dynamicParams = config.parameters.filter(param => param.dynamicOptions);
+      
+      if (dynamicParams.length > 0) {
+        // Fetch each type of dynamic option
+        const fetchOptions = async () => {
+          const newOptions: Record<string, { value: string, label: string }[]> = {};
+          
+          for (const param of dynamicParams) {
+            if (param.dynamicOptions === 'cycle_codes') {
+              try {
+                const response = await reportsApi.getCycleCodes();
+                // Prepare options with 'All Cycles' as the first option
+                const options = [
+                  { value: '', label: 'All Cycles' },
+                  ...response.data.map((item: { code: string }) => ({
+                    value: item.code,
+                    label: item.code
+                  }))
+                ];
+                newOptions['cycle_codes'] = options;
+              } catch (error) {
+                console.error('Error fetching cycle codes:', error);
+              }
+            }
+          }
+          
+          setDynamicOptions(newOptions);
+        };
+        
+        fetchOptions();
+      }
+    }
+  }, [activeReport]);
   
   // Handle report type selection
   const handleReportChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -232,11 +272,20 @@ const Reporting = () => {
                 value={parameters[param.field] || ''}
                 onChange={handleParameterChange}
               >
-                {param.options?.map(option => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
+                {/* Handle dynamic options if specified */}
+                {param.dynamicOptions && dynamicOptions[param.dynamicOptions] ? (
+                  dynamicOptions[param.dynamicOptions].map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))
+                ) : (
+                  param.options?.map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))
+                )}
               </select>
             ) : (
               <input 

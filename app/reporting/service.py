@@ -97,12 +97,27 @@ class ReportingService:
 
         return report_data
 
-    async def get_resource_counts(self) -> List[Dict[str, Any]]:
-        """Report showing count of different resource types"""
+    async def get_resource_counts(self, cycle_code: str = None) -> List[Dict[str, Any]]:
+        """Report showing count of different resource types, optionally filtered by cycle code"""
         # Get counts for different resource types
         user_count = self.session.exec(select(func.count(User.id))).one()
         employee_count = self.session.exec(select(func.count(Employee.id))).one()
         subscriber_count = self.session.exec(select(func.count(Subscriber.id))).one()
+
+        # Apply cycle code filter if provided
+        if cycle_code:
+            # Use raw SQL to filter by cycle code
+            # You would typically join with the Cycles table in a real implementation
+            cycle_query = text(f"""
+                SELECT 
+                    (SELECT COUNT(*) FROM user WHERE cycle_code = :cycle_code) as user_count,
+                    (SELECT COUNT(*) FROM employee WHERE cycle_code = :cycle_code) as employee_count,
+                    (SELECT COUNT(*) FROM subscriber WHERE cycle_code = :cycle_code) as subscriber_count
+            """)
+            cycle_result = self.session.exec(cycle_query, {"cycle_code": cycle_code}).one()
+            user_count = cycle_result[0] if cycle_result[0] is not None else 0
+            employee_count = cycle_result[1] if cycle_result[1] is not None else 0
+            subscriber_count = cycle_result[2] if cycle_result[2] is not None else 0
 
         # Transform into the expected format
         report_data = [
@@ -150,6 +165,15 @@ class ReportingService:
         # Reset file pointer
         output.seek(0)
         return output
+
+    async def get_distinct_cycle_codes(self) -> List[Dict[str, str]]:
+        """Get list of distinct cycle codes for report filters"""
+        try:
+            return await self.report_dao.get_distinct_cycle_codes()
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, detail=f"Error fetching cycle codes: {str(e)}"
+            )
 
     def _get_date_range(self, range_type: str):
         """Helper function to get date ranges for reports"""

@@ -52,6 +52,7 @@ export const reportsApi = {
     api.post(endpoint, params),
   exportXlsx: (data: { reportType: string, data: ReportRow[], fileName: string }) => 
     api.post('/reports/export-xlsx', data, { responseType: 'blob' }),
+  getCycleCodes: () => api.get('/reports/cycle-codes'),
 };
 
 // Documentation API

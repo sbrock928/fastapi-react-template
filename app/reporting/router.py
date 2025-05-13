@@ -34,6 +34,13 @@ async def get_status_distribution(
     return await reporting_service.get_status_distribution(hours=hours)
 
 
+@router.get("/cycle-codes", response_model=List[Dict[str, str]])
+async def get_cycle_codes(session: Session = Depends(get_session)):
+    """Get list of distinct cycle codes for report filters"""
+    reporting_service = ReportingService(session)
+    return await reporting_service.get_distinct_cycle_codes()
+
+
 @router.post("/users-by-creation")
 async def get_users_by_creation(
     params: Dict[str, Any] = Body(...), session: Session = Depends(get_session)
@@ -53,10 +60,14 @@ async def get_employees_by_department(session: Session = Depends(get_session)):
 
 
 @router.post("/resource-counts")
-async def get_resource_counts(session: Session = Depends(get_session)):
+async def get_resource_counts(
+    params: Dict[str, Any] = Body(...), session: Session = Depends(get_session)
+):
     """Report showing count of different resource types"""
     reporting_service = ReportingService(session)
-    return await reporting_service.get_resource_counts()
+    return await reporting_service.get_resource_counts(
+        cycle_code=params.get("cycle_code")
+    )
 
 
 @router.post("/export-xlsx")

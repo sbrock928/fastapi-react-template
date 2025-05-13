@@ -41,7 +41,17 @@ const reportConfig: Record<string, ReportConfig> = {
       { field: 'resource_type', header: 'Resource Type', type: 'text' },
       { field: 'count', header: 'Count', type: 'number' }
     ],
-    parameters: []
+    parameters: [
+      { 
+        field: 'cycle_code', 
+        label: 'Cycle Code', 
+        type: 'select',
+        dynamicOptions: 'cycle_codes',
+        options: [
+          { value: '', label: 'All Cycles' }
+        ]
+      }
+    ]
   }
 };
 
