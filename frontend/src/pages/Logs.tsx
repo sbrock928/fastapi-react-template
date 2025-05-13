@@ -7,7 +7,6 @@ import type { Log, StatusDistribution } from '@/types';
 
 const Logs = () => {
   // State
-  const [allLogs, setAllLogs] = useState<Log[]>([]);
   const [filteredLogs, setFilteredLogs] = useState<Log[]>([]);
   const [timeRange, setTimeRange] = useState<string>('24');
   const [filterText, setFilterText] = useState<string>('');
@@ -51,7 +50,7 @@ const Logs = () => {
   useEffect(() => {
     loadLogs();
     loadStatusDistribution();
-  }, [timeRange, currentOffset, selectedStatusCategory, serverFilterActive, filterText]);
+  }, [timeRange, currentOffset, selectedStatusCategory, filterText]);
   
   // When pagination page changes, update the offset
   useEffect(() => {
@@ -139,7 +138,6 @@ const Logs = () => {
         return {...log, status_category: statusCategory};
       });
       
-      setAllLogs(logsWithCategory);
       setFilteredLogs(logsWithCategory);
     } catch (error) {
       console.error('Error loading logs:', error);
@@ -166,24 +164,6 @@ const Logs = () => {
     }
   };
   
-  // Filter logs with simple client-side filtering
-  useEffect(() => {
-    if (!filterText.trim()) {
-      setFilteredLogs([...allLogs]);
-    } else {
-      const filtered = allLogs.filter(log => 
-        log.method.toLowerCase().includes(filterText.toLowerCase()) ||
-        log.path.toLowerCase().includes(filterText.toLowerCase()) ||
-        log.status_code.toString().includes(filterText) ||
-        (log.client_ip && log.client_ip.toLowerCase().includes(filterText.toLowerCase())) ||
-        (log.username && log.username.toLowerCase().includes(filterText.toLowerCase())) ||
-        (log.hostname && log.hostname.toLowerCase().includes(filterText.toLowerCase())) ||
-        (log.application_id && log.application_id.toLowerCase().includes(filterText.toLowerCase()))
-      );
-      setFilteredLogs(filtered);
-    }
-  }, [filterText, allLogs]);
-
   const handleRefresh = () => {
     setCurrentOffset(0);
     loadLogs();
@@ -207,6 +187,9 @@ const Logs = () => {
     
     // Reset offset to ensure we start from the first page with the new filter
     setCurrentOffset(0);
+    
+    // Update server filter active status
+    setServerFilterActive(!!newFilterText.trim());
   };
 
   // Clear filter and reload data
