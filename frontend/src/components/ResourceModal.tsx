@@ -112,17 +112,6 @@ const ResourceModal = ({
         isValid = false;
       }
       
-      // Minimum length validation
-      else if (column.minLength && typeof value === 'string' && value.trim().length < column.minLength) {
-        errors[column.field] = `${column.header} must be at least ${column.minLength} characters`;
-        isValid = false;
-      }
-      
-      // Pattern validation
-      else if (column.pattern && typeof value === 'string' && value.trim() !== '' && !new RegExp(column.pattern).test(value)) {
-        errors[column.field] = `${column.header} must match pattern: ${column.pattern}`;
-        isValid = false;
-      }
     });
     
     if (!isValid) {

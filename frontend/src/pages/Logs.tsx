@@ -423,11 +423,11 @@ const Logs = () => {
             <thead>
               <tr>
                 <th>Timestamp</th>
+                <th>App ID</th>
+                <th>User</th>
+                <th>Status</th>
                 <th>Method</th>
                 <th>Path</th>
-                <th>Status</th>
-                <th>User</th>
-                <th>App ID</th>
                 <th>Processing Time</th>
                 <th>Actions</th>
               </tr>
@@ -452,8 +452,14 @@ const Logs = () => {
                 filteredLogs.map((log) => (
                   <tr key={log.id}>
                     <td>{new Date(log.timestamp).toLocaleString()}</td>
-                    <td><span className="badge bg-primary">{log.method}</span></td>
-                    <td>{log.path}</td>
+                    <td>{log.application_id || 'N/A'}</td>
+                    <td>
+                      {log.username ? (
+                        <span>
+                          {log.username}
+                        </span>
+                      ) : '-'}
+                    </td>
                     <td>
                       <span 
                         className={`badge ${
@@ -466,15 +472,8 @@ const Logs = () => {
                         {log.status_code}
                       </span>
                     </td>
-                    <td>
-                      {log.username ? (
-                        <span>
-                          <i className="bi bi-person-circle me-1"></i>
-                          {log.username}
-                        </span>
-                      ) : '-'}
-                    </td>
-                    <td>{log.application_id || 'N/A'}</td>
+                    <td><span className="badge bg-primary">{log.method}</span></td>
+                    <td>{log.path}</td>
                     <td>{log.processing_time ? `${log.processing_time.toFixed(2)} ms` : 'N/A'}</td>
                     <td>
                       <button 

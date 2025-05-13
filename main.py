@@ -43,4 +43,4 @@ if __name__ == "__main__":
     print(f"Debug mode: {debug_mode}")
     print(f"Application path: {application_path}")
 
-    uvicorn.run("main:app", host=host, port=8000, reload=reload_enabled)
+    uvicorn.run("main:app", host=host, port=9000, reload=reload_enabled)
