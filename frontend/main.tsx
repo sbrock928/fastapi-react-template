@@ -5,13 +5,10 @@ import App from './App.tsx'
 import './index.css'
 import 'bootstrap/dist/css/bootstrap.min.css'
 // Import our custom CSS file that handles bootstrap-icons
-import './styles/bootstrap-icons.css'
+import 'bootstrap-icons/font/bootstrap-icons.css'
 
-// Import Bootstrap JS
-import * as bootstrap from 'bootstrap'
 
-// Make bootstrap available globally for modal functionality
-window.bootstrap = bootstrap;
+
 
 // Add responsive viewport meta tag programmatically if not in HTML
 const setViewportMeta = () => {
