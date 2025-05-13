@@ -4,10 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "cd frontend && vite",
-    "build": "cd frontend && npx tsc && vite build",
-    "lint": "cd frontend && eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "cd frontend && vite preview",
+    "dev": "vite",
+    "build": "npx tsc && vite build",
+    "lint": "eslint frontend --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "preview": "vite preview",
     "postinstall": "npm install -g typescript"
   },
   "dependencies": {
@@ -22,6 +22,7 @@
   "devDependencies": {
     "@popperjs/core": "^2.11.8",
     "@types/bootstrap": "^5.2.10",
+    "@types/node": "^22.15.17",
     "@types/react": "^18.2.37",
     "@types/react-dom": "^18.2.15",
     "@typescript-eslint/eslint-plugin": "^6.10.0",

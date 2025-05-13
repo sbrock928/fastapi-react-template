@@ -1,13 +1,13 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { resolve } from 'path';
+import path from 'path';
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@': resolve(__dirname, '.'),
+      '@': path.resolve(__dirname, 'frontend'),
     },
   },
   server: {
@@ -22,8 +22,11 @@ export default defineConfig({
       },
     },
   },
+  optimizeDeps: {
+    include: ['bootstrap'],
+  },
   build: {
-    outDir: '../static',
+    outDir: './static',
     sourcemap: true,
     rollupOptions: {
       output: {
@@ -33,10 +36,6 @@ export default defineConfig({
           bootstrap: ['bootstrap'],
         },
       },
-    },
-    // Add optimizeDeps configuration for bootstrap-icons
-    optimizeDeps: {
-      include: ['bootstrap'],
     },
   },
 });
