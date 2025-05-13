@@ -80,3 +80,54 @@ env/
 # Temporary files
 .tmp/
 .temp/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Media files
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.ico
+*.svg
+*.mp3
+*.mp4
+*.wav
+*.mov
+*.avi
+*.pdf
+
+# Compiled files and binaries
+*.pyc
+*.pyd
+*.pyo
+*.exe
+*.dll
+*.so
+*.dylib
+dist/
+build/
+
+# Large data files
+*.csv
+*.json
+*.xml
+*.yaml
+*.yml
+!package.json
+!tsconfig.json
+!vite.config.ts
+!important-config.yml
+
+# PyInstaller files
+*.spec
+*.manifest
+
+# Local development specific
+*.env
+.env
+env.local
+.env.local
