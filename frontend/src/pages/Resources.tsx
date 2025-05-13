@@ -315,7 +315,7 @@ const Resources = () => {
   return (
     <div>
       <div className="d-flex justify-content-between align-items-center mb-4">
-        <h1>Resource Management</h1>
+        <h3>Resource Management</h3>
       </div>
 
       <div className="card mb-4">

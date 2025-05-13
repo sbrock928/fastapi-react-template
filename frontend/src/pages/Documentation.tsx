@@ -286,7 +286,7 @@ const Documentation = () => {
 
   return (
     <div style={{ width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
-      <h1>Documentation</h1>
+      <h3>Documentation</h3>
       <p>Reference documentation for the Vibes + Hype system.</p>
 
       {showApiFrame ? (

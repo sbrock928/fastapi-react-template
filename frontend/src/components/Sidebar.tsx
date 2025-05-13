@@ -13,8 +13,8 @@ const Sidebar = () => {
           to="/" 
           className={`list-group-item list-group-item-action d-flex align-items-center ${isActive('/') ? 'active' : ''}`}
         >
-          <i className="bi bi-speedometer2 me-3"></i>
-          <span className="sidebar-text">Dashboard</span>
+          <i className="bi bi-house-door me-3"></i>
+          <span className="sidebar-text">Home</span>
         </Link>
         <Link 
           to="/resources" 
@@ -31,19 +31,20 @@ const Sidebar = () => {
           <span className="sidebar-text">Reporting</span>
         </Link>
         <Link 
-          to="/logs" 
-          className={`list-group-item list-group-item-action d-flex align-items-center ${isActive('/logs') ? 'active' : ''}`}
-        >
-          <i className="bi bi-list-ul me-3"></i>
-          <span className="sidebar-text">Logs</span>
-        </Link>
-        <Link 
           to="/documentation" 
           className={`list-group-item list-group-item-action d-flex align-items-center ${isActive('/documentation') ? 'active' : ''}`}
         >
           <i className="bi bi-file-earmark-text me-3"></i>
           <span className="sidebar-text">Documentation</span>
         </Link>
+        <Link 
+          to="/logs" 
+          className={`list-group-item list-group-item-action d-flex align-items-center ${isActive('/logs') ? 'active' : ''}`}
+        >
+          <i className="bi bi-list-ul me-3"></i>
+          <span className="sidebar-text">Logs</span>
+        </Link>
+
       </div>
     </div>
   );

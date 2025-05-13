@@ -1,0 +1,70 @@
+.dashboard-container {
+    margin: 0rem auto;
+    padding: 0rem;
+    text-align: center;
+  }
+  
+  .dashboard-title {
+    font-size: 2.5rem;
+    margin-bottom: 3rem;
+  }
+
+  .dashboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem; /* equivalent to Bootstrap's mb-4 */
+  }
+  
+  
+  .dashboard-grid {
+    display: grid;
+    gap: 2rem;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+  
+  .dashboard-card {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    padding: 2rem;
+    transition: transform 0.2s ease;
+  }
+  
+  .dashboard-card:hover {
+    transform: translateY(-5px);
+  }
+  
+  .icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+  }
+  
+  .icon.blue { color: #0d6efd; }
+  .icon.green { color: #198754; }
+  .icon.cyan { color: #0dcaf0; }
+  .icon.yellow { color: #ffc107; }
+  
+  .dashboard-button {
+    display: inline-block;
+    margin-top: 1rem;
+    padding: 0.6rem 1.2rem;
+    color: #fff;
+    text-decoration: none;
+    border-radius: 6px;
+    font-weight: bold;
+    transition: background-color 0.2s ease;
+  }
+  
+  .dashboard-button.blue { background-color: #0d6efd; }
+  .dashboard-button.blue:hover { background-color: #0b5ed7; }
+  
+  .dashboard-button.green { background-color: #198754; }
+  .dashboard-button.green:hover { background-color: #157347; }
+  
+  .dashboard-button.cyan { background-color: #0dcaf0; }
+  .dashboard-button.cyan:hover { background-color: #0bbbe5; }
+  
+  .dashboard-button.yellow { background-color: #ffc107; color: #212529; }
+  .dashboard-button.yellow:hover { background-color: #e0a800; }
+  

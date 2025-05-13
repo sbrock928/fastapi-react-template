@@ -289,7 +289,7 @@ const Logs = () => {
 
   return (
     <div>
-      <h1>System Logs</h1>
+      <h3>System Logs</h3>
       <p>View and filter system logs and API requests.</p>
       <div className="row mb-4">
         <div className="col-md-8 d-flex gap-2 align-items-center">

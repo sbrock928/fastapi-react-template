@@ -460,7 +460,7 @@ const Reporting = () => {
   return (
     <div>
       <div className="d-flex justify-content-between align-items-center mb-4">
-        <h1>Reporting Dashboard</h1>
+        <h3>Reporting Dashboard</h3>
       </div>
 
       {/* Report Parameters Card */}
