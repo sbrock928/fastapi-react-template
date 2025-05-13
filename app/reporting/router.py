@@ -26,8 +26,7 @@ async def get_recent_activities(
 
 @router.get("/status-distribution", response_model=Dict[str, Any])
 async def get_status_distribution(
-    hours: int = Query(24, ge=1, le=168), 
-    session: Session = Depends(get_session)
+    hours: int = Query(24, ge=1, le=168), session: Session = Depends(get_session)
 ):
     """Get distribution of logs by status code"""
     reporting_service = ReportingService(session)

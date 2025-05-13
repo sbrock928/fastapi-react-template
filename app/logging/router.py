@@ -23,38 +23,34 @@ async def get_logs(
     status_min: Optional[int] = None,
     status_max: Optional[int] = None,
     search: Optional[str] = None,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     """Get logs with pagination and filtering"""
     log_service = LogService(session)
     logs = await log_service.get_logs(
-        limit=limit, 
-        offset=offset, 
-        hours=hours, 
+        limit=limit,
+        offset=offset,
+        hours=hours,
         log_id=log_id,
         status_min=status_min,
         status_max=status_max,
-        search=search
+        search=search,
     )
-    
+
     # Get total count for pagination
     total_count = await log_service.get_logs_count(
-        hours=hours,
-        status_min=status_min,
-        status_max=status_max,
-        search=search
+        hours=hours, status_min=status_min, status_max=status_max, search=search
     )
-    
+
     # Set total count in header
     response.headers["X-Total-Count"] = str(total_count)
-    
+
     return logs
 
 
 @router.get("/status-distribution", response_model=Dict[str, Any])
 async def get_status_distribution(
-    hours: int = Query(24, ge=1, le=168),
-    session: Session = Depends(get_session)
+    hours: int = Query(24, ge=1, le=168), session: Session = Depends(get_session)
 ):
     """Get distribution of logs by status code"""
     log_service = LogService(session)

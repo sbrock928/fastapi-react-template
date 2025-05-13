@@ -22,7 +22,7 @@ class ReportingDAO:
     async def get_log_count(self) -> int:
         """Get the total number of logs"""
         return self.session.exec(select(func.count(Log.id))).one()
-        
+
     async def get_distinct_cycle_codes(self):
         """Get a list of all distinct cycle codes from the Cycles table"""
         # Using raw SQL since we don't have the Cycles model in the current context

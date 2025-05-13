@@ -56,7 +56,7 @@ class ReportingService:
         try:
             # Calculate the time threshold based on the hours parameter
             time_threshold = datetime.now() - timedelta(hours=hours)
-            
+
             # Execute a query to get status code distribution
             query = """
             SELECT status_code, COUNT(*) as count
@@ -65,23 +65,20 @@ class ReportingService:
             GROUP BY status_code
             ORDER BY status_code
             """
-            
+
             result = self.session.exec(
                 text(query).bindparams(time_threshold=time_threshold)
             ).all()
-            
+
             # Format the results
             distribution = []
-            
+
             for row in result:
                 status_code = row[0]
                 count = row[1]
-                
-                item = {
-                    "status_code": status_code,
-                    "count": count
-                }
-                
+
+                item = {"status_code": status_code, "count": count}
+
                 # Add status description
                 if 200 <= status_code < 300:
                     item["description"] = "Success"
@@ -93,7 +90,7 @@ class ReportingService:
                     item["description"] = "Server Error"
                 else:
                     item["description"] = "Unknown"
-                    
+
                 distribution.append(item)
 
             return {
@@ -102,6 +99,7 @@ class ReportingService:
             }
         except Exception as e:
             import traceback
+
             print(f"Error generating status distribution: {str(e)}")
             print(traceback.format_exc())
             raise HTTPException(
@@ -261,13 +259,13 @@ class ReportingService:
         return start_date, today
 
     async def get_logs(
-        self, 
-        limit: int = 50, 
-        offset: int = 0, 
-        hours: int = 24, 
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        hours: int = 24,
         log_id: Optional[int] = None,
         status_min: Optional[int] = None,
-        status_max: Optional[int] = None
+        status_max: Optional[int] = None,
     ) -> List[Log]:
         """Get logs with pagination and filtering"""
         if log_id:
@@ -275,17 +273,17 @@ class ReportingService:
         else:
             # Calculate the time threshold based on the hours parameter
             time_threshold = datetime.now() - timedelta(hours=hours)
-            
+
             # Start with time filter
             query = select(Log).where(Log.timestamp >= time_threshold)
-            
+
             # Add status code range filter if provided
             if status_min is not None:
                 query = query.where(Log.status_code >= status_min)
             if status_max is not None:
                 query = query.where(Log.status_code <= status_max)
-            
+
             # Add sorting and pagination
             query = query.order_by(Log.timestamp.desc()).offset(offset).limit(limit)
-        
+
         return self.session.exec(query).all()

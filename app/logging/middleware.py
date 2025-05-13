@@ -19,9 +19,11 @@ import os
 
 # Import APPLICATION_ID from environment variables
 from dotenv import load_dotenv
+
 load_dotenv()
 
-APPLICATION_ID = os.environ.get('APPLICATION_ID', 'Unknown')
+APPLICATION_ID = os.environ.get("APPLICATION_ID", "Unknown")
+
 
 class LoggingMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp):
@@ -29,20 +31,27 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         # Get the current username when middleware is initialized
         try:
             # Try multiple methods to get the username for cross-platform support
-            self.username = os.environ.get('USER') or os.environ.get('USERNAME') or getpass.getuser() or "unknown_user"
+            self.username = (
+                os.environ.get("USER")
+                or os.environ.get("USERNAME")
+                or getpass.getuser()
+                or "unknown_user"
+            )
         except Exception:
             self.username = "unknown_user"
-            
+
         # Get the computer hostname
         try:
             self.hostname = socket.gethostname() or platform.node() or "unknown_host"
         except Exception:
             self.hostname = "unknown_host"
-            
+
         # Store the application ID from environment
         self.application_id = APPLICATION_ID
-            
-        print(f"Logging middleware initialized with username: {self.username} on host: {self.hostname}, App ID: {self.application_id}")
+
+        print(
+            f"Logging middleware initialized with username: {self.username} on host: {self.hostname}, App ID: {self.application_id}"
+        )
 
     async def dispatch(self, request: Request, call_next: Callable):
         # Define paths that should be excluded from logging

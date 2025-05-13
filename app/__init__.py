@@ -8,7 +8,6 @@ import json
 from app.logging.middleware import LoggingMiddleware  # Import the middleware
 
 
-
 # Custom JSON encoder to handle datetime objects
 class DateTimeEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -18,7 +17,7 @@ class DateTimeEncoder(json.JSONEncoder):
 
 
 def create_app():
-    
+
     app = FastAPI()
 
     # Add request logger middleware
@@ -34,25 +33,25 @@ def create_app():
     from app.logging.models import Log
 
     # Include API routes
-    app.include_router(resource_router, prefix='/api')
-    app.include_router(report_router, prefix='/api')
+    app.include_router(resource_router, prefix="/api")
+    app.include_router(report_router, prefix="/api")
     app.include_router(log_router)
     app.include_router(user_guide_router)
 
     # Mount the built React assets
     app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
-    
+
     # Serve the static files from the React build
     @app.get("/{full_path:path}")
     async def serve_react_app(request: Request, full_path: str):
         # If it's an API request, let it pass through to the API endpoints
         if full_path.startswith("api/"):
             return RedirectResponse(url=f"/api/{full_path[4:]}")
-        
+
         # For all other routes, serve the React app's index.html
         with open("frontend/dist/index.html", "r") as f:
             html_content = f.read()
-            
+
         return HTMLResponse(content=html_content)
 
     return app, None

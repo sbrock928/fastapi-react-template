@@ -37,6 +37,7 @@ class ReportingService:
         """Get distribution of logs by status code - delegates to LogService"""
         # This method now redirects to the LogService method
         from app.logging.services import LogService
+
         log_service = LogService(self.session)
         return await log_service.get_status_distribution(hours=hours)
 
@@ -108,13 +109,17 @@ class ReportingService:
         if cycle_code:
             # Use raw SQL to filter by cycle code
             # You would typically join with the Cycles table in a real implementation
-            cycle_query = text(f"""
+            cycle_query = text(
+                f"""
                 SELECT 
                     (SELECT COUNT(*) FROM user WHERE cycle_code = :cycle_code) as user_count,
                     (SELECT COUNT(*) FROM employee WHERE cycle_code = :cycle_code) as employee_count,
                     (SELECT COUNT(*) FROM subscriber WHERE cycle_code = :cycle_code) as subscriber_count
-            """)
-            cycle_result = self.session.exec(cycle_query, {"cycle_code": cycle_code}).one()
+            """
+            )
+            cycle_result = self.session.exec(
+                cycle_query, {"cycle_code": cycle_code}
+            ).one()
             user_count = cycle_result[0] if cycle_result[0] is not None else 0
             employee_count = cycle_result[1] if cycle_result[1] is not None else 0
             subscriber_count = cycle_result[2] if cycle_result[2] is not None else 0

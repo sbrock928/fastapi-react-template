@@ -3,13 +3,16 @@ from typing import List, Optional
 from datetime import datetime
 from app.user_guide.models import Note, NoteBase
 
+
 class UserGuideService:
     def __init__(self, session: Session):
         self.session = session
 
     async def get_all_notes(self) -> List[Note]:
         """Get all user guide notes"""
-        notes = self.session.exec(select(Note).order_by(Note.updated_at.desc(), Note.created_at.desc())).all()
+        notes = self.session.exec(
+            select(Note).order_by(Note.updated_at.desc(), Note.created_at.desc())
+        ).all()
         return notes
 
     async def get_note_by_id(self, note_id: int) -> Optional[Note]:
@@ -33,10 +36,10 @@ class UserGuideService:
 
         note_dict = note_data.dict(exclude_unset=True)
         note_dict["updated_at"] = datetime.now()
-        
+
         for key, value in note_dict.items():
             setattr(db_note, key, value)
-        
+
         self.session.add(db_note)
         self.session.commit()
         self.session.refresh(db_note)
@@ -47,7 +50,7 @@ class UserGuideService:
         db_note = await self.get_note_by_id(note_id)
         if not db_note:
             return False
-        
+
         self.session.delete(db_note)
         self.session.commit()
         return True
