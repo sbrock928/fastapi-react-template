@@ -1,7 +1,6 @@
-
 const TopNavigation = () => {
   return (
-    <nav className="navbar navbar-expand-lg navbar-dark bg-primary border-bottom top-navbar">
+    <nav className="navbar navbar-expand-lg navbar-dark border-bottom top-navbar" style={{ backgroundColor: '#93186C' }}>
       <div className="container-fluid">
         <a className="navbar-brand" href="/">
           <i className="bi bi-soundwave me-2"></i>

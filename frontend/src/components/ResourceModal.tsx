@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import useModal from '@/hooks/useModal';
+import { useToast } from '@/context/ToastContext';
 
 interface ResourceModalProps {
   resourceType: string;
@@ -9,7 +10,6 @@ interface ResourceModalProps {
   show: boolean;
   onClose: () => void;
   onSave: () => void;
-
 }
 
 const ResourceModal = ({ 
@@ -23,10 +23,30 @@ const ResourceModal = ({
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [validationSummary, setValidationSummary] = useState<string>('Please fix the validation errors below.');
   const [showValidationSummary, setShowValidationSummary] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [hasSubmitError, setHasSubmitError] = useState<boolean>(false);
+  
+  // Use the toast context
+  const { showToast } = useToast();
   
   // Use the useModal hook to handle the Bootstrap modal
   const modalRef = useModal(show, onClose);
   
+  // Handle modal container click to isolate its event bubble
+  const handleModalClick = useCallback((e: React.MouseEvent) => {
+    // Prevent event propagation from modal dialog clicks
+    e.stopPropagation();
+  }, []);
+  
+  // Handle manual close of the modal
+  const handleClose = useCallback((e: React.MouseEvent) => {
+    // Prevent default behavior
+    e.preventDefault();
+    // Stop event propagation
+    e.stopPropagation();
+    onClose();
+  }, [onClose]);
+
   // Initialize form data when the component mounts or editingResource changes
   useEffect(() => {
     if (editingResource) {
@@ -128,7 +148,14 @@ const ResourceModal = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!validateForm()) return;
+    if (!validateForm()) {
+      setHasSubmitError(true);
+      return;
+    }
+
+    // Set submitting state to true at the start
+    setIsSubmitting(true);
+    setHasSubmitError(false);
     
     try {
       const payload = {...formData};
@@ -150,8 +177,9 @@ const ResourceModal = ({
         const response = await axios.patch(`/api${resourceConfig.apiEndpoint}/${editingResource.id}`, payload);
         // Only notify parent if successful (status 200 or 201)
         if (response.status === 200 || response.status === 201) {
-          // Add a success message to the console
-          console.log(`Successfully updated ${resourceConfig.displayName}`);
+          // Show success toast notification
+          showToast(`Successfully updated ${resourceConfig.displayName}`, 'success');
+          
           // Clear the form data
           setFormData({});
           // Reset any form errors
@@ -166,8 +194,9 @@ const ResourceModal = ({
         const response = await axios.post(`/api${resourceConfig.apiEndpoint}`, payload);
         // Only notify parent if successful (status 200 or 201)
         if (response.status === 200 || response.status === 201) {
-          // Add a success message to the console
-          console.log(`Successfully created new ${resourceConfig.displayName}`);
+          // Show success toast notification
+          showToast(`Successfully created new ${resourceConfig.displayName}`, 'success');
+          
           // Clear the form data
           setFormData({});
           // Reset any form errors
@@ -182,6 +211,12 @@ const ResourceModal = ({
       
     } catch (error: any) {
       console.error('Error saving resource:', error);
+      
+      // Set error state so modal retains focus
+      setHasSubmitError(true);
+      
+      // Show error toast notification
+      showToast(`Error: Failed to save ${resourceConfig.displayName}`, 'error');
       
       // Handle validation errors from API
       if (error.response && error.response.data) {
@@ -231,6 +266,9 @@ const ResourceModal = ({
       } else {
         alert('An error occurred while saving. Please try again.');
       }
+    } finally {
+      // Always set submitting to false when the operation completes
+      setIsSubmitting(false);
     }
   };
 
@@ -308,16 +346,22 @@ const ResourceModal = ({
       aria-labelledby="resourceModalLabel"
       aria-hidden="true"
       ref={modalRef}
+      onClick={handleModalClick}
     >
       <div className="modal-dialog">
         <div className="modal-content">
-          <div className="modal-header">
+          <div className="modal-header text-white" style={{ backgroundColor: '#93186C' }}>
             <h5 className="modal-title" id="resourceModalLabel">
               {editingResource ? `Edit ${resourceConfig.displayName}` : `Add ${resourceConfig.displayName}`}
             </h5>
-            <button type="button" className="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            <button 
+              type="button" 
+              className="btn-close btn-close-white" 
+              onClick={handleClose}
+              aria-label="Close"
+            ></button>
           </div>
-          <div className="modal-body">
+          <div className={`modal-body ${hasSubmitError ? 'modal-body-error' : ''}`}>
             {/* Validation Summary */}
             {showValidationSummary && (
               <div 
@@ -340,7 +384,8 @@ const ResourceModal = ({
             <button 
               type="button" 
               className="btn btn-secondary" 
-              data-bs-dismiss="modal"
+              onClick={handleClose}
+              disabled={isSubmitting}
             >
               Cancel
             </button>
@@ -348,8 +393,16 @@ const ResourceModal = ({
               type="button" 
               className="btn btn-primary"
               onClick={handleSubmit}
+              disabled={isSubmitting}
             >
-              Save
+              {isSubmitting ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                  Saving...
+                </>
+              ) : (
+                'Save'
+              )}
             </button>
           </div>
         </div>

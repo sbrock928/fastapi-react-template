@@ -36,19 +36,19 @@ const StatusDistributionChart: React.FC<StatusDistributionChartProps> = ({
   const statusGroups = Object.values(groupedDistribution);
 
   // Define colors for different status groups
-  const getColorForStatus = (description: string) => {
+  const getColorForGroup = (description: string): string => {
     switch (description) {
       case 'Success': return '#28a745';
       case 'Redirection': return '#fd7e14';
       case 'Client Error': return '#dc3545';
       case 'Server Error': return '#6f42c1';
-      default: return '#6c757d';
+      default: return '#93186C'; // Changed from #6c757d to match our new theme
     }
   };
 
   return (
     <div className="card mb-4">
-      <div className="card-header">
+      <div className="card-header bg-primary text-white">
         <h5 className="mb-0">Status Code Distribution</h5>
       </div>
       <div className="card-body">
@@ -83,7 +83,7 @@ const StatusDistributionChart: React.FC<StatusDistributionChartProps> = ({
                         role="progressbar"
                         style={{ 
                           width: `${Math.round((group.count / total) * 100)}%`, 
-                          backgroundColor: getColorForStatus(group.description) 
+                          backgroundColor: getColorForGroup(group.description) 
                         }}
                         aria-valuenow={(group.count / total) * 100}
                         aria-valuemin={0}
@@ -104,7 +104,7 @@ const StatusDistributionChart: React.FC<StatusDistributionChartProps> = ({
                 <div key={group.description} className="text-center mb-2">
                   <span 
                     className="badge rounded-pill px-3 py-2"
-                    style={{ backgroundColor: getColorForStatus(group.description), cursor: 'pointer' }}
+                    style={{ backgroundColor: getColorForGroup(group.description), cursor: 'pointer' }}
                     onClick={() => onStatusClick(group.description)}
                   >
                     {group.description}: {group.count} logs

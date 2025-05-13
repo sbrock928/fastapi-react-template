@@ -67,12 +67,12 @@
 
 .sidebar .nav-link:hover {
   color: rgba(255, 255, 255, 1);
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgba(147, 24, 108, 0.3);
 }
 
 .sidebar .nav-link.active {
   color: white;
-  background-color: rgba(255, 255, 255, 0.2);
+  background-color: rgba(147, 24, 108, 0.5);
 }
 
 .sidebar .nav-link i {
@@ -154,6 +154,32 @@
 /* Ensure all cards stretch to available width */
 .card {
   width: 100%;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transition: transform 0.2s ease;
+}
+
+.card:hover {
+  transform: translateY(-5px);
+}
+
+/* Adjust modal content to not have hover transform effect */
+.modal-content.card, 
+.modal-content.card:hover,
+.modal .card,
+.modal .card:hover,
+.accordion .card,
+.accordion .card:hover,
+.card .accordion-item,
+.card .accordion-item:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* For cards inside of tabs or accordions, don't apply hover */
+.tab-content .card:hover,
+.accordion-body .card:hover {
+  transform: none;
 }
 
 /* Add sidebar collapse toggle button */
@@ -165,7 +191,7 @@
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background-color: var(--bs-primary);
+  background-color: #93186C;
   color: white;
   display: flex;
   align-items: center;
@@ -219,6 +245,25 @@
     margin-right: 0.75rem;
   }
 }
+
+/* Custom styling for sidebar with purple theme only for hover/active states */
+#sidebar-wrapper .list-group-item {
+  background-color: transparent;
+  color: #212529; /* Default Bootstrap dark text color */
+  border-color: rgba(0, 0, 0, 0.125); /* Default Bootstrap border color */
+}
+
+#sidebar-wrapper .list-group-item:hover {
+  background-color: rgba(147, 24, 108, 0.8);
+  color: white;
+}
+
+#sidebar-wrapper .list-group-item.active {
+  background-color: #93186C;
+  color: white;
+  border-color: #93186C;
+}
+
 .dashboard-container {
   margin: 0rem auto;
   padding: 0rem;
@@ -261,7 +306,7 @@
   margin-bottom: 1rem;
 }
 
-.icon.blue { color: #0d6efd; }
+.icon.blue { color: #93186C; }
 .icon.green { color: #198754; }
 .icon.cyan { color: #0dcaf0; }
 .icon.yellow { color: #ffc107; }
@@ -277,8 +322,8 @@
   transition: background-color 0.2s ease;
 }
 
-.dashboard-button.blue { background-color: #0d6efd; }
-.dashboard-button.blue:hover { background-color: #0b5ed7; }
+.dashboard-button.blue { background-color: #93186C; }
+.dashboard-button.blue:hover { background-color: #7a1559; }
 
 .dashboard-button.green { background-color: #198754; }
 .dashboard-button.green:hover { background-color: #157347; }
@@ -288,3 +333,275 @@
 
 .dashboard-button.yellow { background-color: #ffc107; color: #212529; }
 .dashboard-button.yellow:hover { background-color: #e0a800; }
+
+/* Modal enhancements */
+.modal-content {
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  transform: scale(0.95);
+  opacity: 0;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.modal.show .modal-content {
+  transform: scale(1);
+  opacity: 1;
+}
+
+.modal-backdrop {
+  backdrop-filter: blur(4px);
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+  border-bottom: none;
+  padding: 1.5rem 1.5rem 0.5rem;
+}
+
+.modal-footer {
+  border-top: none;
+  padding: 0.5rem 1.5rem 1.5rem;
+}
+
+/* Button hover effects in modals */
+.modal .btn {
+  transition: all 0.2s ease;
+}
+
+.modal .btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Additional animation for modal dismiss */
+.modal.fade .modal-dialog {
+  transition: transform 0.2s ease-out, opacity 0.2s ease-out !important;
+}
+
+.modal.fade.show .modal-dialog {
+  transform: translateY(0) !important;
+  opacity: 1;
+}
+
+.modal.fade:not(.show) .modal-dialog {
+  transform: translateY(-30px) !important;
+  opacity: 0;
+}
+
+/* Enhanced tab styling for modals */
+.modal .nav-tabs {
+  border-bottom: none;
+  margin-bottom: -1px;
+  position: relative;
+  z-index: 1;
+}
+
+.modal .nav-tabs .nav-item {
+  margin-bottom: 0;
+}
+
+.modal .nav-tabs .nav-link {
+  border: none;
+  border-radius: 8px 8px 0 0;
+  padding: 0.75rem 1.25rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.modal .nav-tabs .nav-link:not(.active):hover {
+  background-color: rgba(147, 24, 108, 0.05);
+  border-color: transparent;
+}
+
+.modal .nav-tabs .nav-link.active {
+  color: #93186C;
+  background-color: #fff;
+  border-top: 3px solid #93186C;
+  margin-top: -3px;
+}
+
+.modal .tab-content {
+  border-radius: 0 0 8px 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  background-color: white;
+}
+
+/* Fancy pre elements in modal tabs */
+.modal pre {
+  background: #f8f9fa;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  max-height: 300px;
+}
+
+.modal pre:hover {
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.05);
+}
+
+/* Form input enhancements for modals */
+.modal .form-control,
+.modal .form-select {
+  border-radius: 8px;
+  padding: 0.625rem 0.75rem;
+  transition: all 0.2s ease;
+  border-color: #dee2e6;
+  box-shadow: none;
+}
+
+.modal .form-control:focus,
+.modal .form-select:focus {
+  border-color: #93186C;
+  box-shadow: 0 0 0 0.25rem rgba(147, 24, 108, 0.15);
+  transform: translateY(-1px);
+}
+
+.modal .form-label {
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+  color: #495057;
+}
+
+/* Checkbox and radio enhancements */
+.modal .form-check-input {
+  cursor: pointer;
+  box-shadow: none;
+  border-width: 2px;
+}
+
+.modal .form-check-input:checked {
+  background-color: #93186C;
+  border-color: #93186C;
+  transition: all 0.2s ease;
+}
+
+.modal .form-check-input:not(:checked):hover {
+  border-color: #93186C;
+}
+
+/* Adding some depth to modal bodies */
+.modal .modal-body {
+  padding: 1.5rem;
+  background-color: #f8f9fa;
+  background-image: linear-gradient(to bottom, white, #f8f9fa);
+}
+
+/* Custom styling for modal body when there are errors */
+.modal .modal-body-error {
+  /* Remove background color change */
+  background-image: linear-gradient(to bottom, white, #f8f9fa) !important;
+  background-color: #f8f9fa !important;
+  /* Keep the subtle error indicator */
+  border-left: 3px solid #dc3545;
+}
+
+/* Ensure form fields stand out in error state modal */
+.modal .modal-body-error .form-control.is-invalid,
+.modal .modal-body-error .form-select.is-invalid {
+  border-color: #dc3545;
+  box-shadow: 0 0 0 0.25rem rgba(220, 53, 69, 0.15);
+}
+
+/* Enhanced buttons in modals */
+.modal-footer .btn-primary {
+  padding: 0.5rem 1.25rem;
+  font-weight: 500;
+  box-shadow: 0 2px 5px rgba(147, 24, 108, 0.3);
+  border: none;
+}
+
+.modal-footer .btn-primary:hover {
+  box-shadow: 0 4px 10px rgba(147, 24, 108, 0.4);
+}
+
+.modal-footer .btn-secondary {
+  background-color: #f8f9fa;
+  color: #495057;
+  border: none;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+}
+
+.modal-footer .btn-secondary:hover {
+  background-color: #e9ecef;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+}
+
+/* Special animation for log details modal */
+#logDetailsModal.modal.show .modal-content {
+  animation: modal-glow 1.5s ease-out forwards;
+}
+
+@keyframes modal-glow {
+  0% {
+    box-shadow: 0 0 10px rgba(147, 24, 108, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(147, 24, 108, 0.5);
+  }
+  100% {
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+  }
+}
+
+/* Card header styling with new primary color */
+.card-header.bg-primary {
+  background-color: #93186C !important;
+  color: white;
+}
+
+.btn-primary {
+  background-color: #93186C;
+  border-color: #93186C;
+}
+
+.btn-primary:hover, .btn-primary:focus, .btn-primary:active {
+  background-color: #7a1559;
+  border-color: #7a1559;
+}
+
+/* Add a hover/focus state for buttons */
+.btn-outline-primary {
+  color: #93186C;
+  border-color: #93186C;
+}
+
+.btn-outline-primary:hover, .btn-outline-primary:focus, .btn-outline-primary:active {
+  background-color: #93186C;
+  border-color: #93186C;
+  color: white;
+}
+
+/* Update links to match the new color scheme */
+a {
+  color: #93186C;
+}
+
+a:hover {
+  color: #7a1559;
+}
+
+/* Pagination styling with purple theme */
+.pagination .page-item.active .page-link {
+  background-color: #93186C;
+  border-color: #93186C;
+  color: white;
+}
+
+.pagination .page-item .page-link {
+  color: #93186C;
+}
+
+.pagination .page-item .page-link:hover,
+.pagination .page-item .page-link:focus {
+  background-color: rgba(147, 24, 108, 0.1);
+  border-color: rgba(147, 24, 108, 0.2);
+  color: #7a1559;
+}
+
+.pagination .page-item.disabled .page-link {
+  color: #6c757d;
+  background-color: #fff;
+  border-color: #dee2e6;
+}

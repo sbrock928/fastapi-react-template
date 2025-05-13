@@ -155,7 +155,7 @@ class ReportingService:
 
             # Add some formatting
             header_format = workbook.add_format(
-                {"bold": True, "bg_color": "#007BFF", "color": "white", "border": 1}
+                {"bold": True, "bg_color": "#93186C", "color": "white", "border": 1}
             )
 
             # Apply header format

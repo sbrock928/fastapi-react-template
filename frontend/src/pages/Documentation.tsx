@@ -291,12 +291,12 @@ const Documentation = () => {
 
       {showApiFrame ? (
         <div className="card mt-4 mb-4" style={{ width: '100%' }}>
-          <div className="card-header d-flex justify-content-between align-items-center">
+          <div className="card-header bg-primary text-white d-flex justify-content-between align-items-center">
             <div className="d-flex align-items-center">
               <h5 className="mb-0">API Documentation</h5>
             </div>
             <button 
-              className="btn btn-sm btn-outline-secondary" 
+              className="btn btn-sm btn-outline-light" 
               onClick={() => setShowApiFrame(false)}
               title="Back to Documentation"
             >
@@ -311,12 +311,12 @@ const Documentation = () => {
         </div>
       ) : showUserGuide ? (
         <div className="card mt-4 mb-4">
-          <div className="card-header d-flex justify-content-between align-items-center">
+          <div className="card-header bg-primary text-white d-flex justify-content-between align-items-center">
             <div className="d-flex align-items-center">
               <h5 className="mb-0">User Guide</h5>
             </div>
             <button 
-              className="btn btn-sm btn-outline-secondary" 
+              className="btn btn-sm btn-outline-light" 
               onClick={() => setShowUserGuide(false)}
             >
               <i className="bi bi-x-lg"></i> Close
@@ -330,36 +330,41 @@ const Documentation = () => {
         <div className="row mt-4">
           <div className="col-md-4 mb-4">
             <div className="card">
-              <div className="card-header">
+              <div className="card-header bg-primary text-white">
                 <h5 className="card-title mb-0">User Guide</h5>
               </div>
               <div className="card-body">
                 <p className="card-text">Learn how to use the Vibes + Hype application effectively.</p>
-                <a href="#" className="btn btn-primary" onClick={handleUserGuideClick}>View User Guide</a>
+                <a href="#" className="btn" style={{ backgroundColor: '#93186C', color: 'white' }} onClick={handleUserGuideClick}>View User Guide</a>
               </div>
             </div>
           </div>
 
           <div className="col-md-4 mb-4">
             <div className="card">
-              <div className="card-header">
+              <div className="card-header bg-primary text-white">
                 <h5 className="card-title mb-0">API Reference</h5>
               </div>
               <div className="card-body">
                 <p className="card-text">Technical reference for the Vibes + Hype API endpoints.</p>
-                <a href="#" className="btn btn-primary" onClick={handleApiDocsClick}>View API Docs</a>
+                <a href="#" className="btn" style={{ backgroundColor: '#93186C', color: 'white' }} onClick={handleApiDocsClick}>View API Docs</a>
               </div>
             </div>
           </div>
 
           <div className="col-md-4 mb-4">
             <div className="card">
-              <div className="card-header">
+              <div className="card-header bg-primary text-white">
                 <h5 className="card-title mb-0">Release Notes</h5>
               </div>
               <div className="card-body">
                 <p className="card-text">Details about new features and bug fixes in each version.</p>
-                <button className="btn btn-primary" disabled title="Coming soon">
+                <button 
+                  className="btn" 
+                  style={{ backgroundColor: '#93186C', color: 'white' }}
+                  disabled 
+                  title="Coming soon"
+                >
                   View Release Notes
                   <small className="ms-2 badge bg-secondary">Coming Soon</small>
                 </button>
@@ -371,7 +376,7 @@ const Documentation = () => {
 
       {!showApiFrame && !showUserGuide && (
         <div className="card mt-4">
-          <div className="card-header">
+          <div className="card-header bg-primary text-white">
             <h5 className="mb-0">Frequently Asked Questions</h5>
           </div>
           <div className="card-body">

@@ -308,7 +308,8 @@ const Logs = () => {
           </select>
           <button 
             id="refreshLogs" 
-            className="btn btn-primary"
+            className="btn"
+            style={{ backgroundColor: '#93186C', color: 'white' }}
             onClick={handleRefresh}
           >
             <i className="bi bi-arrow-clockwise"></i> Refresh
@@ -403,7 +404,7 @@ const Logs = () => {
         </div>
       )}
       <div className="card mb-4">
-        <div className="card-header d-flex justify-content-between align-items-center">
+        <div className="card-header bg-primary text-white d-flex justify-content-between align-items-center">
           <span>
             Log Entries
             <span id="totalCount" className="badge bg-secondary ms-2">

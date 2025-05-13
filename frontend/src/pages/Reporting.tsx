@@ -495,7 +495,8 @@ const Reporting = () => {
               <button 
                 type="button" 
                 id="runReportBtn" 
-                className="btn btn-primary"
+                className="btn"
+                style={{ backgroundColor: '#93186C', color: 'white' }}
                 onClick={runReport}
                 disabled={loading || !activeReport}
               >
@@ -518,7 +519,7 @@ const Reporting = () => {
       {/* Report Results Card */}
       {showResults && (
         <div id="reportResultsCard" className="card">
-          <div className="card-header bg-success text-white d-flex justify-content-between align-items-center">
+          <div className="card-header text-white d-flex justify-content-between align-items-center" style={{ backgroundColor: '#93186C' }}>
             <h5 className="card-title mb-0" id="reportTitle">
               {activeReport ? reportConfig[activeReport].title : 'Report Results'}
             </h5>

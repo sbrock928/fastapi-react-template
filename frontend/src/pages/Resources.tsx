@@ -4,6 +4,7 @@ import resourceConfig from '@/config/resources';
 import usePagination from '@/hooks/usePagination';
 import type { ResourceItem } from '@/types';
 import ResourceModal from '@/components/ResourceModal';
+import { useToast } from '@/context/ToastContext';
 
 const Resources = () => {
   // State variables
@@ -15,6 +16,9 @@ const Resources = () => {
   const [currentItem, setCurrentItem] = useState<ResourceItem | null>(null);
   const [showModal, setShowModal] = useState<boolean>(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
+  
+  // Use the toast hook
+  const { showToast } = useToast();
   
   // Replace pagination state with usePagination hook
   const getPagination = usePagination<ResourceItem>({ initialPage: 1, itemsPerPage: 10 });
@@ -44,7 +48,7 @@ const Resources = () => {
       setFilteredItems(response.data);
     } catch (error) {
       console.error('Error loading resources:', error);
-      alert('Error loading resources. See console for details.');
+      showToast('Error loading resources', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -141,10 +145,14 @@ const Resources = () => {
       const itemId = item[config.idField] || item.id;
       
       await resourcesApi.delete(config.apiEndpoint, itemId);
+      
+      // Show success toast notification
+      showToast(`Successfully deleted ${config.displayName}`, 'success');
+      
       loadResources();
     } catch (error) {
       console.error('Error deleting resource:', error);
-      alert('Error deleting resource. See console for details.');
+      showToast(`Error deleting ${resourceConfig[activeResource].displayName}`, 'error');
     } finally {
       setIsLoading(false);
     }
