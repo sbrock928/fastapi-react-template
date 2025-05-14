@@ -1,6 +1,6 @@
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, DateTime, Float
-from app.database import Base
+from app.core.database import Base
 
 
 # SQLAlchemy model for database operations

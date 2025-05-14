@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
-from app.database import get_session
+from app.core.database import get_session
 from app.logging.schemas import LogRead
 from app.logging.service import LogService
 

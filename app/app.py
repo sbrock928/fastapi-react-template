@@ -8,7 +8,8 @@ import os
 from datetime import datetime
 import json
 from app.logging.middleware import LoggingMiddleware  # Import the middleware
-
+from app.core.router import register_routes
+from app.core.database import init_db
 
 # Custom JSON encoder to handle datetime objects
 class DateTimeEncoder(json.JSONEncoder):
@@ -23,6 +24,7 @@ def create_app():
     app = FastAPI(
         docs_url="/api/docs", redoc_url="/api/redoc", openapi_url="/api/openapi.json"
     )
+    init_db()
 
     # Add request logger middleware
     app.add_middleware(LoggingMiddleware)
@@ -37,19 +39,8 @@ def create_app():
     )
 
     # Import and include routers
-    from app.resources.router import router as resource_router
-    from app.reporting.router import router as report_router
-    from app.logging.router import router as log_router
-    from app.documentation.router import router as documentation_router
-    from app.database import get_session
-    from app.resources.models import User, Employee, Subscriber
-    from app.logging.models import Log
+    register_routes(app)
 
-    # Include API routes
-    app.include_router(resource_router, prefix="/api")
-    app.include_router(report_router, prefix="/api")
-    app.include_router(log_router, prefix="/api")
-    app.include_router(documentation_router, prefix="/api")
 
     # Mount the built React assets from the new static directory
     app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
@@ -67,4 +58,4 @@ def create_app():
 
         return HTMLResponse(content=html_content)
 
-    return app, None
+    return app

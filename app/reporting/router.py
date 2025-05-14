@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any
-from app.database import get_session
+from app.core.database import get_session
 from app.reporting.service import ReportingService
 from app.logging.service import LogService
 

@@ -13,7 +13,7 @@ from datetime import datetime
 from starlette.background import BackgroundTask
 from sqlalchemy.orm import Session
 from app.logging.models import Log  # Now using SQLAlchemy model
-from app.database import SessionLocal  # Your session generator
+from app.core.database import SessionLocal  # Your session generator
 import time
 import os
 

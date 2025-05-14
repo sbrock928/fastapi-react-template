@@ -28,8 +28,9 @@ SessionLocal = sessionmaker(
 
 def init_db() -> None:
     # Make sure we import all models here
-    from app.resources.models import User, Employee
+    from app.resources.models import User, Employee, Subscriber
     from app.logging.models import Log
+    from app.documentation.models import Note
 
     # Create tables
     Base.metadata.create_all(engine)

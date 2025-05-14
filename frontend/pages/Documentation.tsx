@@ -1,4 +1,8 @@
 import { useEffect, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import rehypeRaw from 'rehype-raw';
+import rehypeSanitize from 'rehype-sanitize';
+import remarkGfm from 'remark-gfm';
 import axios from 'axios';
 
 interface Note {
@@ -272,10 +276,12 @@ const Documentation = () => {
                       : `Created: ${new Date(selectedNote.created_at).toLocaleString()}`}
                   </small>
                 </div>
-                <div className="content-area">
-                  {selectedNote.content.split('\n').map((paragraph, i) => (
-                    <p key={i}>{paragraph}</p>
-                  ))}
+                <div className="content-area markdown-content">
+                  <ReactMarkdown 
+                    children={selectedNote.content} 
+                    rehypePlugins={[rehypeRaw, rehypeSanitize]} 
+                    remarkPlugins={[remarkGfm]} 
+                  />
                 </div>
               </div>
             </div>

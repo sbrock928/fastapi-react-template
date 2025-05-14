@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
 from typing import List, Type, Callable, Any, Dict, Optional, Union, cast, TypeVar, Generic
-from app.database import get_session
+from app.core.database import get_session
 from app.resources.models import (
     UserRead,
     UserCreate,

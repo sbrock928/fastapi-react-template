@@ -5,7 +5,7 @@ from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey
 from pydantic import BaseModel, EmailStr, field_validator, ConfigDict
 
 # SQLAlchemy Base
-from app.database import Base
+from app.core.database import Base
 
 
 # SQLAlchemy models

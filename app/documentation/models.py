@@ -4,7 +4,7 @@ from sqlalchemy import Column, Integer, String, DateTime
 from pydantic import BaseModel, Field, ConfigDict
 
 # SQLAlchemy Base
-from app.database import Base
+from app.core.database import Base
 
 
 # SQLAlchemy model

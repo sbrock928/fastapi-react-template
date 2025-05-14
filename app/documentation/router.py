@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
-from app.database import get_session
+from app.core.database import get_session
 from app.documentation.models import NoteBase, NoteRead
 from app.documentation.service import DocumentationService
 
@@ -37,7 +37,7 @@ async def update_note(
     note_id: int, note_data: NoteBase, session: Session = Depends(get_session)
 ):
     """Update an existing note"""
-    service = UserGuideService(session)
+    service = DocumentationService(session)
     updated_note = await service.update_note(note_id, note_data)
     if not updated_note:
         raise HTTPException(status_code=404, detail="Note not found")

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import uvicorn
-from app import create_app
-from app.database import init_db
+from app.app import create_app
 import os
 import sys
 
@@ -23,12 +22,8 @@ else:
     print("Running in PRODUCTION mode with React frontend")
 
 # Create the FastAPI app
-app, templates = create_app()
+app = create_app()
 
-
-@app.on_event("startup")
-async def on_startup():
-    init_db()
 
 
 if __name__ == "__main__":
