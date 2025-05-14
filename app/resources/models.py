@@ -2,7 +2,6 @@ from typing import Optional
 from datetime import datetime
 from enum import Enum
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
 from pydantic import BaseModel, EmailStr, field_validator, ConfigDict
 
 # SQLAlchemy Base
