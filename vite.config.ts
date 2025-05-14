@@ -5,7 +5,7 @@ import path from 'path';
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  root: 'frontend', // Set the root directory to frontend
+  root: '.', // Set the root directory to project root instead of frontend
   publicDir: 'frontend/public',
   resolve: {
     alias: {
@@ -42,7 +42,7 @@ export default defineConfig({
     include: ['bootstrap'],
   },
   build: {
-    outDir: '../static',
+    outDir: 'static', // Updated path (no need for '../' since root is now at project level)
     sourcemap: true,
     rollupOptions: {
       output: {
