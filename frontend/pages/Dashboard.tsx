@@ -3,9 +3,7 @@ import { Link } from 'react-router-dom';
 const Dashboard = () => {
   return (
     <div className="dashboard-container">
-      <div className="dashboard-header">
-  <h3>Home</h3>
-</div>
+
       
 <div className="dashboard-grid">
   <div className="dashboard-card">
