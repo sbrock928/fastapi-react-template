@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
-from app.core.database import get_session
+from app.core.dependencies import SessionDep
 from app.logging.schemas import LogRead
 from app.logging.service import LogService
 
@@ -13,6 +13,7 @@ router = APIRouter(
 
 @router.get("/", response_model=List[LogRead])
 async def get_logs(
+    session: SessionDep,
     response: Response,
     limit: int = Query(50, ge=1, le=1000),
     offset: int = Query(0, ge=0),
@@ -21,7 +22,6 @@ async def get_logs(
     status_min: Optional[int] = None,
     status_max: Optional[int] = None,
     search: Optional[str] = None,
-    session: Session = Depends(get_session),
 ):
     """Get logs with pagination and filtering"""
     log_service = LogService(session)
@@ -48,7 +48,8 @@ async def get_logs(
 
 @router.get("/status-distribution", response_model=Dict[str, Any])
 async def get_status_distribution(
-    hours: int = Query(24, ge=1, le=168), session: Session = Depends(get_session)
+    session: SessionDep,
+    hours: int = Query(24, ge=1, le=168)
 ):
     """Get distribution of logs by status code"""
     log_service = LogService(session)

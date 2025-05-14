@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
-from app.core.database import get_session
+from app.core.dependencies import SessionDep
+from app.core.database import get_session  # Adding the missing import
 from app.documentation.models import NoteBase, NoteRead
 from app.documentation.service import DocumentationService
 
@@ -9,14 +10,14 @@ router = APIRouter(prefix="/user-guide", tags=["User Guide"])
 
 
 @router.get("/notes", response_model=List[NoteRead])
-async def get_all_notes(session: Session = Depends(get_session)):
+async def get_all_notes(session: SessionDep):
     """Get all user guide notes"""
     service = DocumentationService(session)
     return await service.get_all_notes()
 
 
 @router.get("/notes/{note_id}", response_model=NoteRead)
-async def get_note(note_id: int, session: Session = Depends(get_session)):
+async def get_note(note_id: int, session: SessionDep):
     """Get a specific note by ID"""
     service = DocumentationService(session)
     note = await service.get_note_by_id(note_id)
@@ -26,7 +27,7 @@ async def get_note(note_id: int, session: Session = Depends(get_session)):
 
 
 @router.post("/notes", response_model=NoteRead, status_code=201)
-async def create_note(note: NoteBase, session: Session = Depends(get_session)):
+async def create_note(note: NoteBase, session: SessionDep):
     """Create a new note"""
     service = DocumentationService(session)
     return await service.create_note(note)
@@ -34,7 +35,7 @@ async def create_note(note: NoteBase, session: Session = Depends(get_session)):
 
 @router.put("/notes/{note_id}", response_model=NoteRead)
 async def update_note(
-    note_id: int, note_data: NoteBase, session: Session = Depends(get_session)
+    note_id: int, note_data: NoteBase, session: SessionDep
 ):
     """Update an existing note"""
     service = DocumentationService(session)
@@ -45,7 +46,7 @@ async def update_note(
 
 
 @router.delete("/notes/{note_id}", status_code=204)
-async def delete_note(note_id: int, session: Session = Depends(get_session)):
+async def delete_note(note_id: int, session: SessionDep):
     """Delete a note"""
     service = DocumentationService(session)
     result = await service.delete_note(note_id)
@@ -55,7 +56,7 @@ async def delete_note(note_id: int, session: Session = Depends(get_session)):
 
 
 @router.get("/notes/category/{category}", response_model=List[NoteRead])
-async def get_notes_by_category(category: str, session: Session = Depends(get_session)):
+async def get_notes_by_category(category: str, session: SessionDep):
     """Get notes filtered by category"""
     service = DocumentationService(session)
     return await service.get_notes_by_category(category)
