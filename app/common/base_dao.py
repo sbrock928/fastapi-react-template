@@ -30,7 +30,7 @@ class GenericDAO(Generic[T, CreateT]):
         """Create a new record"""
         # Convert from Pydantic model to dict
         item_dict = item_data.model_dump()
-        
+
         # Create SQLAlchemy model instance
         item = self.model_class(**item_dict)
 

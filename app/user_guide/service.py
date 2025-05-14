@@ -27,22 +27,24 @@ class UserGuideService:
         """Create a new note"""
         # Convert Pydantic model to dict
         note_dict = note.model_dump()
-        
+
         # Create SQLAlchemy model
         db_note = Note(**note_dict)
-        
+
         self.session.add(db_note)
         self.session.commit()
         self.session.refresh(db_note)
         return note_to_pydantic(db_note)
 
-    async def update_note(self, note_id: int, note_data: NoteBase) -> Optional[NoteRead]:
+    async def update_note(
+        self, note_id: int, note_data: NoteBase
+    ) -> Optional[NoteRead]:
         """Update an existing note"""
         # First get the existing note
         query = select(Note).where(Note.id == note_id)
         result = self.session.execute(query)
         db_note = result.scalar_one_or_none()
-        
+
         if not db_note:
             return None
 
@@ -62,7 +64,7 @@ class UserGuideService:
         query = select(Note).where(Note.id == note_id)
         result = self.session.execute(query)
         db_note = result.scalar_one_or_none()
-        
+
         if not db_note:
             return False
 

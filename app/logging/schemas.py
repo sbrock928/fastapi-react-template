@@ -18,10 +18,7 @@ class LogBase(BaseModel):
     hostname: Optional[str] = None
     application_id: Optional[str] = Field(default=None, title="Application ID")
 
-    model_config = ConfigDict(
-        from_attributes=True,
-        extra="forbid"
-    )
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
 class LogCreate(LogBase):

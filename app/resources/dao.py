@@ -2,9 +2,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from typing import List, Optional
 from app.resources.models import (
-    User, UserCreate,
-    Employee, EmployeeCreate,
-    Subscriber, SubscriberCreate,
+    User,
+    UserCreate,
+    Employee,
+    EmployeeCreate,
+    Subscriber,
+    SubscriberCreate,
     SubscriptionTier,
 )
 from app.common.base_dao import GenericDAO

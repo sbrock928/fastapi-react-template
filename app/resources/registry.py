@@ -3,9 +3,15 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.common.base_service import GenericService
 from app.resources.models import (
-    User, UserCreate, UserRead,
-    Employee, EmployeeCreate, EmployeeRead,
-    Subscriber, SubscriberCreate, SubscriberRead,
+    User,
+    UserCreate,
+    UserRead,
+    Employee,
+    EmployeeCreate,
+    EmployeeRead,
+    Subscriber,
+    SubscriberCreate,
+    SubscriberRead,
 )
 from app.resources.service import UserService, EmployeeService, SubscriberService
 

@@ -2,9 +2,15 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Any, Dict, Union
 from fastapi import HTTPException
 from app.resources.models import (
-    User, UserCreate, UserRead,
-    Employee, EmployeeCreate, EmployeeRead,
-    Subscriber, SubscriberCreate, SubscriberRead,
+    User,
+    UserCreate,
+    UserRead,
+    Employee,
+    EmployeeCreate,
+    EmployeeRead,
+    Subscriber,
+    SubscriberCreate,
+    SubscriberRead,
     SubscriptionTier,
 )
 from app.resources.dao import UserDAO, EmployeeDAO, SubscriberDAO
@@ -210,7 +216,9 @@ class SubscriberService(GenericService[Subscriber, SubscriberCreate]):
         super().__init__(session, Subscriber, SubscriberCreate)
         self.dao = SubscriberDAO(session, Subscriber)
 
-    async def before_create(self, subscriber_data: SubscriberCreate) -> SubscriberCreate:
+    async def before_create(
+        self, subscriber_data: SubscriberCreate
+    ) -> SubscriberCreate:
         """Custom validation before subscriber creation"""
         # Initialize error collector
         errors = collect_validation_errors()

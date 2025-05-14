@@ -44,10 +44,7 @@ class LogService:
     ) -> int:
         """Get total count of logs matching the filters"""
         return await self.log_dao.get_logs_count(
-            hours=hours, 
-            status_min=status_min, 
-            status_max=status_max, 
-            search=search
+            hours=hours, status_min=status_min, status_max=status_max, search=search
         )
 
     async def get_status_distribution(self, hours: int = 24) -> Dict[str, Any]:
@@ -104,7 +101,7 @@ class LogService:
         """Format a log object for API response"""
         # First convert to Pydantic model
         log_pydantic = log_to_pydantic(log)
-        
+
         # Then convert to dict using Pydantic v2's model_dump() method
         log_dict = log_pydantic.model_dump()
 

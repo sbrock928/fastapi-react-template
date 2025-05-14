@@ -48,12 +48,14 @@ class ReportingService:
 
         # This is a simplified approach since we don't have a creation_date field in the model
         # In a real application, you would use the actual creation date field
-        query = text("""
+        query = text(
+            """
         SELECT COUNT(*) as count, date('now', '-' || (abs(random()) % 30) || ' days') as date
         FROM user
         GROUP BY date
         ORDER BY date ASC
-        """)
+        """
+        )
 
         result = self.session.execute(query).all()
 
@@ -104,10 +106,10 @@ class ReportingService:
         # Get counts for different resource types
         user_result = self.session.execute(select(func.count(User.id)))
         user_count = user_result.scalar_one()
-        
+
         employee_result = self.session.execute(select(func.count(Employee.id)))
         employee_count = employee_result.scalar_one()
-        
+
         subscriber_result = self.session.execute(select(func.count(Subscriber.id)))
         subscriber_count = subscriber_result.scalar_one()
 
@@ -115,12 +117,14 @@ class ReportingService:
         if cycle_code:
             # Use raw SQL to filter by cycle code
             # You would typically join with the Cycles table in a real implementation
-            cycle_query = text("""
+            cycle_query = text(
+                """
                 SELECT 
                     (SELECT COUNT(*) FROM user WHERE cycle_code = :cycle_code) as user_count,
                     (SELECT COUNT(*) FROM employee WHERE cycle_code = :cycle_code) as employee_count,
                     (SELECT COUNT(*) FROM subscriber WHERE cycle_code = :cycle_code) as subscriber_count
-            """)
+            """
+            )
             cycle_result = self.session.execute(
                 cycle_query, {"cycle_code": cycle_code}
             ).first()

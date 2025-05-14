@@ -6,10 +6,11 @@ from pydantic import BaseModel, Field, ConfigDict
 # SQLAlchemy Base
 from app.database import Base
 
+
 # SQLAlchemy model
 class Note(Base):
     __tablename__ = "note"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(100), nullable=False)
     content = Column(String, nullable=False)
@@ -26,10 +27,7 @@ class NoteBase(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: Optional[datetime] = None
 
-    model_config = ConfigDict(
-        from_attributes=True,
-        extra="forbid"
-    )
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
 class NoteCreate(NoteBase):

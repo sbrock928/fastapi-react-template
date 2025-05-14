@@ -5,10 +5,11 @@ from sqlalchemy.ext.declarative import declarative_base
 # SQLAlchemy Base
 Base = declarative_base()
 
+
 # SQLAlchemy model for database operations
 class Log(Base):
     __tablename__ = "log"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     timestamp = Column(DateTime, default=datetime.now)
     method = Column(String, nullable=False)

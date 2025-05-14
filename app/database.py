@@ -9,7 +9,9 @@ Base = declarative_base()
 SQLITE_DATABASE_URL = "sqlite:///./sql_app.db"
 engine = create_engine(SQLITE_DATABASE_URL, connect_args={"check_same_thread": False})
 
-SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, expire_on_commit=False)
+SessionLocal = sessionmaker(
+    bind=engine, autocommit=False, autoflush=False, expire_on_commit=False
+)
 
 
 def init_db():

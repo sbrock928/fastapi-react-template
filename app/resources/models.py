@@ -7,10 +7,11 @@ from pydantic import BaseModel, EmailStr, field_validator, ConfigDict
 # SQLAlchemy Base
 from app.database import Base
 
+
 # SQLAlchemy models
 class User(Base):
     __tablename__ = "user"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True)
     email = Column(String, unique=True, index=True)
@@ -19,7 +20,7 @@ class User(Base):
 
 class Employee(Base):
     __tablename__ = "employee"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     employee_id = Column(String, unique=True, index=True)
     email = Column(String, unique=True, index=True)
@@ -30,7 +31,7 @@ class Employee(Base):
 
 class Subscriber(Base):
     __tablename__ = "subscriber"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True)
     full_name = Column(String)
@@ -54,10 +55,7 @@ class UserBase(BaseModel):
     email: EmailStr
     full_name: str
 
-    model_config = ConfigDict(
-        from_attributes=True,
-        extra="forbid"
-    )
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
     @field_validator("username")
     @classmethod
@@ -74,10 +72,7 @@ class EmployeeBase(BaseModel):
     department: str
     position: str
 
-    model_config = ConfigDict(
-        from_attributes=True,
-        extra="forbid"
-    )
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
     @field_validator("employee_id")
     @classmethod
@@ -95,10 +90,7 @@ class SubscriberBase(BaseModel):
     is_active: bool = True
     last_billing_date: Optional[datetime] = None
 
-    model_config = ConfigDict(
-        from_attributes=True,
-        extra="forbid"
-    )
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
     @field_validator("email")
     @classmethod
@@ -107,7 +99,7 @@ class SubscriberBase(BaseModel):
             raise ValueError("Email is required")
         return v
 
-    @field_validator("last_billing_date", mode='before')
+    @field_validator("last_billing_date", mode="before")
     @classmethod
     def validate_last_billing_date(cls, v):
         if v == "":

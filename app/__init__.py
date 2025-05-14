@@ -21,14 +21,12 @@ class DateTimeEncoder(json.JSONEncoder):
 def create_app():
 
     app = FastAPI(
-        docs_url="/api/docs",
-        redoc_url="/api/redoc",
-        openapi_url="/api/openapi.json"
+        docs_url="/api/docs", redoc_url="/api/redoc", openapi_url="/api/openapi.json"
     )
 
     # Add request logger middleware
     app.add_middleware(LoggingMiddleware)
-    
+
     # Add CORS middleware
     app.add_middleware(
         CORSMiddleware,

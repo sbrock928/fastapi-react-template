@@ -34,7 +34,7 @@ class LogDAO:
                 query = query.where(Log.status_code >= status_min)
             if status_max is not None:
                 query = query.where(Log.status_code <= status_max)
-                
+
             # Apply search filter if provided
             if search:
                 search_term = f"%{search}%"
@@ -76,7 +76,7 @@ class LogDAO:
             query = query.where(Log.status_code >= status_min)
         if status_max is not None:
             query = query.where(Log.status_code <= status_max)
-            
+
         # Apply search filter if provided
         if search:
             search_term = f"%{search}%"
@@ -123,6 +123,6 @@ class LogDAO:
             .order_by(Log.timestamp.desc())
             .limit(100)
         )
-        
+
         result = self.session.execute(query).scalars().all()
         return result
