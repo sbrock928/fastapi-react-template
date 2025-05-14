@@ -1,9 +1,21 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.ext.declarative import declarative_base
+from typing import Iterator, Any, TypeVar, Type, cast
 
-# Base class for all models
-Base = declarative_base()
+# Type-checking annotation for the Base class
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.declarative import DeclarativeMeta
+
+    Base: DeclarativeMeta
+else:
+    # Normal runtime Base class
+    Base = declarative_base()
+
+# Create a type variable for use with Base models
+ModelType = TypeVar("ModelType", bound=Any)
 
 # Database configuration
 SQLITE_DATABASE_URL = "sqlite:///./sql_app.db"
@@ -14,7 +26,7 @@ SessionLocal = sessionmaker(
 )
 
 
-def init_db():
+def init_db() -> None:
     # Make sure we import all models here
     from app.resources.models import User, Employee
     from app.logging.models import Log
@@ -24,7 +36,7 @@ def init_db():
     print("Database tables created successfully.")
 
 
-def get_session():
+def get_session() -> Iterator[Session]:
     session = SessionLocal()
     try:
         yield session

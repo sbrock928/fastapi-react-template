@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, text
@@ -101,7 +101,9 @@ class ReportingService:
 
         return report_data
 
-    async def get_resource_counts(self, cycle_code: str = None) -> List[Dict[str, Any]]:
+    async def get_resource_counts(
+        self, cycle_code: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """Report showing count of different resource types, optionally filtered by cycle code"""
         # Get counts for different resource types
         user_result = self.session.execute(select(func.count(User.id)))
@@ -128,9 +130,12 @@ class ReportingService:
             cycle_result = self.session.execute(
                 cycle_query, {"cycle_code": cycle_code}
             ).first()
-            user_count = cycle_result[0] if cycle_result[0] is not None else 0
-            employee_count = cycle_result[1] if cycle_result[1] is not None else 0
-            subscriber_count = cycle_result[2] if cycle_result[2] is not None else 0
+
+            # Check if result exists before accessing indices
+            if cycle_result:
+                user_count = cycle_result[0] if cycle_result[0] is not None else 0
+                employee_count = cycle_result[1] if cycle_result[1] is not None else 0
+                subscriber_count = cycle_result[2] if cycle_result[2] is not None else 0
 
         # Transform into the expected format
         report_data = [
@@ -182,7 +187,9 @@ class ReportingService:
     async def get_distinct_cycle_codes(self) -> List[Dict[str, str]]:
         """Get list of distinct cycle codes for report filters"""
         try:
-            return await self.report_dao.get_distinct_cycle_codes()
+            # Explicitly cast the return type to match annotation
+            result = await self.report_dao.get_distinct_cycle_codes()
+            return [{"code": str(code_dict.get("code", ""))} for code_dict in result]
         except Exception as e:
             raise HTTPException(
                 status_code=500, detail=f"Error fetching cycle codes: {str(e)}"

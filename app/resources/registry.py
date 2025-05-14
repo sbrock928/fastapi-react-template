@@ -1,4 +1,4 @@
-from typing import Dict, Type, Callable, Optional, List, Any
+from typing import Dict, Type, Callable, Optional, List, Any, TypeVar, Generic, cast
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.common.base_service import GenericService
@@ -15,18 +15,26 @@ from app.resources.models import (
 )
 from app.resources.service import UserService, EmployeeService, SubscriberService
 
+# Type variables for models
+ModelType = TypeVar("ModelType")
+CreateModelType = TypeVar("CreateModelType", bound=BaseModel)
+ReadModelType = TypeVar("ReadModelType", bound=BaseModel)
 
-class ResourceConfig:
+# Specialized type for services
+ServiceType = TypeVar("ServiceType", bound=GenericService)
+
+
+class ResourceConfig(Generic[ModelType, CreateModelType, ReadModelType]):
     """Configuration for a resource"""
 
     def __init__(
         self,
         name: str,
-        model_cls: Type,  # SQLAlchemy model
-        create_model_cls: Type[BaseModel],  # Pydantic create model
-        read_model_cls: Type[BaseModel],  # Pydantic read model
+        model_cls: Type[ModelType],  # SQLAlchemy model
+        create_model_cls: Type[CreateModelType],  # Pydantic create model
+        read_model_cls: Type[ReadModelType],  # Pydantic read model
         tag: str,
-        service_cls: Optional[Type[GenericService]] = None,
+        service_cls: Optional[Type[Any]] = None,
         service_factory: Optional[Callable[[Session], Any]] = None,
     ):
         self.name = name
@@ -42,10 +50,19 @@ class ResourceConfig:
         if self.service_factory:
             return self.service_factory(session)
         elif self.service_cls:
-            return self.service_cls(session)
+            try:
+                # Some services expect only the session parameter
+                return self.service_cls(session)
+            except TypeError:
+                # For services that need more parameters
+                return self.service_cls(session, self.model_cls, self.create_model_cls)
         else:
             # Default to generic service if none specified
-            return GenericService(session, self.model_cls, self.create_model_cls)
+            return GenericService(
+                session=session,
+                model_class=self.model_cls,
+                create_model_class=self.create_model_cls,
+            )
 
 
 # Registry of all resources

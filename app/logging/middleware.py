@@ -74,44 +74,59 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 
         request = Request(request.scope, receive=receive)
 
-        # --- Proceed with response ---
+        # --- Proceed with original response ---
         response = await call_next(request)
-
-        # Capture response body
-        response_body = b""
-        if isinstance(response, Response):
-            async for chunk in response.body_iterator:
-                response_body += chunk
-            new_response = Response(
-                content=response_body,
-                status_code=response.status_code,
-                headers=dict(response.headers),
-                media_type=response.media_type,
-            )
-        else:
-            original_body_iterator = response.body_iterator
-
-            async def buffered_body():
-                nonlocal response_body
-                async for chunk in original_body_iterator:
-                    response_body += chunk
-                    yield chunk
-
-            response.body_iterator = buffered_body()
-            new_response = response
 
         # --- End timer ---
         end_time = time.time()
         duration_ms = (end_time - start_time) * 1000
 
+        # Capture response information
+        status_code = response.status_code
+        headers = response.headers
+        media_type = getattr(response, "media_type", "")
+        
+        # Create a new response with captured body
+        response_body = b""
+        
+        # Handle different response types to capture body
+        if isinstance(response, Response) and hasattr(response, "body"):
+            # Standard Response with body attribute
+            response_body = response.body
+            new_response = response
+        elif hasattr(response, "body_iterator"):
+            # It's a StreamingResponse
+            # We need to consume the iterator to get the full body
+            original_iterator = response.body_iterator
+            
+            # Create a buffer to store the chunks
+            chunks = []
+            
+            # Define a new iterator that collects chunks
+            async def buffer_iterator():
+                nonlocal response_body
+                async for chunk in original_iterator:
+                    chunks.append(chunk)
+                    yield chunk
+                
+                # Combine all chunks into a single response body
+                response_body = b"".join(chunks)
+            
+            # Replace the body_iterator with our buffering iterator
+            response.body_iterator = buffer_iterator()
+            new_response = response
+        else:
+            # Unknown response type - use as is
+            new_response = response
+        
         # Determine if we should log the response body
         # Only log HTML response bodies for error responses (status >= 400)
         should_log_body = True
         is_html = False
-        content_type = new_response.headers.get("content-type", "")
+        content_type = headers.get("content-type", "")
         if "text/html" in content_type:
             is_html = True
-            if new_response.status_code < 400:  # Not an error response
+            if status_code < 400:  # Not an error response
                 should_log_body = False
 
         # --- Log to DB (in background) ---
@@ -119,19 +134,19 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             with SessionLocal() as session:
                 # Determine the response body to log
                 body_to_log = ""
-                if should_log_body:
+                if response_body:
                     body_to_log = response_body.decode("utf-8", errors="ignore")
                 elif is_html:
                     body_to_log = "[HTML content not logged for successful response]"
                 else:
-                    body_to_log = response_body.decode("utf-8", errors="ignore")
+                    body_to_log = "[Response body not available]"
 
                 # Create a SQLAlchemy Log object
                 log = Log(
                     timestamp=datetime.now(),
                     method=request.method,
                     path=str(request.url.path),
-                    status_code=new_response.status_code,
+                    status_code=status_code,
                     client_ip=request.client.host if request.client else None,
                     request_headers=json.dumps(dict(request.headers)),
                     request_body=request_body,
@@ -146,6 +161,6 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 session.commit()
 
         # Attach as background task
-        new_response.background = new_response.background or BackgroundTask(log_to_db)
+        new_response.background = getattr(new_response, "background", None) or BackgroundTask(log_to_db)
 
         return new_response

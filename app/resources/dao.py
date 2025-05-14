@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import select
-from typing import List, Optional
+from typing import List, Optional, Union, cast
 from app.resources.models import (
     User,
     UserCreate,
@@ -92,11 +92,14 @@ class SubscriberDAO(GenericDAO[Subscriber, SubscriberCreate]):
         return subscriber
 
     async def get_by_subscription_tier(
-        self, tier: SubscriptionTier
+        self, tier: Union[SubscriptionTier, str]
     ) -> List[Subscriber]:
         """Get all subscribers with a specific subscription tier"""
+        # Convert enum to string if it's an enum
+        tier_value = tier.value if isinstance(tier, SubscriptionTier) else tier
+
         query = select(self.model_class).where(
-            self.model_class.subscription_tier == tier
+            self.model_class.subscription_tier == tier_value
         )
         result = self.session.execute(query)
         subscribers = result.scalars().all()

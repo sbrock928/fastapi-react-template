@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from typing import List, Dict, Any
 from app.database import get_session
 from app.reporting.service import ReportingService
+from app.logging.service import LogService
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
 
@@ -20,8 +21,9 @@ async def get_recent_activities(
     days: int = Query(7, ge=1, le=30), session: Session = Depends(get_session)
 ):
     """Get recent activities for the dashboard"""
-    reporting_service = ReportingService(session)
-    return await reporting_service.get_recent_activities(days=days)
+    # Use LogService since ReportingService doesn't have the get_recent_activities method
+    log_service = LogService(session)
+    return await log_service.get_recent_activities(days=days)
 
 
 @router.get("/status-distribution", response_model=Dict[str, Any])
