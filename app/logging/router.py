@@ -47,9 +47,7 @@ async def get_logs(
 
 
 @router.get("/status-distribution", response_model=Dict[str, Any])
-async def get_status_distribution(
-    session: SessionDep, hours: int = Query(24, ge=1, le=168)
-):
+async def get_status_distribution(session: SessionDep, hours: int = Query(24, ge=1, le=168)):
     """Get distribution of logs by status code"""
     log_service = LogService(session)
     return await log_service.get_status_distribution(hours=hours)

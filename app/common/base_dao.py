@@ -103,17 +103,13 @@ class GenericDAO(Generic[T]):
     # Extended methods needed by services based on mypy errors
     async def get_by_username(self, username: str) -> Optional[T]:
         """Get a user by username"""
-        stmt = select(self.model_class).where(
-            getattr(self.model_class, "username") == username
-        )
+        stmt = select(self.model_class).where(getattr(self.model_class, "username") == username)
         result = self.session.execute(stmt)
         return result.scalars().first()
 
     async def get_by_email(self, email: str) -> Optional[T]:
         """Get a record by email"""
-        stmt = select(self.model_class).where(
-            getattr(self.model_class, "email") == email
-        )
+        stmt = select(self.model_class).where(getattr(self.model_class, "email") == email)
         result = self.session.execute(stmt)
         return result.scalars().first()
 
@@ -127,17 +123,13 @@ class GenericDAO(Generic[T]):
 
     async def get_by_department(self, department: str) -> List[T]:
         """Get employees by department"""
-        stmt = select(self.model_class).where(
-            getattr(self.model_class, "department") == department
-        )
+        stmt = select(self.model_class).where(getattr(self.model_class, "department") == department)
         result = self.session.execute(stmt)
         return list(result.scalars().all())
 
     async def get_by_position(self, position: str) -> List[T]:
         """Get employees by position"""
-        stmt = select(self.model_class).where(
-            getattr(self.model_class, "position") == position
-        )
+        stmt = select(self.model_class).where(getattr(self.model_class, "position") == position)
         result = self.session.execute(stmt)
         return list(result.scalars().all())
 
@@ -151,8 +143,6 @@ class GenericDAO(Generic[T]):
 
     async def get_active_subscribers(self) -> List[T]:
         """Get all active subscribers"""
-        stmt = select(self.model_class).where(
-            getattr(self.model_class, "is_active") == True
-        )
+        stmt = select(self.model_class).where(getattr(self.model_class, "is_active") == True)
         result = self.session.execute(stmt)
         return list(result.scalars().all())

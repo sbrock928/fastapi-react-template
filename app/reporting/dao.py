@@ -77,9 +77,7 @@ class ReportingDAO:
         result = self.session.execute(query)
         return [(row.department, row.count) for row in result]
 
-    async def get_resource_counts(
-        self, cycle_code: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+    async def get_resource_counts(self, cycle_code: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get counts of different resource types, optionally filtered by cycle code"""
         # This is a simplified query since we're not actually filtering by cycle_code
         # In a real implementation, you would join with a cycles table

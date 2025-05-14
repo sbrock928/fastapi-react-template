@@ -14,9 +14,7 @@ from app.core.database import init_db
 
 def create_app():
 
-    app = FastAPI(
-        docs_url="/api/docs", redoc_url="/api/redoc", openapi_url="/api/openapi.json"
-    )
+    app = FastAPI(docs_url="/api/docs", redoc_url="/api/redoc", openapi_url="/api/openapi.json")
     init_db()
 
     # Add request logger middleware

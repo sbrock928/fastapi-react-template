@@ -26,9 +26,7 @@ ReadModelType = TypeVar("ReadModelType", bound=BaseModel)
 ServiceType = TypeVar("ServiceType", bound=GenericService)
 
 
-class ResourceConfig(
-    Generic[ModelType, CreateModelType, UpdateModelType, ReadModelType]
-):
+class ResourceConfig(Generic[ModelType, CreateModelType, UpdateModelType, ReadModelType]):
     """Configuration for a resource"""
 
     def __init__(

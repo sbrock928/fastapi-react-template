@@ -161,8 +161,8 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 session.commit()
 
         # Attach as background task
-        new_response.background = getattr(
-            new_response, "background", None
-        ) or BackgroundTask(log_to_db)
+        new_response.background = getattr(new_response, "background", None) or BackgroundTask(
+            log_to_db
+        )
 
         return new_response

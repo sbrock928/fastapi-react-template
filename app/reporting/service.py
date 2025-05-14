@@ -79,9 +79,7 @@ class ReportingService:
             # Format for API response
             result = []
             for department, count in data:
-                result.append(
-                    {"department": department or "Unassigned", "count": count}
-                )
+                result.append({"department": department or "Unassigned", "count": count})
 
             return result
         except Exception as e:
@@ -90,9 +88,7 @@ class ReportingService:
                 detail=f"Error generating employees by department report: {str(e)}",
             )
 
-    async def get_resource_counts(
-        self, cycle_code: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+    async def get_resource_counts(self, cycle_code: Optional[str] = None) -> List[Dict[str, Any]]:
         """Report showing count of different resource types, optionally filtered by cycle code"""
         try:
             # Get data from DAO, potentially filtered by cycle_code
@@ -118,27 +114,21 @@ class ReportingService:
                     # Adjust column widths
                     worksheet = writer.sheets[sheet_name]
                     for i, col in enumerate(df.columns):
-                        max_width = (
-                            max(df[col].astype(str).map(len).max(), len(col)) + 2
-                        )
+                        max_width = max(df[col].astype(str).map(len).max(), len(col)) + 2
                         worksheet.set_column(i, i, max_width)
 
             # Important: seek to start of file for proper reading
             output.seek(0)
             return output
         except Exception as e:
-            raise HTTPException(
-                status_code=500, detail=f"Error exporting to Excel: {str(e)}"
-            )
+            raise HTTPException(status_code=500, detail=f"Error exporting to Excel: {str(e)}")
 
     async def get_distinct_cycle_codes(self) -> List[Dict[str, str]]:
         """Get list of distinct cycle codes for report filters"""
         try:
             return await self.report_dao.get_distinct_cycle_codes()
         except Exception as e:
-            raise HTTPException(
-                status_code=500, detail=f"Error fetching cycle codes: {str(e)}"
-            )
+            raise HTTPException(status_code=500, detail=f"Error fetching cycle codes: {str(e)}")
 
     def _parse_date_range(self, date_range: str) -> int:
         """Helper to parse a date range string into number of days"""

@@ -33,9 +33,7 @@ class EmployeeDAO(GenericDAO[Employee]):
 
     async def get_by_employee_id(self, employee_id: str) -> Optional[Employee]:
         """Get an employee by employee_id"""
-        stmt = select(self.model_class).where(
-            self.model_class.employee_id == employee_id
-        )
+        stmt = select(self.model_class).where(self.model_class.employee_id == employee_id)
         result = self.session.execute(stmt)
         return result.scalars().first()
 
@@ -70,13 +68,9 @@ class SubscriberDAO(GenericDAO[Subscriber]):
         result = self.session.execute(stmt)
         return result.scalars().first()
 
-    async def get_by_subscription_tier(
-        self, tier: SubscriptionTier
-    ) -> List[Subscriber]:
+    async def get_by_subscription_tier(self, tier: SubscriptionTier) -> List[Subscriber]:
         """Get all subscribers with a specific subscription tier"""
-        stmt = select(self.model_class).where(
-            self.model_class.subscription_tier == tier
-        )
+        stmt = select(self.model_class).where(self.model_class.subscription_tier == tier)
         result = self.session.execute(stmt)
         return list(result.scalars().all())
 

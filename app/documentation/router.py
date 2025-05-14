@@ -55,8 +55,6 @@ async def delete_note(note_id: int, service=Depends(get_documentation_service)):
 
 
 @router.get("/notes/category/{category}", response_model=List[NoteRead])
-async def get_notes_by_category(
-    category: str, service=Depends(get_documentation_service)
-):
+async def get_notes_by_category(category: str, service=Depends(get_documentation_service)):
     """Get notes filtered by category"""
     return await service.get_notes_by_category(category)

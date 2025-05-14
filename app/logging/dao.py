@@ -108,9 +108,7 @@ class LogDAO:
         ORDER BY status_code
         """
 
-        result = self.session.execute(
-            text(query).bindparams(time_threshold=time_threshold)
-        ).all()
+        result = self.session.execute(text(query).bindparams(time_threshold=time_threshold)).all()
 
         return [{"status_code": row[0], "count": row[1]} for row in result]
 

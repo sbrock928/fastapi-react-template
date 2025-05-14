@@ -61,9 +61,7 @@ def get_resource_service_factory(resource_name: str):
     def _get_service(session: SessionDep):
         config = registry.get_config(resource_name)
         if not config:
-            raise HTTPException(
-                status_code=404, detail=f"Resource {resource_name} not configured"
-            )
+            raise HTTPException(status_code=404, detail=f"Resource {resource_name} not configured")
         return config.get_service(session)
 
     return _get_service
@@ -81,9 +79,7 @@ def convert_to_pydantic(db_model: T, pydantic_model_cls: Type[ReadT]) -> ReadT:
     return pydantic_model_cls.model_validate(db_model)
 
 
-def convert_list_to_pydantic(
-    db_models: List[T], pydantic_model_cls: Type[ReadT]
-) -> List[ReadT]:
+def convert_list_to_pydantic(db_models: List[T], pydantic_model_cls: Type[ReadT]) -> List[ReadT]:
     """Convert a list of SQLAlchemy model instances to a list of Pydantic model instances"""
     return [convert_to_pydantic(model, pydantic_model_cls) for model in db_models]
 
@@ -102,18 +98,14 @@ def create_dynamic_resource_routes():
 
     # Define route creation functions to avoid closure variable capture issues
     def create_get_all_route(resource_name, read_model_cls, tag, service_factory):
-        @router.get(
-            f"/{resource_name}", response_model=List[read_model_cls], tags=[tag]
-        )
+        @router.get(f"/{resource_name}", response_model=List[read_model_cls], tags=[tag])
         async def get_all(service=Depends(service_factory)):
             db_items = await service.get_all()
             return convert_list_to_pydantic(db_items, read_model_cls)
 
         return get_all
 
-    def create_create_route(
-        resource_name, read_model_cls, create_model_cls, tag, service_factory
-    ):
+    def create_create_route(resource_name, read_model_cls, create_model_cls, tag, service_factory):
         @router.post(f"/{resource_name}", response_model=read_model_cls, tags=[tag])
         async def create(item_data: create_model_cls, service=Depends(service_factory)):
             db_item = await service.create(item_data)
@@ -122,9 +114,7 @@ def create_dynamic_resource_routes():
         return create
 
     def create_get_by_id_route(resource_name, read_model_cls, tag, service_factory):
-        @router.get(
-            f"/{resource_name}/{{item_id}}", response_model=read_model_cls, tags=[tag]
-        )
+        @router.get(f"/{resource_name}/{{item_id}}", response_model=read_model_cls, tags=[tag])
         async def get_by_id(item_id: int, service=Depends(service_factory)):
             db_item = await service.get_by_id(item_id)
             if not db_item:
@@ -133,12 +123,8 @@ def create_dynamic_resource_routes():
 
         return get_by_id
 
-    def create_update_route(
-        resource_name, read_model_cls, update_model_cls, tag, service_factory
-    ):
-        @router.patch(
-            f"/{resource_name}/{{item_id}}", response_model=read_model_cls, tags=[tag]
-        )
+    def create_update_route(resource_name, read_model_cls, update_model_cls, tag, service_factory):
+        @router.patch(f"/{resource_name}/{{item_id}}", response_model=read_model_cls, tags=[tag])
         async def update(
             item_id: int, item_data: update_model_cls, service=Depends(service_factory)
         ):
@@ -172,13 +158,9 @@ def create_dynamic_resource_routes():
 
         # Register the routes using the route creation functions
         create_get_all_route(resource_name, read_model_cls, tag, service_factory)
-        create_create_route(
-            resource_name, read_model_cls, create_model_cls, tag, service_factory
-        )
+        create_create_route(resource_name, read_model_cls, create_model_cls, tag, service_factory)
         create_get_by_id_route(resource_name, read_model_cls, tag, service_factory)
-        create_update_route(
-            resource_name, read_model_cls, update_model_cls, tag, service_factory
-        )
+        create_update_route(resource_name, read_model_cls, update_model_cls, tag, service_factory)
         create_delete_route(resource_name, tag, service_factory)
 
 
@@ -198,9 +180,7 @@ async def get_user_by_username(username: str, service=Depends(get_user_service))
     response_model=List[EmployeeRead],
     tags=["Employees"],
 )
-async def get_employees_by_department(
-    department: str, service=Depends(get_employee_service)
-):
+async def get_employees_by_department(department: str, service=Depends(get_employee_service)):
     """Get employees by department"""
     return await service.get_employees_by_department(department)
 
@@ -210,17 +190,13 @@ async def get_employees_by_department(
     response_model=List[EmployeeRead],
     tags=["Employees"],
 )
-async def get_employees_by_position(
-    position: str, service=Depends(get_employee_service)
-):
+async def get_employees_by_position(position: str, service=Depends(get_employee_service)):
     """Get employees by position"""
     return await service.get_employees_by_position(position)
 
 
 # Custom routes for Subscribers
-@router.get(
-    "/subscribers/by-email/{email}", response_model=SubscriberRead, tags=["Subscribers"]
-)
+@router.get("/subscribers/by-email/{email}", response_model=SubscriberRead, tags=["Subscribers"])
 async def get_subscriber_by_email(email: str, service=Depends(get_subscriber_service)):
     """Get a subscriber by email"""
     return await service.get_by_email(email)
@@ -231,16 +207,12 @@ async def get_subscriber_by_email(email: str, service=Depends(get_subscriber_ser
     response_model=List[SubscriberRead],
     tags=["Subscribers"],
 )
-async def get_subscribers_by_tier(
-    tier: SubscriptionTier, service=Depends(get_subscriber_service)
-):
+async def get_subscribers_by_tier(tier: SubscriptionTier, service=Depends(get_subscriber_service)):
     """Get subscribers by tier"""
     return await service.get_by_subscription_tier(tier)
 
 
-@router.get(
-    "/subscribers/active", response_model=List[SubscriberRead], tags=["Subscribers"]
-)
+@router.get("/subscribers/active", response_model=List[SubscriberRead], tags=["Subscribers"])
 async def get_active_subscribers(service=Depends(get_subscriber_service)):
     """Get active subscribers"""
     return await service.get_active_subscribers()

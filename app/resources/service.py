@@ -47,9 +47,7 @@ def collect_validation_errors() -> Dict:
     }
 
 
-def validation_error(
-    field: str, msg: str, error_type: str = "value_error"
-) -> HTTPException:
+def validation_error(field: str, msg: str, error_type: str = "value_error") -> HTTPException:
     """
     Creates a standardized validation error in Pydantic format for consistent frontend handling
 
@@ -80,16 +78,12 @@ class UserService(GenericService[User, UserCreate, UserUpdate, UserRead]):
         # Check if username already exists
         existing_user = await self.dao.get_by_username(user_data.username)
         if existing_user:
-            errors["add"](
-                "username", "Username already taken", "value_error.already_exists"
-            )
+            errors["add"]("username", "Username already taken", "value_error.already_exists")
 
         # Check if email already exists
         existing_email = await self.dao.get_by_email(user_data.email)
         if existing_email:
-            errors["add"](
-                "email", "Email already registered", "value_error.already_exists"
-            )
+            errors["add"]("email", "Email already registered", "value_error.already_exists")
 
         # Raise exception with all collected errors if any exist
         errors["raise_if_errors"]()
@@ -108,17 +102,13 @@ class UserService(GenericService[User, UserCreate, UserUpdate, UserRead]):
         if "username" in update_data:
             existing_user = await self.dao.get_by_username(update_data["username"])
             if existing_user and existing_user.id != user_id:
-                errors["add"](
-                    "username", "Username already taken", "value_error.already_exists"
-                )
+                errors["add"]("username", "Username already taken", "value_error.already_exists")
 
         # If email was provided, check if it's unique
         if "email" in update_data:
             existing_email = await self.dao.get_by_email(update_data["email"])
             if existing_email and existing_email.id != user_id:
-                errors["add"](
-                    "email", "Email already registered", "value_error.already_exists"
-                )
+                errors["add"]("email", "Email already registered", "value_error.already_exists")
 
         # Raise exception with all collected errors if any exist
         errors["raise_if_errors"]()
@@ -134,15 +124,11 @@ class UserService(GenericService[User, UserCreate, UserUpdate, UserRead]):
         return self.to_read_model(user)
 
 
-class EmployeeService(
-    GenericService[Employee, EmployeeCreate, EmployeeUpdate, EmployeeRead]
-):
+class EmployeeService(GenericService[Employee, EmployeeCreate, EmployeeUpdate, EmployeeRead]):
     """Employee-specific service with custom validations"""
 
     def __init__(self, session: Session, dao: EmployeeDAO = None):
-        super().__init__(
-            session, Employee, EmployeeCreate, EmployeeUpdate, EmployeeRead
-        )
+        super().__init__(session, Employee, EmployeeCreate, EmployeeUpdate, EmployeeRead)
         self.dao = dao if dao is not None else EmployeeDAO(session, Employee)
 
     async def before_create(self, employee_data: EmployeeCreate) -> EmployeeCreate:
@@ -162,9 +148,7 @@ class EmployeeService(
         # Check if email already exists
         existing_email = await self.dao.get_by_email(employee_data.email)
         if existing_email:
-            errors["add"](
-                "email", "Email already registered", "value_error.already_exists"
-            )
+            errors["add"]("email", "Email already registered", "value_error.already_exists")
 
         # Raise exception with all collected errors if any exist
         errors["raise_if_errors"]()
@@ -195,9 +179,7 @@ class EmployeeService(
         if "email" in update_data:
             existing_email = await self.dao.get_by_email(update_data["email"])
             if existing_email and existing_email.id != employee_id:
-                errors["add"](
-                    "email", "Email already registered", "value_error.already_exists"
-                )
+                errors["add"]("email", "Email already registered", "value_error.already_exists")
 
         # Raise exception with all collected errors if any exist
         errors["raise_if_errors"]()
@@ -222,14 +204,10 @@ class SubscriberService(
     """Subscriber-specific service with custom validations"""
 
     def __init__(self, session: Session, dao: SubscriberDAO = None):
-        super().__init__(
-            session, Subscriber, SubscriberCreate, SubscriberUpdate, SubscriberRead
-        )
+        super().__init__(session, Subscriber, SubscriberCreate, SubscriberUpdate, SubscriberRead)
         self.dao = dao if dao is not None else SubscriberDAO(session, Subscriber)
 
-    async def before_create(
-        self, subscriber_data: SubscriberCreate
-    ) -> SubscriberCreate:
+    async def before_create(self, subscriber_data: SubscriberCreate) -> SubscriberCreate:
         """Custom validation before subscriber creation"""
         # Initialize error collector
         errors = collect_validation_errors()
@@ -237,9 +215,7 @@ class SubscriberService(
         # Check if email already exists
         existing_email = await self.dao.get_by_email(subscriber_data.email)
         if existing_email:
-            errors["add"](
-                "email", "Email already registered", "value_error.already_exists"
-            )
+            errors["add"]("email", "Email already registered", "value_error.already_exists")
 
         # Raise exception with all collected errors if any exist
         errors["raise_if_errors"]()
@@ -260,9 +236,7 @@ class SubscriberService(
         if "email" in update_data:
             existing_email = await self.dao.get_by_email(update_data["email"])
             if existing_email and existing_email.id != subscriber_id:
-                errors["add"](
-                    "email", "Email already registered", "value_error.already_exists"
-                )
+                errors["add"]("email", "Email already registered", "value_error.already_exists")
 
         # Raise exception with all collected errors if any exist
         errors["raise_if_errors"]()
@@ -277,9 +251,7 @@ class SubscriberService(
             raise HTTPException(status_code=404, detail="Subscriber not found")
         return self.to_read_model(subscriber)
 
-    async def get_by_subscription_tier(
-        self, tier: SubscriptionTier
-    ) -> List[SubscriberRead]:
+    async def get_by_subscription_tier(self, tier: SubscriptionTier) -> List[SubscriberRead]:
         """Get all subscribers with a specific subscription tier"""
         subscribers = await self.dao.get_by_subscription_tier(tier)
         return self.to_read_model_list(subscribers)

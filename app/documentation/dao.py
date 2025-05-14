@@ -24,9 +24,7 @@ class DocumentationDAO(GenericDAO[Note]):
         query = (
             select(self.model_class)
             .where(self.model_class.category == category)
-            .order_by(
-                self.model_class.updated_at.desc(), self.model_class.created_at.desc()
-            )
+            .order_by(self.model_class.updated_at.desc(), self.model_class.created_at.desc())
         )
         result = self.session.execute(query)
         return list(result.scalars().all())
