@@ -40,7 +40,7 @@ def create_app():
     from app.resources.router import router as resource_router
     from app.reporting.router import router as report_router
     from app.logging.router import router as log_router
-    from app.user_guide.router import router as user_guide_router
+    from app.documentation.router import router as documentation_router
     from app.database import get_session
     from app.resources.models import User, Employee, Subscriber
     from app.logging.models import Log
@@ -49,7 +49,7 @@ def create_app():
     app.include_router(resource_router, prefix="/api")
     app.include_router(report_router, prefix="/api")
     app.include_router(log_router, prefix="/api")
-    app.include_router(user_guide_router)
+    app.include_router(documentation_router, prefix="/api")
 
     # Mount the built React assets from the new static directory
     app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")

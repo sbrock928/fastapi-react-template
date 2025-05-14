@@ -2,10 +2,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from typing import List, Optional
 from datetime import datetime
-from app.user_guide.models import Note, NoteBase, NoteRead, note_to_pydantic
+from app.documentation.models import Note, NoteBase, NoteRead, note_to_pydantic
 
 
-class UserGuideService:
+class DocumentationService:
     def __init__(self, session: Session):
         self.session = session
 
