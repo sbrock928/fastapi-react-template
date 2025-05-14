@@ -1,13 +1,11 @@
 from typing import Dict, Type, Callable, Optional, List, Any
-from sqlmodel import SQLModel, Session
+from sqlalchemy.orm import Session
+from pydantic import BaseModel
 from app.common.base_service import GenericService
 from app.resources.models import (
-    User,
-    UserBase,
-    Employee,
-    EmployeeBase,
-    Subscriber,
-    SubscriberBase,
+    User, UserCreate, UserRead,
+    Employee, EmployeeCreate, EmployeeRead,
+    Subscriber, SubscriberCreate, SubscriberRead,
 )
 from app.resources.service import UserService, EmployeeService, SubscriberService
 
@@ -18,15 +16,17 @@ class ResourceConfig:
     def __init__(
         self,
         name: str,
-        model_cls: Type[SQLModel],
-        base_model_cls: Type[SQLModel],
+        model_cls: Type,  # SQLAlchemy model
+        create_model_cls: Type[BaseModel],  # Pydantic create model
+        read_model_cls: Type[BaseModel],  # Pydantic read model
         tag: str,
         service_cls: Optional[Type[GenericService]] = None,
         service_factory: Optional[Callable[[Session], Any]] = None,
     ):
         self.name = name
         self.model_cls = model_cls
-        self.base_model_cls = base_model_cls
+        self.create_model_cls = create_model_cls
+        self.read_model_cls = read_model_cls
         self.tag = tag
         self.service_cls = service_cls
         self.service_factory = service_factory
@@ -39,7 +39,7 @@ class ResourceConfig:
             return self.service_cls(session)
         else:
             # Default to generic service if none specified
-            return GenericService(session, self.model_cls, self.base_model_cls)
+            return GenericService(session, self.model_cls, self.create_model_cls)
 
 
 # Registry of all resources
@@ -70,7 +70,8 @@ registry.register(
     ResourceConfig(
         name="users",
         model_cls=User,
-        base_model_cls=UserBase,
+        create_model_cls=UserCreate,
+        read_model_cls=UserRead,
         tag="Users",
         service_cls=UserService,
     )
@@ -81,7 +82,8 @@ registry.register(
     ResourceConfig(
         name="employees",
         model_cls=Employee,
-        base_model_cls=EmployeeBase,
+        create_model_cls=EmployeeCreate,
+        read_model_cls=EmployeeRead,
         tag="Employees",
         service_cls=EmployeeService,
     )
@@ -92,7 +94,8 @@ registry.register(
     ResourceConfig(
         name="subscribers",
         model_cls=Subscriber,
-        base_model_cls=SubscriberBase,
+        create_model_cls=SubscriberCreate,
+        read_model_cls=SubscriberRead,
         tag="Subscribers",
         service_cls=SubscriberService,
     )

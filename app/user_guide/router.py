@@ -1,21 +1,21 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_session
-from app.user_guide.models import Note, NoteBase
+from app.user_guide.models import NoteBase, NoteRead
 from app.user_guide.service import UserGuideService
 
 router = APIRouter(prefix="/api/user-guide", tags=["User Guide"])
 
 
-@router.get("/notes", response_model=List[Note])
+@router.get("/notes", response_model=List[NoteRead])
 async def get_all_notes(session: Session = Depends(get_session)):
     """Get all user guide notes"""
     service = UserGuideService(session)
     return await service.get_all_notes()
 
 
-@router.get("/notes/{note_id}", response_model=Note)
+@router.get("/notes/{note_id}", response_model=NoteRead)
 async def get_note(note_id: int, session: Session = Depends(get_session)):
     """Get a specific note by ID"""
     service = UserGuideService(session)
@@ -25,14 +25,14 @@ async def get_note(note_id: int, session: Session = Depends(get_session)):
     return note
 
 
-@router.post("/notes", response_model=Note, status_code=201)
+@router.post("/notes", response_model=NoteRead, status_code=201)
 async def create_note(note: NoteBase, session: Session = Depends(get_session)):
     """Create a new note"""
     service = UserGuideService(session)
     return await service.create_note(note)
 
 
-@router.put("/notes/{note_id}", response_model=Note)
+@router.put("/notes/{note_id}", response_model=NoteRead)
 async def update_note(
     note_id: int, note_data: NoteBase, session: Session = Depends(get_session)
 ):
@@ -54,7 +54,7 @@ async def delete_note(note_id: int, session: Session = Depends(get_session)):
     return None
 
 
-@router.get("/notes/category/{category}", response_model=List[Note])
+@router.get("/notes/category/{category}", response_model=List[NoteRead])
 async def get_notes_by_category(category: str, session: Session = Depends(get_session)):
     """Get notes filtered by category"""
     service = UserGuideService(session)

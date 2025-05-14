@@ -1,40 +1,52 @@
-from sqlmodel import Session, select
+from sqlalchemy.orm import Session
+from sqlalchemy import select
 from typing import List, Optional
 from datetime import datetime
-from app.user_guide.models import Note, NoteBase
+from app.user_guide.models import Note, NoteBase, NoteRead, note_to_pydantic
 
 
 class UserGuideService:
     def __init__(self, session: Session):
         self.session = session
 
-    async def get_all_notes(self) -> List[Note]:
+    async def get_all_notes(self) -> List[NoteRead]:
         """Get all user guide notes"""
-        notes = self.session.exec(
-            select(Note).order_by(Note.updated_at.desc(), Note.created_at.desc())
-        ).all()
-        return notes
+        query = select(Note).order_by(Note.updated_at.desc(), Note.created_at.desc())
+        result = self.session.execute(query)
+        notes = result.scalars().all()
+        return [note_to_pydantic(note) for note in notes]
 
-    async def get_note_by_id(self, note_id: int) -> Optional[Note]:
+    async def get_note_by_id(self, note_id: int) -> Optional[NoteRead]:
         """Get a note by its ID"""
-        note = self.session.exec(select(Note).where(Note.id == note_id)).first()
-        return note
+        query = select(Note).where(Note.id == note_id)
+        result = self.session.execute(query)
+        note = result.scalar_one_or_none()
+        return note_to_pydantic(note) if note else None
 
-    async def create_note(self, note: NoteBase) -> Note:
+    async def create_note(self, note: NoteBase) -> NoteRead:
         """Create a new note"""
-        db_note = Note.from_orm(note)
+        # Convert Pydantic model to dict
+        note_dict = note.model_dump()
+        
+        # Create SQLAlchemy model
+        db_note = Note(**note_dict)
+        
         self.session.add(db_note)
         self.session.commit()
         self.session.refresh(db_note)
-        return db_note
+        return note_to_pydantic(db_note)
 
-    async def update_note(self, note_id: int, note_data: NoteBase) -> Optional[Note]:
+    async def update_note(self, note_id: int, note_data: NoteBase) -> Optional[NoteRead]:
         """Update an existing note"""
-        db_note = await self.get_note_by_id(note_id)
+        # First get the existing note
+        query = select(Note).where(Note.id == note_id)
+        result = self.session.execute(query)
+        db_note = result.scalar_one_or_none()
+        
         if not db_note:
             return None
 
-        note_dict = note_data.dict(exclude_unset=True)
+        note_dict = note_data.model_dump(exclude_unset=True)
         note_dict["updated_at"] = datetime.now()
 
         for key, value in note_dict.items():
@@ -43,11 +55,14 @@ class UserGuideService:
         self.session.add(db_note)
         self.session.commit()
         self.session.refresh(db_note)
-        return db_note
+        return note_to_pydantic(db_note)
 
     async def delete_note(self, note_id: int) -> bool:
         """Delete a note by ID"""
-        db_note = await self.get_note_by_id(note_id)
+        query = select(Note).where(Note.id == note_id)
+        result = self.session.execute(query)
+        db_note = result.scalar_one_or_none()
+        
         if not db_note:
             return False
 
@@ -55,11 +70,13 @@ class UserGuideService:
         self.session.commit()
         return True
 
-    async def get_notes_by_category(self, category: str) -> List[Note]:
+    async def get_notes_by_category(self, category: str) -> List[NoteRead]:
         """Get notes filtered by category"""
-        notes = self.session.exec(
+        query = (
             select(Note)
             .where(Note.category == category)
             .order_by(Note.updated_at.desc(), Note.created_at.desc())
-        ).all()
-        return notes
+        )
+        result = self.session.execute(query)
+        notes = result.scalars().all()
+        return [note_to_pydantic(note) for note in notes]

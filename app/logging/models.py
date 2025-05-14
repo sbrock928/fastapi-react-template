@@ -1,29 +1,25 @@
-from typing import Optional
-from sqlmodel import Field, SQLModel
 from datetime import datetime
+from sqlalchemy import Column, Integer, String, DateTime, Float
+from sqlalchemy.ext.declarative import declarative_base
 
+# SQLAlchemy Base
+Base = declarative_base()
 
-class LogBase(SQLModel):
-    timestamp: datetime = Field(default_factory=datetime.now)
-    method: str
-    path: str
-    status_code: int
-    client_ip: Optional[str] = None
-    request_headers: Optional[str] = None
-    request_body: Optional[str] = None
-    response_body: Optional[str] = None
-    processing_time: Optional[float] = None  # in milliseconds
-    user_agent: Optional[str] = None
-    username: Optional[str] = None  # Changed from server_username to username
-    hostname: Optional[str] = None  # Added computer name field
-    application_id: Optional[str] = Field(default=None, title="Application ID")
-
-    class Config:
-        orm_mode = True
-        extra = "forbid"
-
-
-# Database table model (inherits from base model)
-class Log(LogBase, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+# SQLAlchemy model for database operations
+class Log(Base):
     __tablename__ = "log"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, default=datetime.now)
+    method = Column(String, nullable=False)
+    path = Column(String, nullable=False)
+    status_code = Column(Integer, nullable=False)
+    client_ip = Column(String, nullable=True)
+    request_headers = Column(String, nullable=True)
+    request_body = Column(String, nullable=True)
+    response_body = Column(String, nullable=True)
+    processing_time = Column(Float, nullable=True)  # in milliseconds
+    user_agent = Column(String, nullable=True)
+    username = Column(String, nullable=True)
+    hostname = Column(String, nullable=True)
+    application_id = Column(String, nullable=True)

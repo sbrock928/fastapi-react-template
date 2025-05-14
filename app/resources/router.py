@@ -1,19 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from typing import List, Type, Callable, Any
 from app.database import get_session
 from app.resources.models import (
-    User,
-    UserBase,
-    Employee,
-    EmployeeBase,
-    Subscriber,
-    SubscriberBase,
+    UserRead, UserCreate,
+    EmployeeRead, EmployeeCreate,
+    SubscriberRead, SubscriberCreate,
     SubscriptionTier,
 )
-from app.resources.registry import (
-    registry,
-)  # Import registry instead of ResourcesService
+from app.resources.registry import registry
 
 router = APIRouter(tags=["Resources"])
 
@@ -24,12 +19,12 @@ def create_dynamic_resource_routes():
 
     for config in registry.get_all_configs():
         resource_name = config.name
-        model_cls = config.model_cls
-        base_model_cls = config.base_model_cls
+        read_model_cls = config.read_model_cls
+        create_model_cls = config.create_model_cls
         tag = config.tag
 
         # GET all
-        @router.get(f"/{resource_name}", response_model=List[model_cls], tags=[tag])
+        @router.get(f"/{resource_name}", response_model=List[read_model_cls], tags=[tag])
         async def get_all(
             resource=resource_name,  # Capture the resource name in the closure
             session: Session = Depends(get_session),
@@ -39,9 +34,9 @@ def create_dynamic_resource_routes():
             return await service.get_all()
 
         # POST - create
-        @router.post(f"/{resource_name}", response_model=model_cls, tags=[tag])
+        @router.post(f"/{resource_name}", response_model=read_model_cls, tags=[tag])
         async def create(
-            item_data: base_model_cls,
+            item_data: create_model_cls,
             resource=resource_name,  # Capture the resource name in the closure
             session: Session = Depends(get_session),
         ):
@@ -51,7 +46,7 @@ def create_dynamic_resource_routes():
 
         # GET by ID
         @router.get(
-            f"/{resource_name}/{{item_id}}", response_model=model_cls, tags=[tag]
+            f"/{resource_name}/{{item_id}}", response_model=read_model_cls, tags=[tag]
         )
         async def get_by_id(
             item_id: int,
@@ -67,11 +62,11 @@ def create_dynamic_resource_routes():
 
         # PATCH - update
         @router.patch(
-            f"/{resource_name}/{{item_id}}", response_model=model_cls, tags=[tag]
+            f"/{resource_name}/{{item_id}}", response_model=read_model_cls, tags=[tag]
         )
         async def update(
             item_id: int,
-            item_data: base_model_cls,
+            item_data: create_model_cls,
             resource=resource_name,  # Capture the resource name in the closure
             session: Session = Depends(get_session),
         ):
@@ -102,7 +97,7 @@ create_dynamic_resource_routes()
 
 
 # Add custom resource-specific routes that don't fit the CRUD pattern
-@router.get("/users/by-username/{username}", response_model=User, tags=["Users"])
+@router.get("/users/by-username/{username}", response_model=UserRead, tags=["Users"])
 async def get_user_by_username(username: str, session: Session = Depends(get_session)):
     config = registry.get_config("users")
     service = config.get_service(session)
@@ -111,7 +106,7 @@ async def get_user_by_username(username: str, session: Session = Depends(get_ses
 
 @router.get(
     "/employees/by-department/{department}",
-    response_model=List[Employee],
+    response_model=List[EmployeeRead],
     tags=["Employees"],
 )
 async def get_employees_by_department(
@@ -124,7 +119,7 @@ async def get_employees_by_department(
 
 @router.get(
     "/employees/by-position/{position}",
-    response_model=List[Employee],
+    response_model=List[EmployeeRead],
     tags=["Employees"],
 )
 async def get_employees_by_position(
@@ -137,7 +132,7 @@ async def get_employees_by_position(
 
 # Custom routes for Subscribers
 @router.get(
-    "/subscribers/by-email/{email}", response_model=Subscriber, tags=["Subscribers"]
+    "/subscribers/by-email/{email}", response_model=SubscriberRead, tags=["Subscribers"]
 )
 async def get_subscriber_by_email(email: str, session: Session = Depends(get_session)):
     config = registry.get_config("subscribers")
@@ -146,7 +141,7 @@ async def get_subscriber_by_email(email: str, session: Session = Depends(get_ses
 
 
 @router.get(
-    "/subscribers/by-tier/{tier}", response_model=List[Subscriber], tags=["Subscribers"]
+    "/subscribers/by-tier/{tier}", response_model=List[SubscriberRead], tags=["Subscribers"]
 )
 async def get_subscribers_by_tier(
     tier: SubscriptionTier, session: Session = Depends(get_session)
@@ -157,7 +152,7 @@ async def get_subscribers_by_tier(
 
 
 @router.get(
-    "/subscribers/active", response_model=List[Subscriber], tags=["Subscribers"]
+    "/subscribers/active", response_model=List[SubscriberRead], tags=["Subscribers"]
 )
 async def get_active_subscribers(session: Session = Depends(get_session)):
     config = registry.get_config("subscribers")

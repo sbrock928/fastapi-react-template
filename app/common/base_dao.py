@@ -1,9 +1,11 @@
-from sqlmodel import Session, select, SQLModel
+from sqlalchemy.orm import Session
+from sqlalchemy import select
+from pydantic import BaseModel
 from typing import TypeVar, Generic, Type, List, Optional, Any, Dict
 
 # Type variables for our generic classes
-T = TypeVar("T", bound=SQLModel)
-CreateT = TypeVar("CreateT", bound=SQLModel)
+T = TypeVar("T")  # SQLAlchemy model
+CreateT = TypeVar("CreateT", bound=BaseModel)  # Pydantic model
 
 
 class GenericDAO(Generic[T, CreateT]):
@@ -15,7 +17,8 @@ class GenericDAO(Generic[T, CreateT]):
 
     async def get_all(self) -> List[T]:
         """Get all records"""
-        items = self.session.exec(select(self.model_class)).all()
+        result = self.session.execute(select(self.model_class))
+        items = result.scalars().all()
         return items
 
     async def get_by_id(self, item_id: int) -> Optional[T]:
@@ -25,8 +28,10 @@ class GenericDAO(Generic[T, CreateT]):
 
     async def create(self, item_data: CreateT) -> T:
         """Create a new record"""
-        # Convert from base/create model to full model if they're different
-        item_dict = item_data.dict()
+        # Convert from Pydantic model to dict
+        item_dict = item_data.model_dump()
+        
+        # Create SQLAlchemy model instance
         item = self.model_class(**item_dict)
 
         self.session.add(item)
@@ -41,7 +46,7 @@ class GenericDAO(Generic[T, CreateT]):
             return None
 
         # Update only the provided fields
-        item_data_dict = item_data.dict(exclude_unset=True)
+        item_data_dict = item_data.model_dump(exclude_unset=True)
         for key, value in item_data_dict.items():
             setattr(item, key, value)
 

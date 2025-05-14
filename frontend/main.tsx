@@ -6,9 +6,13 @@ import './index.css'
 import 'bootstrap/dist/css/bootstrap.min.css'
 // Import our custom CSS file that handles bootstrap-icons
 import 'bootstrap-icons/font/bootstrap-icons.css'
+// Import Bootstrap JS with proper typing
+import * as bootstrap from 'bootstrap'
 
-
-
+// Make Bootstrap available globally
+if (typeof window !== 'undefined') {
+  window.bootstrap = bootstrap;
+}
 
 // Add responsive viewport meta tag programmatically if not in HTML
 const setViewportMeta = () => {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import useModal from '@/hooks/useModal';
 import { useToast } from '@/context/ToastContext';
@@ -25,12 +25,21 @@ const ResourceModal = ({
   const [showValidationSummary, setShowValidationSummary] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [hasSubmitError, setHasSubmitError] = useState<boolean>(false);
+  const modalMounted = useRef(false);
   
   // Use the toast context
   const { showToast } = useToast();
   
   // Use the useModal hook to handle the Bootstrap modal
-  const modalRef = useModal(show, onClose);
+  const { modalRef, closeModal } = useModal(show, onClose);
+  
+  // Mark when modal is mounted
+  useEffect(() => {
+    modalMounted.current = true;
+    return () => {
+      modalMounted.current = false;
+    };
+  }, []);
   
   // Handle modal container click to isolate its event bubble
   const handleModalClick = useCallback((e: React.MouseEvent) => {
@@ -44,8 +53,9 @@ const ResourceModal = ({
     e.preventDefault();
     // Stop event propagation
     e.stopPropagation();
-    onClose();
-  }, [onClose]);
+    // Use our direct closeModal function to ensure the modal closes
+    closeModal();
+  }, [closeModal]);
 
   // Initialize form data when the component mounts or editingResource changes
   useEffect(() => {
@@ -347,6 +357,8 @@ const ResourceModal = ({
       aria-hidden="true"
       ref={modalRef}
       onClick={handleModalClick}
+      data-bs-backdrop="static"
+      data-bs-keyboard="false"
     >
       <div className="modal-dialog">
         <div className="modal-content">

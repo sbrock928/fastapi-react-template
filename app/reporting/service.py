@@ -1,6 +1,7 @@
 from typing import List, Dict, Any
 from fastapi import HTTPException
-from sqlmodel import Session, select, func, text
+from sqlalchemy.orm import Session
+from sqlalchemy import select, func, text
 from app.reporting.dao import ReportingDAO
 from app.resources.models import User, Employee, Subscriber
 from datetime import datetime, timedelta
@@ -36,7 +37,7 @@ class ReportingService:
     async def get_status_distribution(self, hours: int = 24) -> Dict[str, Any]:
         """Get distribution of logs by status code - delegates to LogService"""
         # This method now redirects to the LogService method
-        from app.logging.services import LogService
+        from app.logging.service import LogService
 
         log_service = LogService(self.session)
         return await log_service.get_status_distribution(hours=hours)
@@ -47,14 +48,14 @@ class ReportingService:
 
         # This is a simplified approach since we don't have a creation_date field in the model
         # In a real application, you would use the actual creation date field
-        query = """
+        query = text("""
         SELECT COUNT(*) as count, date('now', '-' || (abs(random()) % 30) || ' days') as date
         FROM user
         GROUP BY date
         ORDER BY date ASC
-        """
+        """)
 
-        result = self.session.exec(text(query)).all()
+        result = self.session.execute(query).all()
 
         # Transform into the expected format
         report_data = []
@@ -76,7 +77,7 @@ class ReportingService:
             Employee.department, func.count(Employee.id).label("count")
         ).group_by(Employee.department)
 
-        result = self.session.exec(query).all()
+        result = self.session.execute(query).all()
 
         # Calculate total
         total_employees = sum(row[1] for row in result)
@@ -101,25 +102,28 @@ class ReportingService:
     async def get_resource_counts(self, cycle_code: str = None) -> List[Dict[str, Any]]:
         """Report showing count of different resource types, optionally filtered by cycle code"""
         # Get counts for different resource types
-        user_count = self.session.exec(select(func.count(User.id))).one()
-        employee_count = self.session.exec(select(func.count(Employee.id))).one()
-        subscriber_count = self.session.exec(select(func.count(Subscriber.id))).one()
+        user_result = self.session.execute(select(func.count(User.id)))
+        user_count = user_result.scalar_one()
+        
+        employee_result = self.session.execute(select(func.count(Employee.id)))
+        employee_count = employee_result.scalar_one()
+        
+        subscriber_result = self.session.execute(select(func.count(Subscriber.id)))
+        subscriber_count = subscriber_result.scalar_one()
 
         # Apply cycle code filter if provided
         if cycle_code:
             # Use raw SQL to filter by cycle code
             # You would typically join with the Cycles table in a real implementation
-            cycle_query = text(
-                f"""
+            cycle_query = text("""
                 SELECT 
                     (SELECT COUNT(*) FROM user WHERE cycle_code = :cycle_code) as user_count,
                     (SELECT COUNT(*) FROM employee WHERE cycle_code = :cycle_code) as employee_count,
                     (SELECT COUNT(*) FROM subscriber WHERE cycle_code = :cycle_code) as subscriber_count
-            """
-            )
-            cycle_result = self.session.exec(
+            """)
+            cycle_result = self.session.execute(
                 cycle_query, {"cycle_code": cycle_code}
-            ).one()
+            ).first()
             user_count = cycle_result[0] if cycle_result[0] is not None else 0
             employee_count = cycle_result[1] if cycle_result[1] is not None else 0
             subscriber_count = cycle_result[2] if cycle_result[2] is not None else 0

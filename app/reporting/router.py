@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from fastapi.responses import StreamingResponse
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from typing import List, Dict, Any
 from app.database import get_session
 from app.reporting.service import ReportingService

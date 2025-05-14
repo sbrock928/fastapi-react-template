@@ -1,13 +1,10 @@
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from typing import List, Optional, Any, Dict, Union
 from fastapi import HTTPException
 from app.resources.models import (
-    User,
-    UserBase,
-    Employee,
-    EmployeeBase,
-    Subscriber,
-    SubscriberBase,
+    User, UserCreate, UserRead,
+    Employee, EmployeeCreate, EmployeeRead,
+    Subscriber, SubscriberCreate, SubscriberRead,
     SubscriptionTier,
 )
 from app.resources.dao import UserDAO, EmployeeDAO, SubscriberDAO
@@ -61,14 +58,14 @@ def validation_error(
     return HTTPException(status_code=422, detail=detail)
 
 
-class UserService(GenericService[User, UserBase]):
+class UserService(GenericService[User, UserCreate]):
     """User-specific service with custom validations"""
 
     def __init__(self, session: Session):
-        super().__init__(session, User, UserBase)
+        super().__init__(session, User, UserCreate)
         self.dao = UserDAO(session, User)
 
-    async def before_create(self, user_data: UserBase) -> UserBase:
+    async def before_create(self, user_data: UserCreate) -> UserCreate:
         """Custom validation before user creation"""
         # Initialize error collector
         errors = collect_validation_errors()
@@ -92,10 +89,10 @@ class UserService(GenericService[User, UserBase]):
 
         return user_data
 
-    async def before_update(self, user_id: int, user_data: UserBase) -> UserBase:
+    async def before_update(self, user_id: int, user_data: UserCreate) -> UserCreate:
         """Custom validation before user update"""
         # Get fields that were provided for update
-        update_data = user_data.dict(exclude_unset=True)
+        update_data = user_data.model_dump(exclude_unset=True)
 
         # Initialize error collector
         errors = collect_validation_errors()
@@ -130,14 +127,14 @@ class UserService(GenericService[User, UserBase]):
         return user
 
 
-class EmployeeService(GenericService[Employee, EmployeeBase]):
+class EmployeeService(GenericService[Employee, EmployeeCreate]):
     """Employee-specific service with custom validations"""
 
     def __init__(self, session: Session):
-        super().__init__(session, Employee, EmployeeBase)
+        super().__init__(session, Employee, EmployeeCreate)
         self.dao = EmployeeDAO(session, Employee)
 
-    async def before_create(self, employee_data: EmployeeBase) -> EmployeeBase:
+    async def before_create(self, employee_data: EmployeeCreate) -> EmployeeCreate:
         """Custom validation before employee creation"""
         # Initialize error collector
         errors = collect_validation_errors()
@@ -164,11 +161,11 @@ class EmployeeService(GenericService[Employee, EmployeeBase]):
         return employee_data
 
     async def before_update(
-        self, employee_id: int, employee_data: EmployeeBase
-    ) -> EmployeeBase:
+        self, employee_id: int, employee_data: EmployeeCreate
+    ) -> EmployeeCreate:
         """Custom validation before employee update"""
         # Get fields that were provided for update
-        update_data = employee_data.dict(exclude_unset=True)
+        update_data = employee_data.model_dump(exclude_unset=True)
 
         # Initialize error collector
         errors = collect_validation_errors()
@@ -206,14 +203,14 @@ class EmployeeService(GenericService[Employee, EmployeeBase]):
         return await self.dao.get_by_position(position)
 
 
-class SubscriberService(GenericService[Subscriber, SubscriberBase]):
+class SubscriberService(GenericService[Subscriber, SubscriberCreate]):
     """Subscriber-specific service with custom validations"""
 
     def __init__(self, session: Session):
-        super().__init__(session, Subscriber, SubscriberBase)
+        super().__init__(session, Subscriber, SubscriberCreate)
         self.dao = SubscriberDAO(session, Subscriber)
 
-    async def before_create(self, subscriber_data: SubscriberBase) -> SubscriberBase:
+    async def before_create(self, subscriber_data: SubscriberCreate) -> SubscriberCreate:
         """Custom validation before subscriber creation"""
         # Initialize error collector
         errors = collect_validation_errors()
@@ -231,11 +228,11 @@ class SubscriberService(GenericService[Subscriber, SubscriberBase]):
         return subscriber_data
 
     async def before_update(
-        self, subscriber_id: int, subscriber_data: SubscriberBase
-    ) -> SubscriberBase:
+        self, subscriber_id: int, subscriber_data: SubscriberCreate
+    ) -> SubscriberCreate:
         """Custom validation before subscriber update"""
         # Get fields that were provided for update
-        update_data = subscriber_data.dict(exclude_unset=True)
+        update_data = subscriber_data.model_dump(exclude_unset=True)
 
         # Initialize error collector
         errors = collect_validation_errors()

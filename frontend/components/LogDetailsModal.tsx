@@ -1,3 +1,4 @@
+import { useRef, useEffect, useCallback } from 'react';
 import useModal from '@/hooks/useModal';
 import { formatJsonString } from '@/utils/formatters';
 import type { Log } from '@/types';
@@ -9,15 +10,48 @@ interface LogDetailsModalProps {
 }
 
 const LogDetailsModal = ({ log, show, onHide }: LogDetailsModalProps) => {
-  const modalRef = useModal(show, onHide);
+  const modalMounted = useRef(false);
+  const { modalRef, closeModal } = useModal(show, onHide);
+  
+  // Mark when modal is mounted
+  useEffect(() => {
+    modalMounted.current = true;
+    return () => {
+      modalMounted.current = false;
+    };
+  }, []);
+  
+  // Handle modal container click to isolate its event bubble
+  const handleModalClick = useCallback((e: React.MouseEvent) => {
+    // Prevent event propagation from modal dialog clicks
+    e.stopPropagation();
+  }, []);
+  
+  // Handle manual close of the modal
+  const handleClose = useCallback((e: React.MouseEvent) => {
+    // Prevent default behavior
+    e.preventDefault();
+    // Stop event propagation
+    e.stopPropagation();
+    // Use our direct closeModal function to ensure the modal closes
+    closeModal();
+  }, [closeModal]);
   
   return (
-    <div className="modal fade" id="logDetailsModal" tabIndex={-1} ref={modalRef}>
+    <div 
+      className="modal fade" 
+      id="logDetailsModal" 
+      tabIndex={-1} 
+      ref={modalRef}
+      data-bs-backdrop="static"
+      data-bs-keyboard="false"
+      onClick={handleModalClick}
+    >
       <div className="modal-dialog modal-lg">
         <div className="modal-content">
           <div className="modal-header text-white" style={{ backgroundColor: '#93186C' }}>
             <h5 className="modal-title">Log Details</h5>
-            <button type="button" className="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            <button type="button" className="btn-close btn-close-white" onClick={handleClose} aria-label="Close"></button>
           </div>
           <div className="modal-body">
             <div className="row mb-3">
@@ -114,7 +148,7 @@ const LogDetailsModal = ({ log, show, onHide }: LogDetailsModalProps) => {
             </div>
           </div>
           <div className="modal-footer">
-            <button type="button" className="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            <button type="button" className="btn btn-secondary" onClick={handleClose}>Close</button>
           </div>
         </div>
       </div>

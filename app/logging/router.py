@@ -1,19 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlmodel import Session, select
+from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from app.database import get_session
-from app.logging.models import Log, LogBase
-from app.logging.services import LogService
-from sqlalchemy.exc import IntegrityError
-from datetime import datetime, timedelta
+from app.logging.schemas import LogRead
+from app.logging.service import LogService
 
 router = APIRouter(
-    prefix="/api/logs",
+    prefix="/logs",
     tags=["logs"],
 )
 
 
-@router.get("/", response_model=List[Log])
+@router.get("/", response_model=List[LogRead])
 async def get_logs(
     response: Response,
     limit: int = Query(50, ge=1, le=1000),

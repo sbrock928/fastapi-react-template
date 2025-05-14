@@ -229,6 +229,15 @@ const Logs = () => {
     setRefreshInterval(parseInt(e.target.value));
   };
 
+  // Handle modal close
+  const handleModalClose = () => {
+    setShowModal(false);
+    // Add a small delay before clearing the selectedLog to prevent UI issues
+    setTimeout(() => {
+      setSelectedLog(null);
+    }, 100);
+  };
+
   // Handle page change
   const handlePageChange = (page: number) => {
     pagination.goToPage(page);
@@ -545,7 +554,7 @@ const Logs = () => {
         <LogDetailsModal 
           log={selectedLog}
           show={showModal}
-          onHide={() => setShowModal(false)}
+          onHide={handleModalClose}
         />
       )}
     </div>

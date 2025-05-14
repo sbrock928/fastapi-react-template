@@ -11,8 +11,8 @@ from typing import Callable, Awaitable, List, Dict, Any
 
 from datetime import datetime
 from starlette.background import BackgroundTask
-from sqlmodel import Session
-from app.logging.models import Log  # Adjust import as needed
+from sqlalchemy.orm import Session
+from app.logging.models import Log  # Now using SQLAlchemy model
 from app.database import SessionLocal  # Your session generator
 import time
 import os
@@ -126,6 +126,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 else:
                     body_to_log = response_body.decode("utf-8", errors="ignore")
 
+                # Create a SQLAlchemy Log object
                 log = Log(
                     timestamp=datetime.now(),
                     method=request.method,
@@ -137,9 +138,9 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                     response_body=body_to_log,
                     processing_time=duration_ms,
                     user_agent=request.headers.get("user-agent"),
-                    username=self.username,  # Changed from server_username to username
-                    hostname=self.hostname,  # Added hostname
-                    application_id=self.application_id,  # Added application_id
+                    username=self.username,
+                    hostname=self.hostname,
+                    application_id=self.application_id,
                 )
                 session.add(log)
                 session.commit()

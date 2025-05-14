@@ -2,7 +2,8 @@ from fastapi import FastAPI, Request, Depends, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from sqlmodel import Session, select
+from sqlalchemy.orm import Session
+from sqlalchemy import select
 import os
 from datetime import datetime
 import json
@@ -49,7 +50,7 @@ def create_app():
     # Include API routes
     app.include_router(resource_router, prefix="/api")
     app.include_router(report_router, prefix="/api")
-    app.include_router(log_router)
+    app.include_router(log_router, prefix="/api")
     app.include_router(user_guide_router)
 
     # Mount the built React assets from the new static directory

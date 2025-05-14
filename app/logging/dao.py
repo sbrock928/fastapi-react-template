@@ -1,4 +1,5 @@
-from sqlmodel import Session, select, text, func
+from sqlalchemy.orm import Session
+from sqlalchemy import select, text, func, or_, cast, String
 from typing import List, Dict, Any, Optional
 from app.logging.models import Log
 from datetime import datetime, timedelta
@@ -16,6 +17,7 @@ class LogDAO:
         log_id: Optional[int] = None,
         status_min: Optional[int] = None,
         status_max: Optional[int] = None,
+        search: Optional[str] = None,
     ) -> List[Log]:
         """Get logs with pagination and filtering"""
         if log_id:
@@ -32,17 +34,35 @@ class LogDAO:
                 query = query.where(Log.status_code >= status_min)
             if status_max is not None:
                 query = query.where(Log.status_code <= status_max)
+                
+            # Apply search filter if provided
+            if search:
+                search_term = f"%{search}%"
+                query = query.where(
+                    or_(
+                        Log.path.ilike(search_term),
+                        Log.method.ilike(search_term),
+                        Log.client_ip.ilike(search_term),
+                        Log.username.ilike(search_term),
+                        Log.hostname.ilike(search_term),
+                        # Convert status_code to string for searching
+                        cast(Log.status_code, String).ilike(search_term),
+                        cast(Log.application_id, String).ilike(search_term),
+                    )
+                )
 
             # Add sorting and pagination
             query = query.order_by(Log.timestamp.desc()).offset(offset).limit(limit)
 
-        return self.session.exec(query).all()
+        result = self.session.execute(query).scalars().all()
+        return result
 
     async def get_logs_count(
         self,
         hours: int = 24,
         status_min: Optional[int] = None,
         status_max: Optional[int] = None,
+        search: Optional[str] = None,
     ) -> int:
         """Get total count of logs matching the filters"""
         # Calculate the time threshold based on the hours parameter
@@ -56,8 +76,25 @@ class LogDAO:
             query = query.where(Log.status_code >= status_min)
         if status_max is not None:
             query = query.where(Log.status_code <= status_max)
+            
+        # Apply search filter if provided
+        if search:
+            search_term = f"%{search}%"
+            query = query.where(
+                or_(
+                    Log.path.ilike(search_term),
+                    Log.method.ilike(search_term),
+                    Log.client_ip.ilike(search_term),
+                    Log.username.ilike(search_term),
+                    Log.hostname.ilike(search_term),
+                    # Convert status_code to string for searching
+                    cast(Log.status_code, String).ilike(search_term),
+                    cast(Log.application_id, String).ilike(search_term),
+                )
+            )
 
-        return self.session.exec(query).one()
+        result = self.session.execute(query).scalar_one()
+        return result
 
     async def get_status_distribution(self, hours: int = 24) -> List[Dict[str, Any]]:
         """Get distribution of logs by status code with time filter"""
@@ -71,7 +108,7 @@ class LogDAO:
         ORDER BY status_code
         """
 
-        result = self.session.exec(
+        result = self.session.execute(
             text(query).bindparams(time_threshold=time_threshold)
         ).all()
 
@@ -86,4 +123,6 @@ class LogDAO:
             .order_by(Log.timestamp.desc())
             .limit(100)
         )
-        return self.session.exec(query).all()
+        
+        result = self.session.execute(query).scalars().all()
+        return result

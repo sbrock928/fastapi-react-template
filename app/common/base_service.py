@@ -1,10 +1,11 @@
-from sqlmodel import Session, SQLModel
+from sqlalchemy.orm import Session
+from pydantic import BaseModel
 from typing import TypeVar, Generic, Type, List, Optional, Any, Dict
 from fastapi import HTTPException
 from app.common.base_dao import GenericDAO
 
-T = TypeVar("T", bound=SQLModel)
-CreateT = TypeVar("CreateT", bound=SQLModel)
+T = TypeVar("T")  # SQLAlchemy model
+CreateT = TypeVar("CreateT", bound=BaseModel)  # Pydantic model
 
 
 class GenericService(Generic[T, CreateT]):
