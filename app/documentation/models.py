@@ -34,6 +34,11 @@ class NoteCreate(NoteBase):
     pass
 
 
+# Update schema model - currently identical to Create but can be customized in the future
+class NoteUpdate(NoteBase):
+    pass
+
+
 class NoteRead(NoteBase):
     id: int
 

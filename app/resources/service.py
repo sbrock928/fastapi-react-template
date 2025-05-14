@@ -1,15 +1,16 @@
 from sqlalchemy.orm import Session
 from typing import List, Optional, Any, Dict, Union
 from fastapi import HTTPException
-from app.resources.models import (
-    User,
+from app.resources.models import User, Employee, Subscriber
+from app.resources.schemas import (
     UserCreate,
+    UserUpdate,
     UserRead,
-    Employee,
     EmployeeCreate,
+    EmployeeUpdate,
     EmployeeRead,
-    Subscriber,
     SubscriberCreate,
+    SubscriberUpdate,
     SubscriberRead,
     SubscriptionTier,
 )
@@ -64,12 +65,12 @@ def validation_error(
     return HTTPException(status_code=422, detail=detail)
 
 
-class UserService(GenericService[User, UserCreate]):
+class UserService(GenericService[User, UserCreate, UserUpdate, UserRead]):
     """User-specific service with custom validations"""
 
-    def __init__(self, session: Session):
-        super().__init__(session, User, UserCreate)
-        self.dao = UserDAO(session, User)
+    def __init__(self, session: Session, dao: UserDAO = None):
+        super().__init__(session, User, UserCreate, UserUpdate, UserRead)
+        self.dao = dao if dao is not None else UserDAO(session, User)
 
     async def before_create(self, user_data: UserCreate) -> UserCreate:
         """Custom validation before user creation"""
@@ -95,7 +96,7 @@ class UserService(GenericService[User, UserCreate]):
 
         return user_data
 
-    async def before_update(self, user_id: int, user_data: UserCreate) -> UserCreate:
+    async def before_update(self, user_id: int, user_data: UserUpdate) -> UserUpdate:
         """Custom validation before user update"""
         # Get fields that were provided for update
         update_data = user_data.model_dump(exclude_unset=True)
@@ -125,20 +126,20 @@ class UserService(GenericService[User, UserCreate]):
         return user_data
 
     # Custom methods that don't fit the CRUD pattern
-    async def get_by_username(self, username: str) -> User:
+    async def get_by_username(self, username: str) -> UserRead:
         """Get a user by username with proper error handling"""
         user = await self.dao.get_by_username(username)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-        return user
+        return self.to_read_model(user)
 
 
-class EmployeeService(GenericService[Employee, EmployeeCreate]):
+class EmployeeService(GenericService[Employee, EmployeeCreate, EmployeeUpdate, EmployeeRead]):
     """Employee-specific service with custom validations"""
 
-    def __init__(self, session: Session):
-        super().__init__(session, Employee, EmployeeCreate)
-        self.dao = EmployeeDAO(session, Employee)
+    def __init__(self, session: Session, dao: EmployeeDAO = None):
+        super().__init__(session, Employee, EmployeeCreate, EmployeeUpdate, EmployeeRead)
+        self.dao = dao if dao is not None else EmployeeDAO(session, Employee)
 
     async def before_create(self, employee_data: EmployeeCreate) -> EmployeeCreate:
         """Custom validation before employee creation"""
@@ -167,8 +168,8 @@ class EmployeeService(GenericService[Employee, EmployeeCreate]):
         return employee_data
 
     async def before_update(
-        self, employee_id: int, employee_data: EmployeeCreate
-    ) -> EmployeeCreate:
+        self, employee_id: int, employee_data: EmployeeUpdate
+    ) -> EmployeeUpdate:
         """Custom validation before employee update"""
         # Get fields that were provided for update
         update_data = employee_data.model_dump(exclude_unset=True)
@@ -200,21 +201,23 @@ class EmployeeService(GenericService[Employee, EmployeeCreate]):
         return employee_data
 
     # Custom methods for employee-specific operations
-    async def get_employees_by_department(self, department: str) -> List[Employee]:
+    async def get_employees_by_department(self, department: str) -> List[EmployeeRead]:
         """Get all employees in a specific department"""
-        return await self.dao.get_by_department(department)
+        employees = await self.dao.get_by_department(department)
+        return self.to_read_model_list(employees)
 
-    async def get_employees_by_position(self, position: str) -> List[Employee]:
+    async def get_employees_by_position(self, position: str) -> List[EmployeeRead]:
         """Get all employees with a specific position"""
-        return await self.dao.get_by_position(position)
+        employees = await self.dao.get_by_position(position)
+        return self.to_read_model_list(employees)
 
 
-class SubscriberService(GenericService[Subscriber, SubscriberCreate]):
+class SubscriberService(GenericService[Subscriber, SubscriberCreate, SubscriberUpdate, SubscriberRead]):
     """Subscriber-specific service with custom validations"""
 
-    def __init__(self, session: Session):
-        super().__init__(session, Subscriber, SubscriberCreate)
-        self.dao = SubscriberDAO(session, Subscriber)
+    def __init__(self, session: Session, dao: SubscriberDAO = None):
+        super().__init__(session, Subscriber, SubscriberCreate, SubscriberUpdate, SubscriberRead)
+        self.dao = dao if dao is not None else SubscriberDAO(session, Subscriber)
 
     async def before_create(
         self, subscriber_data: SubscriberCreate
@@ -236,8 +239,8 @@ class SubscriberService(GenericService[Subscriber, SubscriberCreate]):
         return subscriber_data
 
     async def before_update(
-        self, subscriber_id: int, subscriber_data: SubscriberCreate
-    ) -> SubscriberCreate:
+        self, subscriber_id: int, subscriber_data: SubscriberUpdate
+    ) -> SubscriberUpdate:
         """Custom validation before subscriber update"""
         # Get fields that were provided for update
         update_data = subscriber_data.model_dump(exclude_unset=True)
@@ -259,19 +262,21 @@ class SubscriberService(GenericService[Subscriber, SubscriberCreate]):
         return subscriber_data
 
     # Custom methods for subscriber-specific operations
-    async def get_by_email(self, email: str) -> Subscriber:
+    async def get_by_email(self, email: str) -> SubscriberRead:
         """Get a subscriber by email with proper error handling"""
         subscriber = await self.dao.get_by_email(email)
         if not subscriber:
             raise HTTPException(status_code=404, detail="Subscriber not found")
-        return subscriber
+        return self.to_read_model(subscriber)
 
     async def get_by_subscription_tier(
         self, tier: SubscriptionTier
-    ) -> List[Subscriber]:
+    ) -> List[SubscriberRead]:
         """Get all subscribers with a specific subscription tier"""
-        return await self.dao.get_by_subscription_tier(tier)
+        subscribers = await self.dao.get_by_subscription_tier(tier)
+        return self.to_read_model_list(subscribers)
 
-    async def get_active_subscribers(self) -> List[Subscriber]:
+    async def get_active_subscribers(self) -> List[SubscriberRead]:
         """Get all active subscribers"""
-        return await self.dao.get_active_subscribers()
+        subscribers = await self.dao.get_active_subscribers()
+        return self.to_read_model_list(subscribers)

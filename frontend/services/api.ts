@@ -3,20 +3,37 @@ import type { ResourceItem, Note, ReportRow } from '@/types';
 
 // Create an axios instance with common configuration
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
+  baseURL: '',
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// Add request interceptor for global handling
+// Add request interceptor for smart API path handling that works in all environments
 api.interceptors.request.use(
   (config) => {
-    // Ensure paths start with /api when running in Docker
-    if (config.url && !config.url.startsWith('/api') && !config.url.startsWith('http')) {
-      config.url = `/api${config.url}`;
+    // Skip external URLs
+    if (config.url && config.url.startsWith('http')) {
+      return config;
     }
-    // You can add auth token here
+
+    // Handle API prefixing consistently across environments
+    if (config.url) {
+      // First, normalize the path by removing any existing /api prefix
+      let url = config.url;
+      while (url.startsWith('/api/')) {
+        url = url.substring(4); // Remove /api/
+      }
+      
+      // Ensure the path starts with a slash
+      if (!url.startsWith('/')) {
+        url = '/' + url;
+      }
+      
+      // In all environments, we want a single /api prefix
+      config.url = '/api' + url;
+    }
+    
     return config;
   },
   (error) => Promise.reject(error)

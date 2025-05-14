@@ -1,7 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import select
-from pydantic import BaseModel
-from typing import TypeVar, Generic, Type, List, Optional, Any, Dict, Protocol, cast
+from typing import TypeVar, Generic, Type, List, Optional, Any, Dict, Protocol, cast, Dict
 
 
 # Protocol for models with common attributes
@@ -33,12 +32,11 @@ class ActiveModel(Protocol):
     is_active: bool
 
 
-# Type variables for our generic classes
+# Type variable for our generic class
 T = TypeVar("T")  # SQLAlchemy model
-CreateT = TypeVar("CreateT", bound=BaseModel)  # Pydantic model
 
 
-class GenericDAO(Generic[T, CreateT]):
+class GenericDAO(Generic[T]):
     """Generic Data Access Object with basic CRUD operations"""
 
     def __init__(self, session: Session, model_class: Type[T]):
@@ -56,11 +54,8 @@ class GenericDAO(Generic[T, CreateT]):
         item = self.session.get(self.model_class, item_id)
         return item
 
-    async def create(self, item_data: CreateT) -> T:
-        """Create a new record"""
-        # Convert from Pydantic model to dict
-        item_dict = item_data.model_dump()
-
+    async def create(self, item_dict: Dict[str, Any]) -> T:
+        """Create a new record directly from a dictionary of values"""
         # Create SQLAlchemy model instance
         item = self.model_class(**item_dict)
 
@@ -69,15 +64,14 @@ class GenericDAO(Generic[T, CreateT]):
         self.session.refresh(item)
         return item
 
-    async def update(self, item_id: int, item_data: CreateT) -> Optional[T]:
-        """Update an existing record"""
+    async def update(self, item_id: int, update_dict: Dict[str, Any]) -> Optional[T]:
+        """Update an existing record using dictionary of values"""
         item = await self.get_by_id(item_id)
         if not item:
             return None
 
         # Update only the provided fields
-        item_data_dict = item_data.model_dump(exclude_unset=True)
-        for key, value in item_data_dict.items():
+        for key, value in update_dict.items():
             setattr(item, key, value)
 
         self.session.add(item)
