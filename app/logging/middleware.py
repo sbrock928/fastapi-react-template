@@ -85,10 +85,10 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         status_code = response.status_code
         headers = response.headers
         media_type = getattr(response, "media_type", "")
-        
+
         # Create a new response with captured body
         response_body = b""
-        
+
         # Handle different response types to capture body
         if isinstance(response, Response) and hasattr(response, "body"):
             # Standard Response with body attribute
@@ -98,27 +98,27 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             # It's a StreamingResponse
             # We need to consume the iterator to get the full body
             original_iterator = response.body_iterator
-            
+
             # Create a buffer to store the chunks
             chunks = []
-            
+
             # Define a new iterator that collects chunks
             async def buffer_iterator():
                 nonlocal response_body
                 async for chunk in original_iterator:
                     chunks.append(chunk)
                     yield chunk
-                
+
                 # Combine all chunks into a single response body
                 response_body = b"".join(chunks)
-            
+
             # Replace the body_iterator with our buffering iterator
             response.body_iterator = buffer_iterator()
             new_response = response
         else:
             # Unknown response type - use as is
             new_response = response
-        
+
         # Determine if we should log the response body
         # Only log HTML response bodies for error responses (status >= 400)
         should_log_body = True
@@ -161,6 +161,8 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 session.commit()
 
         # Attach as background task
-        new_response.background = getattr(new_response, "background", None) or BackgroundTask(log_to_db)
+        new_response.background = getattr(
+            new_response, "background", None
+        ) or BackgroundTask(log_to_db)
 
         return new_response

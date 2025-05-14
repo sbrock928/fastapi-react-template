@@ -33,63 +33,63 @@ class ReportingDAO:
     async def get_distinct_cycle_codes(self) -> List[Dict[str, str]]:
         """Get a list of all distinct cycle codes from the Cycles table"""
         # SQL query using text() for flexibility
-        query = text("""
+        query = text(
+            """
             SELECT DISTINCT code FROM cycles
             ORDER BY code
-        """)
-        
+        """
+        )
+
         try:
             result = self.session.execute(query)
             return [{"code": row[0]} for row in result]
         except Exception:
             # If the table doesn't exist yet or there's another error
             return []
-            
+
     async def get_users_by_creation_date(self, days: int) -> List[Tuple[str, int]]:
         """Get user counts grouped by creation date for the specified number of days"""
         # Calculate the start date
         start_date = datetime.now() - timedelta(days=days)
-        
+
         # SQL query using SQLAlchemy expressions
-        query = select(
-            func.date(User.created_at).label("date"),
-            func.count(User.id).label("count")
-        ).where(
-            User.created_at >= start_date
-        ).group_by(
-            func.date(User.created_at)
-        ).order_by(
-            func.date(User.created_at)
+        query = (
+            select(
+                func.date(User.created_at).label("date"),
+                func.count(User.id).label("count"),
+            )
+            .where(User.created_at >= start_date)
+            .group_by(func.date(User.created_at))
+            .order_by(func.date(User.created_at))
         )
-        
+
         result = self.session.execute(query)
         return [(str(row.date), row.count) for row in result]
-        
+
     async def get_employees_by_department(self) -> List[Tuple[str, int]]:
         """Get employee counts grouped by department"""
-        query = select(
-            Employee.department,
-            func.count(Employee.id).label("count")
-        ).group_by(
-            Employee.department
-        ).order_by(
-            Employee.department
+        query = (
+            select(Employee.department, func.count(Employee.id).label("count"))
+            .group_by(Employee.department)
+            .order_by(Employee.department)
         )
-        
+
         result = self.session.execute(query)
         return [(row.department, row.count) for row in result]
-        
-    async def get_resource_counts(self, cycle_code: Optional[str] = None) -> List[Dict[str, Any]]:
+
+    async def get_resource_counts(
+        self, cycle_code: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """Get counts of different resource types, optionally filtered by cycle code"""
         # This is a simplified query since we're not actually filtering by cycle_code
         # In a real implementation, you would join with a cycles table
-        
+
         user_count = await self.get_user_count()
         employee_count = await self.get_employee_count()
         subscriber_count = await self.get_subscriber_count()
-        
+
         return [
             {"resource_type": "Users", "count": user_count},
             {"resource_type": "Employees", "count": employee_count},
-            {"resource_type": "Subscribers", "count": subscriber_count}
+            {"resource_type": "Subscribers", "count": subscriber_count},
         ]

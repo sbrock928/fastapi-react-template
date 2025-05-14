@@ -134,11 +134,15 @@ class UserService(GenericService[User, UserCreate, UserUpdate, UserRead]):
         return self.to_read_model(user)
 
 
-class EmployeeService(GenericService[Employee, EmployeeCreate, EmployeeUpdate, EmployeeRead]):
+class EmployeeService(
+    GenericService[Employee, EmployeeCreate, EmployeeUpdate, EmployeeRead]
+):
     """Employee-specific service with custom validations"""
 
     def __init__(self, session: Session, dao: EmployeeDAO = None):
-        super().__init__(session, Employee, EmployeeCreate, EmployeeUpdate, EmployeeRead)
+        super().__init__(
+            session, Employee, EmployeeCreate, EmployeeUpdate, EmployeeRead
+        )
         self.dao = dao if dao is not None else EmployeeDAO(session, Employee)
 
     async def before_create(self, employee_data: EmployeeCreate) -> EmployeeCreate:
@@ -212,11 +216,15 @@ class EmployeeService(GenericService[Employee, EmployeeCreate, EmployeeUpdate, E
         return self.to_read_model_list(employees)
 
 
-class SubscriberService(GenericService[Subscriber, SubscriberCreate, SubscriberUpdate, SubscriberRead]):
+class SubscriberService(
+    GenericService[Subscriber, SubscriberCreate, SubscriberUpdate, SubscriberRead]
+):
     """Subscriber-specific service with custom validations"""
 
     def __init__(self, session: Session, dao: SubscriberDAO = None):
-        super().__init__(session, Subscriber, SubscriberCreate, SubscriberUpdate, SubscriberRead)
+        super().__init__(
+            session, Subscriber, SubscriberCreate, SubscriberUpdate, SubscriberRead
+        )
         self.dao = dao if dao is not None else SubscriberDAO(session, Subscriber)
 
     async def before_create(

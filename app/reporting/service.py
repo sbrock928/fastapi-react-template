@@ -46,8 +46,7 @@ class ReportingService:
             return await log_service.get_status_distribution(hours=hours)
         except Exception as e:
             raise HTTPException(
-                status_code=500, 
-                detail=f"Error getting status distribution: {str(e)}"
+                status_code=500, detail=f"Error getting status distribution: {str(e)}"
             )
 
     async def get_users_by_creation(self, date_range: str) -> List[Dict[str, Any]]:
@@ -55,23 +54,20 @@ class ReportingService:
         try:
             # Parse the date range into number of days
             days = self._parse_date_range(date_range)
-            
+
             # Get raw data from DAO
             data = await self.report_dao.get_users_by_creation_date(days)
-            
+
             # Format for API response
             result = []
             for date_str, count in data:
-                result.append({
-                    "date": date_str,
-                    "count": count
-                })
-                
+                result.append({"date": date_str, "count": count})
+
             return result
         except Exception as e:
             raise HTTPException(
-                status_code=500, 
-                detail=f"Error generating users by creation report: {str(e)}"
+                status_code=500,
+                detail=f"Error generating users by creation report: {str(e)}",
             )
 
     async def get_employees_by_department(self) -> List[Dict[str, Any]]:
@@ -79,20 +75,19 @@ class ReportingService:
         try:
             # Get raw data from DAO
             data = await self.report_dao.get_employees_by_department()
-            
+
             # Format for API response
             result = []
             for department, count in data:
-                result.append({
-                    "department": department or "Unassigned",
-                    "count": count
-                })
-                
+                result.append(
+                    {"department": department or "Unassigned", "count": count}
+                )
+
             return result
         except Exception as e:
             raise HTTPException(
-                status_code=500, 
-                detail=f"Error generating employees by department report: {str(e)}"
+                status_code=500,
+                detail=f"Error generating employees by department report: {str(e)}",
             )
 
     async def get_resource_counts(
@@ -104,8 +99,8 @@ class ReportingService:
             return await self.report_dao.get_resource_counts(cycle_code)
         except Exception as e:
             raise HTTPException(
-                status_code=500, 
-                detail=f"Error generating resource counts report: {str(e)}"
+                status_code=500,
+                detail=f"Error generating resource counts report: {str(e)}",
             )
 
     async def export_to_xlsx(self, export_data: Dict[str, Any]) -> BytesIO:
@@ -113,29 +108,27 @@ class ReportingService:
         try:
             # Create a Pandas Excel writer using BytesIO
             output = BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
                 # For each sheet in the export data
                 for sheet_name, data in export_data.items():
                     # Convert data to DataFrame and write to Excel
                     df = pd.DataFrame(data)
                     df.to_excel(writer, sheet_name=sheet_name, index=False)
-                    
+
                     # Adjust column widths
                     worksheet = writer.sheets[sheet_name]
                     for i, col in enumerate(df.columns):
-                        max_width = max(
-                            df[col].astype(str).map(len).max(),
-                            len(col)
-                        ) + 2
+                        max_width = (
+                            max(df[col].astype(str).map(len).max(), len(col)) + 2
+                        )
                         worksheet.set_column(i, i, max_width)
-            
+
             # Important: seek to start of file for proper reading
             output.seek(0)
             return output
         except Exception as e:
             raise HTTPException(
-                status_code=500, 
-                detail=f"Error exporting to Excel: {str(e)}"
+                status_code=500, detail=f"Error exporting to Excel: {str(e)}"
             )
 
     async def get_distinct_cycle_codes(self) -> List[Dict[str, str]]:
@@ -144,8 +137,7 @@ class ReportingService:
             return await self.report_dao.get_distinct_cycle_codes()
         except Exception as e:
             raise HTTPException(
-                status_code=500, 
-                detail=f"Error fetching cycle codes: {str(e)}"
+                status_code=500, detail=f"Error fetching cycle codes: {str(e)}"
             )
 
     def _parse_date_range(self, date_range: str) -> int:

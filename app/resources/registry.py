@@ -26,7 +26,9 @@ ReadModelType = TypeVar("ReadModelType", bound=BaseModel)
 ServiceType = TypeVar("ServiceType", bound=GenericService)
 
 
-class ResourceConfig(Generic[ModelType, CreateModelType, UpdateModelType, ReadModelType]):
+class ResourceConfig(
+    Generic[ModelType, CreateModelType, UpdateModelType, ReadModelType]
+):
     """Configuration for a resource"""
 
     def __init__(
@@ -59,7 +61,9 @@ class ResourceConfig(Generic[ModelType, CreateModelType, UpdateModelType, ReadMo
                 return self.service_cls(session)
             except TypeError:
                 # For services that need more parameters
-                return self.service_cls(session, self.model_cls, self.create_model_cls, self.read_model_cls)
+                return self.service_cls(
+                    session, self.model_cls, self.create_model_cls, self.read_model_cls
+                )
         else:
             # Default to generic service if none specified
             return GenericService(

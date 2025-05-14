@@ -25,7 +25,6 @@ else:
 app = create_app()
 
 
-
 if __name__ == "__main__":
     # In packaged mode, we don't want auto-reload and we need to be careful about host binding
     debug_mode = not getattr(sys, "frozen", False)

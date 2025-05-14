@@ -1,6 +1,17 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import select
-from typing import TypeVar, Generic, Type, List, Optional, Any, Dict, Protocol, cast, Dict
+from typing import (
+    TypeVar,
+    Generic,
+    Type,
+    List,
+    Optional,
+    Any,
+    Dict,
+    Protocol,
+    cast,
+    Dict,
+)
 
 
 # Protocol for models with common attributes

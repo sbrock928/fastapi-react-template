@@ -34,7 +34,6 @@ def create_app():
     # Import and include routers
     register_routes(app)
 
-
     # Mount the built React assets from the new static directory
     app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
 

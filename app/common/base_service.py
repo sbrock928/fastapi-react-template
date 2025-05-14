@@ -14,12 +14,12 @@ class GenericService(Generic[T, CreateT, UpdateT, ReadT]):
     """Generic Service with basic CRUD operations and validation hooks"""
 
     def __init__(
-        self, 
-        session: Session, 
-        model_class: Type[T], 
+        self,
+        session: Session,
+        model_class: Type[T],
         create_model_class: Type[CreateT],
         update_model_class: Type[UpdateT],
-        read_model_class: Type[ReadT]
+        read_model_class: Type[ReadT],
     ):
         self.session = session
         self.model_class = model_class
@@ -67,13 +67,13 @@ class GenericService(Generic[T, CreateT, UpdateT, ReadT]):
         """Create a new record with validation and return as Pydantic schema"""
         # Run pre-create hook for validation
         validated_data = await self.before_create(item_data)
-        
+
         # Convert to dictionary suitable for SQLAlchemy model
         db_dict = self.to_db_model_dict(validated_data)
-        
+
         # Create DB model through DAO
         db_item = await self.dao.create(db_dict)
-        
+
         # Convert back to Pydantic schema for response
         return self.to_read_model(db_item)
 
@@ -81,16 +81,16 @@ class GenericService(Generic[T, CreateT, UpdateT, ReadT]):
         """Update an existing record with validation and return as Pydantic schema"""
         # Run pre-update hook for validation
         validated_data = await self.before_update(item_id, item_data)
-        
+
         # Convert to dictionary suitable for SQLAlchemy model
         db_dict = self.to_db_model_dict(validated_data)
-        
+
         # Update DB model through DAO
         db_item = await self.dao.update(item_id, db_dict)
-        
+
         if not db_item:
             return None
-            
+
         # Convert back to Pydantic schema for response
         return self.to_read_model(db_item)
 

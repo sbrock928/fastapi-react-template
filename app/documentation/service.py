@@ -2,7 +2,13 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
 from fastapi import HTTPException
-from app.documentation.models import Note, NoteBase, NoteUpdate, NoteRead, note_to_pydantic
+from app.documentation.models import (
+    Note,
+    NoteBase,
+    NoteUpdate,
+    NoteRead,
+    note_to_pydantic,
+)
 from app.documentation.dao import DocumentationDAO
 from app.common.base_service import GenericService
 
@@ -38,10 +44,10 @@ class DocumentationService(GenericService[Note, NoteBase, NoteUpdate, NoteRead])
         try:
             # Convert Pydantic model to dictionary for SQLAlchemy
             note_dict = self.to_db_model_dict(note)
-            
+
             # Create DB model through DAO
             db_note = await self.dao.create(note_dict)
-            
+
             # Convert back to Pydantic schema for response
             return self.to_read_model(db_note)
         except Exception as e:
@@ -56,13 +62,13 @@ class DocumentationService(GenericService[Note, NoteBase, NoteUpdate, NoteRead])
         # Add updated timestamp
         note_dict = self.to_db_model_dict(note_data)
         note_dict["updated_at"] = datetime.now()
-        
-        # Update through DAO 
+
+        # Update through DAO
         db_note = await self.dao.update(note_id, note_dict)
-        
+
         if not db_note:
             return None
-            
+
         # Convert to Pydantic model for response
         return self.to_read_model(db_note)
 

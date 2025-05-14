@@ -14,19 +14,19 @@ class DocumentationDAO(GenericDAO[Note]):
     async def get_all_notes(self) -> List[Note]:
         """Get all user guide notes"""
         query = select(self.model_class).order_by(
-            self.model_class.updated_at.desc(), 
-            self.model_class.created_at.desc()
+            self.model_class.updated_at.desc(), self.model_class.created_at.desc()
         )
         result = self.session.execute(query)
         return list(result.scalars().all())
 
     async def get_by_category(self, category: str) -> List[Note]:
         """Get notes filtered by category"""
-        query = select(self.model_class).where(
-            self.model_class.category == category
-        ).order_by(
-            self.model_class.updated_at.desc(), 
-            self.model_class.created_at.desc()
+        query = (
+            select(self.model_class)
+            .where(self.model_class.category == category)
+            .order_by(
+                self.model_class.updated_at.desc(), self.model_class.created_at.desc()
+            )
         )
         result = self.session.execute(query)
         return list(result.scalars().all())
