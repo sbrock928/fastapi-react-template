@@ -11,13 +11,6 @@ from app.logging.middleware import LoggingMiddleware  # Import the middleware
 from app.core.router import register_routes
 from app.core.database import init_db
 
-# Custom JSON encoder to handle datetime objects
-class DateTimeEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        return super().default(obj)
-
 
 def create_app():
 

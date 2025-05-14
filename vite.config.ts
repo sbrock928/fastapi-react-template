@@ -16,6 +16,10 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     strictPort: true,
+    hmr: {
+      clientPort: 5173, // Explicitly set client port for HMR
+      host: 'localhost', // Use 'localhost' for HMR connections
+    },
     watch: {
       usePolling: true,
     },

@@ -12,6 +12,10 @@ const api = axios.create({
 // Add request interceptor for global handling
 api.interceptors.request.use(
   (config) => {
+    // Ensure paths start with /api when running in Docker
+    if (config.url && !config.url.startsWith('/api') && !config.url.startsWith('http')) {
+      config.url = `/api${config.url}`;
+    }
     // You can add auth token here
     return config;
   },
