@@ -10,9 +10,8 @@ from io import BytesIO
 
 
 class ReportingService:
-    def __init__(self, session: Session, dao: ReportingDAO = None):
-        self.session = session
-        self.report_dao = dao if dao is not None else ReportingDAO(session)
+    def __init__(self, dao: ReportingDAO):
+        self.report_dao = dao
 
     async def get_summary_statistics(self) -> Dict[str, Any]:
         """Get summary statistics for the dashboard"""

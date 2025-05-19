@@ -16,9 +16,8 @@ from app.documentation.dao import DocumentationDAO
 class DocumentationService:
     """Documentation service with methods for handling notes"""
 
-    def __init__(self, session: Session, dao: DocumentationDAO = None):
-        self.session = session
-        self.dao = dao if dao is not None else DocumentationDAO(session)
+    def __init__(self, dao: DocumentationDAO):
+        self.dao = dao
 
     async def get_all_notes(self) -> List[NoteRead]:
         """Get all user guide notes"""
@@ -29,7 +28,7 @@ class DocumentationService:
             return [NoteRead.model_validate(note) for note in notes]
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error fetching notes: {str(e)}")
-            
+
     async def get_all(self) -> List[NoteRead]:
         """Get all notes"""
         try:
@@ -37,7 +36,7 @@ class DocumentationService:
             return [NoteRead.model_validate(note) for note in notes]
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error fetching notes: {str(e)}")
-            
+
     async def get_note_by_id(self, note_id: int) -> Optional[NoteRead]:
         """Get a note by its ID"""
         try:

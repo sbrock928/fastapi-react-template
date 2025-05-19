@@ -13,7 +13,7 @@ router = APIRouter(
 
 
 def get_log_service(session: SessionDep) -> LogService:
-    return LogService(session, LogDAO(session))
+    return LogService(LogDAO(session))
 
 
 @router.get("/", response_model=List[LogRead])

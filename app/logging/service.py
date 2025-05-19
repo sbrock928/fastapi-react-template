@@ -9,9 +9,8 @@ from datetime import datetime, timedelta
 
 
 class LogService:
-    def __init__(self, session: Session, log_dao: LogDAO = None):
-        self.session = session
-        self.dao = log_dao if log_dao is not None else LogDAO(session)
+    def __init__(self, log_dao: LogDAO):
+        self.dao = log_dao
 
     def to_read_model(self, db_model: Log) -> LogRead:
         """Convert SQLAlchemy model to Pydantic read model"""

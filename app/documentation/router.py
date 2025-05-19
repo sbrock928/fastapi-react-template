@@ -10,7 +10,7 @@ router = APIRouter(prefix="/user-guide", tags=["User Guide"])
 
 
 def get_documentation_service(session: SessionDep) -> DocumentationService:
-    return DocumentationService(session, DocumentationDAO(session))
+    return DocumentationService(DocumentationDAO(session))
 
 
 @router.get("/notes", response_model=List[NoteRead])

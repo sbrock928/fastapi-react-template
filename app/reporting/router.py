@@ -11,7 +11,7 @@ router = APIRouter(prefix="/reports", tags=["Reports"])
 
 
 def get_reporting_service(session: SessionDep) -> ReportingService:
-    return ReportingService(session, ReportingDAO(session))
+    return ReportingService(ReportingDAO(session))
 
 
 def get_log_service(session: SessionDep) -> LogService:

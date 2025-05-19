@@ -9,30 +9,27 @@ class DocumentationDAO:
 
     def __init__(self, session: Session):
         self.session = session
-        self.model_class = Note
 
     async def get_all_notes(self) -> List[Note]:
         """Get all user guide notes"""
-        query = select(self.model_class).order_by(
-            self.model_class.updated_at.desc(), self.model_class.created_at.desc()
-        )
+        query = select(Note).order_by(Note.updated_at.desc(), Note.created_at.desc())
         result = self.session.execute(query)
         return list(result.scalars().all())
-        
+
     async def get_all(self) -> List[Note]:
         """Get all records"""
-        result = self.session.execute(select(self.model_class))
+        result = self.session.execute(select(Note))
         items = result.scalars().all()
         return list(items)
 
     async def get_by_id(self, note_id: int) -> Optional[Note]:
         """Get a note by ID"""
-        note = self.session.get(self.model_class, note_id)
+        note = self.session.get(Note, note_id)
         return note
 
     async def create(self, note_dict: Dict[str, Any]) -> Note:
         """Create a new note"""
-        note = self.model_class(**note_dict)
+        note = Note(**note_dict)
         self.session.add(note)
         self.session.commit()
         self.session.refresh(note)
@@ -67,9 +64,9 @@ class DocumentationDAO:
     async def get_by_category(self, category: str) -> List[Note]:
         """Get notes filtered by category"""
         query = (
-            select(self.model_class)
-            .where(self.model_class.category == category)
-            .order_by(self.model_class.updated_at.desc(), self.model_class.created_at.desc())
+            select(Note)
+            .where(Note.category == category)
+            .order_by(Note.updated_at.desc(), Note.created_at.desc())
         )
         result = self.session.execute(query)
         return list(result.scalars().all())
