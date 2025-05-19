@@ -16,7 +16,7 @@ class Log(Base):
     request_headers = Column(String, nullable=True)
     request_body = Column(String, nullable=True)
     response_body = Column(String, nullable=True)
-    processing_time = Column(Float, nullable=True)  # in milliseconds
+    processing_time = Column(Float, nullable=True)
     user_agent = Column(String, nullable=True)
     username = Column(String, nullable=True)
     hostname = Column(String, nullable=True)

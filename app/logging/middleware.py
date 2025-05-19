@@ -7,7 +7,7 @@ import socket
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
-from typing import Callable, Awaitable, List, Dict, Any
+from typing import Callable, Awaitable, List, Dict, Any, AsyncIterator
 
 from datetime import datetime
 from starlette.background import BackgroundTask
@@ -53,7 +53,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             f"Logging middleware initialized with username: {self.username} on host: {self.hostname}, App ID: {self.application_id}"
         )
 
-    async def dispatch(self, request: Request, call_next: Callable):
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
         # Define paths that should be excluded from logging
         excluded_paths = ["/api/logs", "/static", "/logs"]
 
@@ -103,7 +103,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             chunks = []
 
             # Define a new iterator that collects chunks
-            async def buffer_iterator():
+            async def buffer_iterator() -> AsyncIterator[bytes]:
                 nonlocal response_body
                 async for chunk in original_iterator:
                     chunks.append(chunk)
@@ -130,7 +130,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 should_log_body = False
 
         # --- Log to DB (in background) ---
-        def log_to_db():
+        def log_to_db() -> None:
             with SessionLocal() as session:
                 # Determine the response body to log
                 body_to_log = ""
@@ -151,7 +151,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                     request_headers=json.dumps(dict(request.headers)),
                     request_body=request_body,
                     response_body=body_to_log,
-                    processing_time=duration_ms,
+                    processing_time=duration_ms,   # type: ignore
                     user_agent=request.headers.get("user-agent"),
                     username=self.username,
                     hostname=self.hostname,

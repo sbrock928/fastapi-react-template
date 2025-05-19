@@ -38,14 +38,14 @@ class UserDAO:
     async def create(self, user_obj: User) -> User:
         """Create a new user"""
         self.db.add(user_obj)
-        self.db.flush()
+        self.db.commit()
         self.db.refresh(user_obj)
         return user_obj
 
     async def update(self, user_obj: User) -> User:
         """Update an existing user"""
         self.db.add(user_obj)
-        self.db.flush()
+        self.db.commit()
         self.db.refresh(user_obj)
         return user_obj
 
@@ -54,7 +54,7 @@ class UserDAO:
         user = await self.get_by_id(user_id)
         if user:
             self.db.delete(user)
-            self.db.flush()
+            self.db.commit()
             return True
         return False
 
@@ -104,14 +104,14 @@ class EmployeeDAO:
     async def create(self, employee_obj: Employee) -> Employee:
         """Create a new employee"""
         self.db.add(employee_obj)
-        self.db.flush()
+        self.db.commit()
         self.db.refresh(employee_obj)
         return employee_obj
 
     async def update(self, employee_obj: Employee) -> Employee:
         """Update an existing employee"""
         self.db.add(employee_obj)
-        self.db.flush()
+        self.db.commit()
         self.db.refresh(employee_obj)
         return employee_obj
 
@@ -120,7 +120,7 @@ class EmployeeDAO:
         employee = await self.get_by_id(employee_id)
         if employee:
             self.db.delete(employee)
-            self.db.flush()
+            self.db.commit()
             return True
         return False
 
@@ -164,14 +164,14 @@ class SubscriberDAO:
     async def create(self, subscriber_obj: Subscriber) -> Subscriber:
         """Create a new subscriber"""
         self.db.add(subscriber_obj)
-        self.db.flush()
+        self.db.commit()
         self.db.refresh(subscriber_obj)
         return subscriber_obj
 
     async def update(self, subscriber_obj: Subscriber) -> Subscriber:
         """Update an existing subscriber"""
         self.db.add(subscriber_obj)
-        self.db.flush()
+        self.db.commit()
         self.db.refresh(subscriber_obj)
         return subscriber_obj
 
@@ -180,6 +180,6 @@ class SubscriberDAO:
         subscriber = await self.get_by_id(subscriber_id)
         if subscriber:
             self.db.delete(subscriber)
-            self.db.flush()
+            self.db.commit()
             return True
         return False
