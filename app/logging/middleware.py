@@ -151,7 +151,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                     request_headers=json.dumps(dict(request.headers)),
                     request_body=request_body,
                     response_body=body_to_log,
-                    processing_time=duration_ms,   # type: ignore
+                    processing_time=duration_ms,  # type: ignore
                     user_agent=request.headers.get("user-agent"),
                     username=self.username,
                     hostname=self.hostname,

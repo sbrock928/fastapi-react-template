@@ -47,7 +47,7 @@ class ReportingDAO:
             # If the table doesn't exist yet or there's another error
             return []
 
-    async def get_employees_by_department(self) -> List[Tuple[str, int]]:
+    async def get_employees_by_department(self) -> List[Dict[str, Any]]:
         """Get employee counts grouped by department"""
         query = (
             select(Employee.department, func.count(Employee.id).label("count"))
@@ -56,7 +56,15 @@ class ReportingDAO:
         )
 
         result = self.session.execute(query)
-        return [(row.department, row.count) for row in result]
+        departments = []
+        for row in result:
+            departments.append(
+                {
+                    "department": row[0],  # Access by index rather than attribute name
+                    "count": row[1],
+                }
+            )
+        return departments
 
     async def get_resource_counts(self, cycle_code: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get counts of different resource types, optionally filtered by cycle code"""

@@ -27,4 +27,3 @@ class LogCreate(LogBase):
 
 class LogRead(LogBase):
     id: int
-

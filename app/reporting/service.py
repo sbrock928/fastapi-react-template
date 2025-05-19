@@ -40,13 +40,7 @@ class ReportingService:
         try:
             # Get raw data from DAO
             data = await self.report_dao.get_employees_by_department()
-
-            # Format for API response
-            result = []
-            for department, count in data:
-                result.append({"department": department or "Unassigned", "count": count})
-
-            return result
+            return data
         except Exception as e:
             raise HTTPException(
                 status_code=500,

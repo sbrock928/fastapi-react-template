@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict, cast
+from typing import List, Optional, Dict, cast, Any
 from fastapi import HTTPException
 from app.resources.dao import UserDAO, EmployeeDAO, SubscriberDAO
 from app.resources.models import User, Employee, Subscriber
@@ -25,7 +25,7 @@ def collect_validation_errors() -> Dict:
     """
     errors = []
 
-    def add_error(field: str, msg: str, error_type: str = "value_error"):
+    def add_error(field: str, msg: str, error_type: str = "value_error") -> None:
         """Add an error to the collection"""
         errors.append({"loc": ["body", field], "msg": msg, "type": error_type})
 
@@ -33,7 +33,7 @@ def collect_validation_errors() -> Dict:
         """Check if any errors have been collected"""
         return len(errors) > 0
 
-    def raise_if_errors():
+    def raise_if_errors() -> Any:
         """Raise an HTTPException with all collected errors if any exist"""
         if errors:
             raise HTTPException(status_code=422, detail=errors)

@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Any
 from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel, EmailStr, field_validator, ConfigDict
@@ -21,7 +21,7 @@ class UserBase(BaseModel):
 
     @field_validator("username")
     @classmethod
-    def username_alphanumeric(cls, v):
+    def username_alphanumeric(cls, v: str) -> str:
         if not v.replace("_", "").isalnum():
             raise ValueError("Username must be alphanumeric (underscores allowed)")
         return v
@@ -38,7 +38,7 @@ class EmployeeBase(BaseModel):
 
     @field_validator("employee_id")
     @classmethod
-    def employee_id_format(cls, v):
+    def employee_id_format(cls, v: str) -> str:
         if not v.startswith("EMP-"):
             raise ValueError("Employee ID must start with EMP-")
         return v
@@ -56,14 +56,14 @@ class SubscriberBase(BaseModel):
 
     @field_validator("email")
     @classmethod
-    def email_validator(cls, v):
+    def email_validator(cls, v: EmailStr) -> EmailStr:
         if not v:
             raise ValueError("Email is required")
         return v
 
     @field_validator("last_billing_date", mode="before")
     @classmethod
-    def validate_last_billing_date(cls, v):
+    def validate_last_billing_date(cls, v: Any) -> Optional[Any]:
         if v == "":
             return None
         return v
