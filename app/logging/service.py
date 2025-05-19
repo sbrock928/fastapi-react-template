@@ -1,16 +1,29 @@
 from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 from app.logging.models import Log
-from app.logging.schemas import LogRead, log_to_pydantic
+from app.logging.schemas import LogRead, log_to_pydantic, LogBase, LogCreate
 from app.logging.dao import LogDAO
 from datetime import datetime, timedelta
 
 
 class LogService:
-    def __init__(self, session: Session):
+    def __init__(self, session: Session, log_dao: LogDAO = None):
         self.session = session
-        self.log_dao = LogDAO(session)
+        self.dao = log_dao if log_dao is not None else LogDAO(session)
+
+    def to_read_model(self, db_model: Log) -> LogRead:
+        """Convert SQLAlchemy model to Pydantic read model"""
+        return log_to_pydantic(db_model)
+
+    def to_read_model_list(self, db_models: List[Log]) -> List[LogRead]:
+        """Convert a list of SQLAlchemy models to Pydantic read models"""
+        return [self.to_read_model(model) for model in db_models]
+
+    def to_db_model_dict(self, item_data: BaseModel) -> Dict[str, Any]:
+        """Convert Pydantic schema to dictionary compatible with SQLAlchemy model"""
+        return item_data.model_dump(exclude_unset=True)
 
     async def get_logs(
         self,
@@ -23,17 +36,20 @@ class LogService:
         search: Optional[str] = None,
     ) -> List[LogRead]:
         """Get logs with pagination and filtering"""
-        logs = await self.log_dao.get_logs(
-            limit=limit,
-            offset=offset,
-            hours=hours,
-            log_id=log_id,
-            status_min=status_min,
-            status_max=status_max,
-            search=search,
-        )
-        # Convert SQLAlchemy models to Pydantic models
-        return [log_to_pydantic(log) for log in logs]
+        try:
+            logs = await self.dao.get_logs(
+                limit=limit,
+                offset=offset,
+                hours=hours,
+                log_id=log_id,
+                status_min=status_min,
+                status_max=status_max,
+                search=search,
+            )
+            # Convert SQLAlchemy models to Pydantic models using our helper method
+            return self.to_read_model_list(logs)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error fetching logs: {str(e)}")
 
     async def get_logs_count(
         self,
@@ -43,14 +59,17 @@ class LogService:
         search: Optional[str] = None,
     ) -> int:
         """Get total count of logs matching the filters"""
-        return await self.log_dao.get_logs_count(
-            hours=hours, status_min=status_min, status_max=status_max, search=search
-        )
+        try:
+            return await self.dao.get_logs_count(
+                hours=hours, status_min=status_min, status_max=status_max, search=search
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error counting logs: {str(e)}")
 
     async def get_status_distribution(self, hours: int = 24) -> Dict[str, Any]:
         """Get distribution of logs by status code with time filter"""
         try:
-            distribution = await self.log_dao.get_status_distribution(hours=hours)
+            distribution = await self.dao.get_status_distribution(hours=hours)
 
             # Add status descriptions
             for item in distribution:
@@ -71,10 +90,6 @@ class LogService:
                 "timestamp": datetime.now().isoformat(),
             }
         except Exception as e:
-            import traceback
-
-            print(f"Error generating status distribution: {str(e)}")
-            print(traceback.format_exc())
             raise HTTPException(
                 status_code=500,
                 detail=f"Error generating status distribution: {str(e)}",
@@ -86,7 +101,7 @@ class LogService:
             raise HTTPException(status_code=400, detail="Days must be greater than 0")
 
         try:
-            recent_logs = await self.log_dao.get_recent_logs(days=days)
+            recent_logs = await self.dao.get_recent_logs(days=days)
             return {
                 "recent_logs": [self._format_log(log) for log in recent_logs],
                 "days": days,
@@ -100,9 +115,9 @@ class LogService:
     def _format_log(self, log: Log) -> Dict[str, Any]:
         """Format a log object for API response"""
         # First convert to Pydantic model
-        log_pydantic = log_to_pydantic(log)
+        log_pydantic = self.to_read_model(log)
 
-        # Then convert to dict using Pydantic v2's model_dump() method
+        # Then convert to dict using Pydantic's model_dump() method
         log_dict = log_pydantic.model_dump()
 
         # Add status category

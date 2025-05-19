@@ -64,7 +64,7 @@ export const logsApi = {
   getLogDetail: (logId: number) => 
     api.get(`/logs/?limit=1&offset=0&log_id=${logId}`),
   getStatusDistribution: (hours: string) => 
-    api.get(`/reports/status-distribution?hours=${hours}`),
+    api.get(`/logs/status-distribution?hours=${hours}`),
 };
 
 // Reports API

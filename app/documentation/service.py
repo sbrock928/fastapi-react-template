@@ -1,23 +1,23 @@
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 from fastapi import HTTPException
-from app.documentation.models import (
-    Note,
+from pydantic import BaseModel
+from app.documentation.models import Note
+from app.documentation.schemas import (
     NoteBase,
+    NoteCreate,
     NoteUpdate,
     NoteRead,
-    note_to_pydantic,
 )
 from app.documentation.dao import DocumentationDAO
-from app.common.base_service import GenericService
 
 
-class DocumentationService(GenericService[Note, NoteBase, NoteUpdate, NoteRead]):
-    """Documentation service with custom methods"""
+class DocumentationService:
+    """Documentation service with methods for handling notes"""
 
     def __init__(self, session: Session, dao: DocumentationDAO = None):
-        super().__init__(session, Note, NoteBase, NoteUpdate, NoteRead)
+        self.session = session
         self.dao = dao if dao is not None else DocumentationDAO(session)
 
     async def get_all_notes(self) -> List[NoteRead]:
@@ -26,49 +26,66 @@ class DocumentationService(GenericService[Note, NoteBase, NoteUpdate, NoteRead])
             # Get SQLAlchemy models from DAO
             notes = await self.dao.get_all_notes()
             # Convert to Pydantic models
-            return self.to_read_model_list(notes)
+            return [NoteRead.model_validate(note) for note in notes]
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error fetching notes: {str(e)}")
-
+            
+    async def get_all(self) -> List[NoteRead]:
+        """Get all notes"""
+        try:
+            notes = await self.dao.get_all()
+            return [NoteRead.model_validate(note) for note in notes]
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error fetching notes: {str(e)}")
+            
     async def get_note_by_id(self, note_id: int) -> Optional[NoteRead]:
         """Get a note by its ID"""
-        note = await self.dao.get_by_id(note_id)
-        if not note:
-            return None
-        return self.to_read_model(note)
+        try:
+            note = await self.dao.get_by_id(note_id)
+            if not note:
+                return None
+            return NoteRead.model_validate(note)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error fetching note: {str(e)}")
 
-    async def create_note(self, note: NoteBase) -> NoteRead:
+    async def create_note(self, note: NoteCreate) -> NoteRead:
         """Create a new note"""
         try:
             # Convert Pydantic model to dictionary for SQLAlchemy
-            note_dict = self.to_db_model_dict(note)
+            note_dict = note.model_dump(exclude_unset=True)
 
             # Create DB model through DAO
             db_note = await self.dao.create(note_dict)
 
             # Convert back to Pydantic schema for response
-            return self.to_read_model(db_note)
+            return NoteRead.model_validate(db_note)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error creating note: {str(e)}")
 
     async def update_note(self, note_id: int, note_data: NoteUpdate) -> Optional[NoteRead]:
         """Update an existing note"""
-        # Add updated timestamp
-        note_dict = self.to_db_model_dict(note_data)
-        note_dict["updated_at"] = datetime.now()
+        try:
+            # Add updated timestamp
+            note_dict = note_data.model_dump(exclude_unset=True)
+            note_dict["updated_at"] = datetime.now()
 
-        # Update through DAO
-        db_note = await self.dao.update(note_id, note_dict)
+            # Update through DAO
+            db_note = await self.dao.update(note_id, note_dict)
 
-        if not db_note:
-            return None
+            if not db_note:
+                return None
 
-        # Convert to Pydantic model for response
-        return self.to_read_model(db_note)
+            # Convert to Pydantic model for response
+            return NoteRead.model_validate(db_note)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error updating note: {str(e)}")
 
     async def delete_note(self, note_id: int) -> bool:
         """Delete a note by ID"""
-        return await self.dao.delete(note_id)
+        try:
+            return await self.dao.delete(note_id)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error deleting note: {str(e)}")
 
     async def get_notes_by_category(self, category: str) -> List[NoteRead]:
         """Get notes filtered by category"""
@@ -76,7 +93,7 @@ class DocumentationService(GenericService[Note, NoteBase, NoteUpdate, NoteRead])
             # Get SQLAlchemy models from DAO
             notes = await self.dao.get_by_category(category)
             # Convert to Pydantic models
-            return self.to_read_model_list(notes)
+            return [NoteRead.model_validate(note) for note in notes]
         except Exception as e:
             raise HTTPException(
                 status_code=500, detail=f"Error fetching notes by category: {str(e)}"

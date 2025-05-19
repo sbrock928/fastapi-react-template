@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from app.core.dependencies import SessionDep
-from app.documentation.models import NoteBase, NoteUpdate, NoteRead
+from app.documentation.schemas import NoteBase, NoteUpdate, NoteRead
 from app.documentation.service import DocumentationService
 from app.documentation.dao import DocumentationDAO
 

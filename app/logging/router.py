@@ -4,6 +4,7 @@ from typing import List, Optional, Dict, Any
 from app.core.dependencies import SessionDep
 from app.logging.schemas import LogRead
 from app.logging.service import LogService
+from app.logging.dao import LogDAO
 
 router = APIRouter(
     prefix="/logs",
@@ -11,9 +12,12 @@ router = APIRouter(
 )
 
 
+def get_log_service(session: SessionDep) -> LogService:
+    return LogService(session, LogDAO(session))
+
+
 @router.get("/", response_model=List[LogRead])
 async def get_logs(
-    session: SessionDep,
     response: Response,
     limit: int = Query(50, ge=1, le=1000),
     offset: int = Query(0, ge=0),
@@ -22,9 +26,9 @@ async def get_logs(
     status_min: Optional[int] = None,
     status_max: Optional[int] = None,
     search: Optional[str] = None,
+    log_service: LogService = Depends(get_log_service),
 ):
     """Get logs with pagination and filtering"""
-    log_service = LogService(session)
     logs = await log_service.get_logs(
         limit=limit,
         offset=offset,
@@ -47,7 +51,18 @@ async def get_logs(
 
 
 @router.get("/status-distribution", response_model=Dict[str, Any])
-async def get_status_distribution(session: SessionDep, hours: int = Query(24, ge=1, le=168)):
+async def get_status_distribution(
+    hours: int = Query(24, ge=1, le=168),
+    log_service: LogService = Depends(get_log_service),
+):
     """Get distribution of logs by status code"""
-    log_service = LogService(session)
     return await log_service.get_status_distribution(hours=hours)
+
+
+@router.get("/recent-activities", response_model=Dict[str, Any])
+async def get_recent_activities(
+    days: int = Query(7, ge=1, le=30),
+    log_service: LogService = Depends(get_log_service),
+):
+    """Get recent activities for the dashboard"""
+    return await log_service.get_recent_activities(days=days)
