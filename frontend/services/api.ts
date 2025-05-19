@@ -69,6 +69,7 @@ export const logsApi = {
 
 // Reports API
 export const reportsApi = {
+  getReportConfigurations: () => api.get('/reports/configurations'),
   runReport: (endpoint: string, params: Record<string, string>) => 
     api.post(endpoint, params),
   exportXlsx: (data: { reportType: string, data: ReportRow[], fileName: string }) => 

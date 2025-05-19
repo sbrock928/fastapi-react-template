@@ -23,8 +23,17 @@ const resourceConfig: Record<string, ResourceConfig> = {
         placeholder: 'EMP-XXXX', pattern: '^EMP-.*' },
       { field: 'email', header: 'Email', type: 'email', required: true },
       { field: 'full_name', header: 'Full Name', type: 'text', required: true, minLength: 2 },
-      { field: 'department', header: 'Department', type: 'text', required: true },
-      { field: 'position', header: 'Position', type: 'text', required: true }
+      { field: 'department', header: 'Department', type: 'select', required: true, 
+        options: [
+          { value: 'Engineering', text: 'Engineering' },
+          { value: 'Marketing', text: 'Marketing' },
+          { value: 'Sales', text: 'Sales' },
+          { value: 'HR', text: 'HR' },
+          { value: 'Finance', text: 'Finance' },
+          { value: 'Product', text: 'Product' }
+        ],
+        hasDependents: true },
+      { field: 'position', header: 'Position', type: 'select', required: true, dependsOn: 'department' }
     ],
     displayName: 'Employee'
   },

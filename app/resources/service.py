@@ -164,11 +164,12 @@ class UserService:
         if not user:
             return None
 
-        user.username = user_data.username
-        user.email = user_data.email
-        user.full_name = user_data.full_name
+        update_data = user_data.model_dump(exclude_unset=True)
 
+        for field, value in update_data.items():
+            setattr(user, field, value)
         updated_user = await self.dao.update(user)
+        
         return UserRead.model_validate(updated_user)
 
     async def delete(self, user_id: int) -> bool:

@@ -8,6 +8,8 @@ export interface ResourceColumn {
   placeholder?: string;
   pattern?: string;
   options?: {value: string, text: string}[];
+  hasDependents?: boolean;  // Indicates this field affects other fields
+  dependsOn?: string;       // Indicates this field depends on another field
 }
 
 export interface ResourceConfig {
@@ -27,19 +29,31 @@ export interface ReportColumn {
   type: string;
 }
 
+// Dynamic report configuration from API
+export interface DynamicReportConfig {
+  apiEndpoint: string;
+  title: string;
+  columns: ReportColumn[];
+}
+
+export interface ReportConfigurationResponse {
+  [key: string]: DynamicReportConfig;
+}
+
+// Report parameter types preserved for historical purposes/future flexibility
 export interface ReportParameter {
   field: string;
   label: string;
   type: string;
   options?: {value: string, label: string}[];
-  dynamicOptions?: string; // Used to specify which API to call for dynamic options
+  dynamicOptions?: string;
 }
 
+// Legacy ReportConfig maintained for backward compatibility
 export interface ReportConfig {
   apiEndpoint: string;
   title: string;
   columns: ReportColumn[];
-  parameters: ReportParameter[];
 }
 
 export type ReportRow = Record<string, any>;

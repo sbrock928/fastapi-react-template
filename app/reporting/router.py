@@ -23,6 +23,14 @@ async def get_summary_statistics(
     return await service.get_summary_statistics()
 
 
+@router.get("/configurations", response_model=Dict[str, Any])
+async def get_report_configurations(
+    service: ReportingService = Depends(get_reporting_service),
+) -> Dict[str, Any]:
+    """Get all available report configurations with their column schemas"""
+    return await service.get_report_configurations()
+
+
 @router.get("/cycle-codes", response_model=List[Dict[str, str]])
 async def get_cycle_codes(
     service: ReportingService = Depends(get_reporting_service),
@@ -45,6 +53,60 @@ async def get_resource_counts(
 ) -> List[Dict[str, Any]]:
     """Report showing count of different resource types"""
     return await service.get_resource_counts(cycle_code=params.get("cycle_code"))
+
+
+@router.post("/employee-details")
+async def get_employee_details(
+    service: ReportingService = Depends(get_reporting_service), params: Dict[str, Any] = Body(...)
+) -> List[Dict[str, Any]]:
+    """Report showing detailed employee information"""
+    # Add implementation in service if needed
+    # For now, returning empty list as placeholder until service method is implemented
+    return []
+
+
+@router.post("/user-details")
+async def get_user_details(
+    service: ReportingService = Depends(get_reporting_service), 
+    params: Dict[str, Any] = Body(...)
+) -> List[Dict[str, Any]]:
+    """
+    Report showing detailed user information
+    
+    Filter parameters:
+    - username: Optional filter by username (partial match)
+    - email: Optional filter by email (partial match)
+    - is_active: Optional filter by active status
+    - is_superuser: Optional filter by superuser status
+    - date_range: Optional filter for users created within period (e.g., "7days", "30days", "90days", "1year")
+    """
+    return await service.get_user_details(
+        username=params.get("username"),
+        email=params.get("email"),
+        is_active=params.get("is_active"),
+        is_superuser=params.get("is_superuser"),
+        date_range=params.get("date_range")
+    )
+
+
+@router.post("/subscriber-details")
+async def get_subscriber_details(
+    service: ReportingService = Depends(get_reporting_service), params: Dict[str, Any] = Body(...)
+) -> List[Dict[str, Any]]:
+    """Report showing detailed subscriber information"""
+    # Add implementation in service if needed
+    # For now, returning empty list as placeholder until service method is implemented
+    return []
+
+
+@router.post("/log-details")
+async def get_log_details(
+    service: ReportingService = Depends(get_reporting_service), params: Dict[str, Any] = Body(...)
+) -> List[Dict[str, Any]]:
+    """Report showing detailed log information"""
+    # Add implementation in service if needed
+    # For now, returning empty list as placeholder until service method is implemented
+    return []
 
 
 @router.post("/export-xlsx")

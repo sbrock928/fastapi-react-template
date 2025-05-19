@@ -8,8 +8,7 @@ const reportConfig: Record<string, ReportConfig> = {
       { field: 'department', header: 'Department', type: 'text' },
       { field: 'count', header: 'Number of Employees', type: 'number' },
       { field: 'percentage', header: 'Percentage', type: 'percentage' }
-    ],
-    parameters: []
+    ]
   },
   resource_counts: {
     apiEndpoint: '/reports/resource-counts',
@@ -17,17 +16,6 @@ const reportConfig: Record<string, ReportConfig> = {
     columns: [
       { field: 'resource_type', header: 'Resource Type', type: 'text' },
       { field: 'count', header: 'Count', type: 'number' }
-    ],
-    parameters: [
-      { 
-        field: 'cycle_code', 
-        label: 'Cycle Code', 
-        type: 'select',
-        dynamicOptions: 'cycle_codes',
-        options: [
-          { value: '', label: 'All Cycles' }
-        ]
-      }
     ]
   }
 };

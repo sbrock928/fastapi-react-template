@@ -27,6 +27,10 @@ const ResourceModal = ({
   const [hasSubmitError, setHasSubmitError] = useState<boolean>(false);
   const modalMounted = useRef(false);
   
+  // New state for dynamic options and loading state
+  const [dynamicOptions, setDynamicOptions] = useState<Record<string, any[]>>({});
+  const [loadingFields, setLoadingFields] = useState<Record<string, boolean>>({});
+  
   // Use the toast context
   const { showToast } = useToast();
   
@@ -57,10 +61,64 @@ const ResourceModal = ({
     closeModal();
   }, [closeModal]);
 
+  // Fetch dependent options based on parent field value
+  const fetchDependentOptions = async (parentField: string, parentValue: string) => {
+    // Find all fields that depend on this parent
+    resourceConfig.columns.forEach(async (column: any) => {
+      if (column.dependsOn === parentField) {
+        try {
+          // Set loading state for this field
+          setLoadingFields(prev => ({ ...prev, [column.field]: true }));
+          
+          // Clear previous options
+          setDynamicOptions(prev => ({ 
+            ...prev, 
+            [column.field]: [] 
+          }));
+          
+          // Clear the field value
+          setFormData(prev => ({
+            ...prev,
+            [column.field]: ''
+          }));
+
+          // Different endpoints based on dependency type
+          let endpoint = '';
+          if (parentField === 'department' && column.field === 'position') {
+            endpoint = `/api/departments/${encodeURIComponent(parentValue)}/positions`;
+          }
+          // Add more conditions for other dependent fields as needed
+
+          if (endpoint) {
+            const response = await axios.get(endpoint);
+            if (response.data) {
+              setDynamicOptions(prev => ({
+                ...prev,
+                [column.field]: response.data
+              }));
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching dependent options for ${column.field}:`, error);
+          showToast(`Failed to load options for ${column.header}`, 'error');
+        } finally {
+          setLoadingFields(prev => ({ ...prev, [column.field]: false }));
+        }
+      }
+    });
+  };
+
   // Initialize form data when the component mounts or editingResource changes
   useEffect(() => {
     if (editingResource) {
       setFormData({...editingResource});
+      
+      // If editing, also fetch any dependent fields' options
+      resourceConfig.columns.forEach((column: any) => {
+        if (column.hasDependents && editingResource[column.field]) {
+          fetchDependentOptions(column.field, editingResource[column.field]);
+        }
+      });
     } else {
       // Initialize with default values
       const initialData: Record<string, any> = {};
@@ -78,6 +136,11 @@ const ResourceModal = ({
             initialData[column.field] = 'free';
           } else {
             initialData[column.field] = column.options[0].value;
+          }
+          
+          // If this field has dependents, trigger fetching dependent options
+          if (column.hasDependents) {
+            fetchDependentOptions(column.field, column.options[0].value);
           }
         } else if (column.type === 'datetime-local') {
           // Initialize datetime fields with current time
@@ -113,6 +176,13 @@ const ResourceModal = ({
         ...prev,
         [name]: value
       }));
+      
+      // Check if this field has dependencies
+      const column = resourceConfig.columns.find((col: any) => col.field === name);
+      if (column?.hasDependents && value) {
+        // Fetch dependent options when parent value changes
+        fetchDependentOptions(name, value);
+      }
     }
     
     // Clear error when user makes changes
@@ -306,6 +376,40 @@ const ResourceModal = ({
         </div>
       );
     } else {
+      // Handle dependent fields
+      if (column.dependsOn) {
+        const isLoading = loadingFields[column.field];
+        const options = dynamicOptions[column.field] || [];
+        const parentField = column.dependsOn;
+        const parentValue = formData[parentField];
+        const disabled = !parentValue || isLoading;
+        
+        return (
+          <div className="mb-3" key={column.field}>
+            <label htmlFor={column.field} className="form-label">
+              {column.header} {column.required && <span className="text-danger">*</span>}
+            </label>
+            <select
+              id={column.field}
+              name={column.field}
+              className={`form-select ${error ? 'is-invalid' : ''}`}
+              value={formData[column.field] || ''}
+              onChange={handleInputChange}
+              required={column.required}
+              disabled={disabled}
+            >
+              <option value="">{isLoading ? 'Loading...' : `Select ${column.header}`}</option>
+              {!isLoading && options.map((option: any) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            {error && <div className="invalid-feedback">{error}</div>}
+          </div>
+        );
+      }
+      
       return (
         <div className="mb-3" key={column.field}>
           <label htmlFor={column.field} className="form-label">
@@ -321,6 +425,7 @@ const ResourceModal = ({
               onChange={handleInputChange}
               required={column.required}
             >
+              <option value="">Select {column.header}</option>
               {column.options?.map((option: any) => (
                 <option key={option.value} value={option.value}>
                   {option.text}
