@@ -3,7 +3,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.logging.models import Log
-from app.logging.schemas import LogRead, log_to_pydantic, LogBase, LogCreate
+from app.logging.schemas import LogRead, LogBase, LogCreate
 from app.logging.dao import LogDAO
 from datetime import datetime, timedelta
 
@@ -11,18 +11,6 @@ from datetime import datetime, timedelta
 class LogService:
     def __init__(self, log_dao: LogDAO):
         self.dao = log_dao
-
-    def to_read_model(self, db_model: Log) -> LogRead:
-        """Convert SQLAlchemy model to Pydantic read model"""
-        return log_to_pydantic(db_model)
-
-    def to_read_model_list(self, db_models: List[Log]) -> List[LogRead]:
-        """Convert a list of SQLAlchemy models to Pydantic read models"""
-        return [self.to_read_model(model) for model in db_models]
-
-    def to_db_model_dict(self, item_data: BaseModel) -> Dict[str, Any]:
-        """Convert Pydantic schema to dictionary compatible with SQLAlchemy model"""
-        return item_data.model_dump(exclude_unset=True)
 
     async def get_logs(
         self,
@@ -45,8 +33,8 @@ class LogService:
                 status_max=status_max,
                 search=search,
             )
-            # Convert SQLAlchemy models to Pydantic models using our helper method
-            return self.to_read_model_list(logs)
+            # Convert SQLAlchemy models to Pydantic models directly using Pydantic's from_orm
+            return [LogRead.model_validate(log) for log in logs]
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error fetching logs: {str(e)}")
 
@@ -113,11 +101,8 @@ class LogService:
 
     def _format_log(self, log: Log) -> Dict[str, Any]:
         """Format a log object for API response"""
-        # First convert to Pydantic model
-        log_pydantic = self.to_read_model(log)
-
-        # Then convert to dict using Pydantic's model_dump() method
-        log_dict = log_pydantic.model_dump()
+        # Convert directly from SQLAlchemy model to dictionary using Pydantic
+        log_dict = LogRead.model_validate(log).model_dump()
 
         # Add status category
         status_code = log_dict.get("status_code", 0)

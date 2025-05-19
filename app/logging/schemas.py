@@ -28,7 +28,3 @@ class LogCreate(LogBase):
 class LogRead(LogBase):
     id: int
 
-
-# Helper function to convert between SQLAlchemy and Pydantic models
-def log_to_pydantic(log) -> LogRead:
-    return LogRead.model_validate(log)
