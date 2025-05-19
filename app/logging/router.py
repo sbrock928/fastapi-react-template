@@ -27,7 +27,7 @@ async def get_logs(
     status_max: Optional[int] = None,
     search: Optional[str] = None,
     log_service: LogService = Depends(get_log_service),
-):
+) -> List[LogRead]:
     """Get logs with pagination and filtering"""
     logs = await log_service.get_logs(
         limit=limit,
@@ -54,7 +54,7 @@ async def get_logs(
 async def get_status_distribution(
     hours: int = Query(24, ge=1, le=168),
     log_service: LogService = Depends(get_log_service),
-):
+) -> Dict[str, Any]:
     """Get distribution of logs by status code"""
     return await log_service.get_status_distribution(hours=hours)
 
@@ -63,6 +63,6 @@ async def get_status_distribution(
 async def get_recent_activities(
     days: int = Query(7, ge=1, le=30),
     log_service: LogService = Depends(get_log_service),
-):
+) -> Dict[str, Any]:
     """Get recent activities for the dashboard"""
     return await log_service.get_recent_activities(days=days)

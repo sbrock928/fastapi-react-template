@@ -7,3 +7,4 @@ warn_unused_configs = true
 ignore_missing_imports = true
 disallow_untyped_calls = true
 disallow_untyped_defs = true
+plugins = ["sqlalchemy.ext.mypy.plugin"]

@@ -10,9 +10,10 @@ import json
 from app.logging.middleware import LoggingMiddleware  # Import the middleware
 from app.core.router import register_routes
 from app.core.database import init_db
+from typing import Union, Any
 
 
-def create_app():
+def create_app() -> FastAPI:
 
     app = FastAPI(docs_url="/api/docs", redoc_url="/api/redoc", openapi_url="/api/openapi.json")
     init_db()
@@ -37,7 +38,7 @@ def create_app():
 
     # Serve the static files from the React build in the new static directory
     @app.get("/{full_path:path}")
-    async def serve_react_app(request: Request, full_path: str):
+    async def serve_react_app(request: Request, full_path: str) -> Any:
         # If it's an API request, let it pass through to the API endpoints
         if full_path.startswith("api/"):
             return RedirectResponse(url=f"/api/{full_path[4:]}")

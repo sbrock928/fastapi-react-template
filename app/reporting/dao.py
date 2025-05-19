@@ -47,25 +47,6 @@ class ReportingDAO:
             # If the table doesn't exist yet or there's another error
             return []
 
-    async def get_users_by_creation_date(self, days: int) -> List[Tuple[str, int]]:
-        """Get user counts grouped by creation date for the specified number of days"""
-        # Calculate the start date
-        start_date = datetime.now() - timedelta(days=days)
-
-        # SQL query using SQLAlchemy expressions
-        query = (
-            select(
-                func.date(User.created_at).label("date"),
-                func.count(User.id).label("count"),
-            )
-            .where(User.created_at >= start_date)
-            .group_by(func.date(User.created_at))
-            .order_by(func.date(User.created_at))
-        )
-
-        result = self.session.execute(query)
-        return [(str(row.date), row.count) for row in result]
-
     async def get_employees_by_department(self) -> List[Tuple[str, int]]:
         """Get employee counts grouped by department"""
         query = (

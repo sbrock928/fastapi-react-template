@@ -1,7 +1,6 @@
 from typing import Dict, Type, Callable, Optional, List, Any, TypeVar, Generic, cast
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from app.common.base_service import GenericService
 from app.resources.models import User, Employee, Subscriber
 from app.resources.schemas import (
     UserCreate,

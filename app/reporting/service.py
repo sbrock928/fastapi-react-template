@@ -35,40 +35,6 @@ class ReportingService:
                 status_code=500, detail=f"Error generating summary statistics: {str(e)}"
             )
 
-    async def get_status_distribution(self, hours: int = 24) -> Dict[str, Any]:
-        """Get distribution of logs by status code - delegates to LogService"""
-        # This method redirects to the LogService method
-        from app.logging.service import LogService
-
-        try:
-            log_service = LogService(self.session)
-            return await log_service.get_status_distribution(hours=hours)
-        except Exception as e:
-            raise HTTPException(
-                status_code=500, detail=f"Error getting status distribution: {str(e)}"
-            )
-
-    async def get_users_by_creation(self, date_range: str) -> List[Dict[str, Any]]:
-        """Report showing user creation by date"""
-        try:
-            # Parse the date range into number of days
-            days = self._parse_date_range(date_range)
-
-            # Get raw data from DAO
-            data = await self.report_dao.get_users_by_creation_date(days)
-
-            # Format for API response
-            result = []
-            for date_str, count in data:
-                result.append({"date": date_str, "count": count})
-
-            return result
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error generating users by creation report: {str(e)}",
-            )
-
     async def get_employees_by_department(self) -> List[Dict[str, Any]]:
         """Report showing employee count by department"""
         try:
