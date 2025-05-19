@@ -55,7 +55,7 @@ class LogDAO:
             query = query.order_by(Log.timestamp.desc()).offset(offset).limit(limit)
 
         result = self.session.execute(query).scalars().all()
-        return result
+        return list(result)
 
     async def get_logs_count(
         self,
@@ -123,4 +123,4 @@ class LogDAO:
         )
 
         result = self.session.execute(query).scalars().all()
-        return result
+        return list(result)
