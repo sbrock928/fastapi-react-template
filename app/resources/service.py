@@ -1,21 +1,13 @@
-from sqlalchemy.orm import Session
-from typing import List, Optional, Any, Dict, Union
+from typing import List, Optional, Dict, cast
 from fastapi import HTTPException
+from app.resources.dao import UserDAO, EmployeeDAO, SubscriberDAO
 from app.resources.models import User, Employee, Subscriber
 from app.resources.schemas import (
-    UserCreate,
-    UserUpdate,
-    UserRead,
-    EmployeeCreate,
-    EmployeeUpdate,
-    EmployeeRead,
-    SubscriberCreate,
-    SubscriberUpdate,
-    SubscriberRead,
+    UserRead, UserCreate, UserUpdate,
+    EmployeeRead, EmployeeCreate, EmployeeUpdate,
+    SubscriberRead, SubscriberCreate, SubscriberUpdate,
     SubscriptionTier,
 )
-from app.resources.dao import UserDAO, EmployeeDAO, SubscriberDAO
-from app.common.base_service import GenericService
 
 
 def collect_validation_errors() -> Dict:
@@ -63,13 +55,38 @@ def validation_error(field: str, msg: str, error_type: str = "value_error") -> H
     return HTTPException(status_code=422, detail=detail)
 
 
-class UserService(GenericService[User, UserCreate, UserUpdate, UserRead]):
-    """User-specific service with custom validations"""
-
-    def __init__(self, session: Session, dao: UserDAO = None):
-        super().__init__(session, User, UserCreate, UserUpdate, UserRead)
-        self.dao = dao if dao is not None else UserDAO(session, User)
-
+class UserService:
+    """Service for interacting with User resources."""
+    
+    def __init__(self, dao: UserDAO) -> None:
+        self.dao = dao
+    
+    async def get_all(self) -> List[UserRead]:
+        """Get all users."""
+        users = await self.dao.get_all()
+        return [UserRead.model_validate(user) for user in users]
+    
+    async def get_by_id(self, user_id: int) -> Optional[UserRead]:
+        """Get a user by ID."""
+        user = await self.dao.get_by_id(user_id)
+        if not user:
+            return None
+        return UserRead.model_validate(user)
+    
+    async def get_by_username(self, username: str) -> Optional[UserRead]:
+        """Get a user by username."""
+        user = await self.dao.get_by_username(username)
+        if not user:
+            return None
+        return UserRead.model_validate(user)
+    
+    async def get_by_email(self, email: str) -> Optional[UserRead]:
+        """Get a user by email."""
+        user = await self.dao.get_by_email(email)
+        if not user:
+            return None
+        return UserRead.model_validate(user)
+    
     async def before_create(self, user_data: UserCreate) -> UserCreate:
         """Custom validation before user creation"""
         # Initialize error collector
@@ -78,135 +95,257 @@ class UserService(GenericService[User, UserCreate, UserUpdate, UserRead]):
         # Check if username already exists
         existing_user = await self.dao.get_by_username(user_data.username)
         if existing_user:
-            errors["add"]("username", "Username already taken", "value_error.already_exists")
+            errors["add"](
+                "username", "Username already taken", "value_error.already_exists"
+            )
 
         # Check if email already exists
         existing_email = await self.dao.get_by_email(user_data.email)
         if existing_email:
-            errors["add"]("email", "Email already registered", "value_error.already_exists")
+            errors["add"](
+                "email", "Email already registered", "value_error.already_exists"
+            )
 
         # Raise exception with all collected errors if any exist
         errors["raise_if_errors"]()
 
         return user_data
-
+    
     async def before_update(self, user_id: int, user_data: UserUpdate) -> UserUpdate:
         """Custom validation before user update"""
-        # Get fields that were provided for update
-        update_data = user_data.model_dump(exclude_unset=True)
-
         # Initialize error collector
         errors = collect_validation_errors()
+        
+        # Get current user to check if we're changing username/email
+        current_user = await self.dao.get_by_id(user_id)
+        if not current_user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        # Check if username already exists (if changed)
+        if current_user.username != user_data.username:
+            existing_user = await self.dao.get_by_username(user_data.username)
+            if existing_user:
+                errors["add"](
+                    "username", "Username already taken", "value_error.already_exists"
+                )
 
-        # If username was provided, check if it's unique
-        if "username" in update_data:
-            existing_user = await self.dao.get_by_username(update_data["username"])
-            if existing_user and existing_user.id != user_id:
-                errors["add"]("username", "Username already taken", "value_error.already_exists")
-
-        # If email was provided, check if it's unique
-        if "email" in update_data:
-            existing_email = await self.dao.get_by_email(update_data["email"])
-            if existing_email and existing_email.id != user_id:
-                errors["add"]("email", "Email already registered", "value_error.already_exists")
+        # Check if email already exists (if changed)
+        if current_user.email != user_data.email:
+            existing_email = await self.dao.get_by_email(user_data.email)
+            if existing_email:
+                errors["add"](
+                    "email", "Email already registered", "value_error.already_exists"
+                )
 
         # Raise exception with all collected errors if any exist
         errors["raise_if_errors"]()
 
         return user_data
-
-    # Custom methods that don't fit the CRUD pattern
-    async def get_by_username(self, username: str) -> UserRead:
-        """Get a user by username with proper error handling"""
-        user = await self.dao.get_by_username(username)
+    
+    async def create(self, user_data: UserCreate) -> UserRead:
+        """Create a new user."""
+        # Validate user data before creation
+        await self.before_create(user_data)
+        
+        user = User(
+            username=user_data.username,
+            email=user_data.email,
+            full_name=user_data.full_name,
+        )
+        created_user = await self.dao.create(user)
+        return UserRead.model_validate(created_user)
+    
+    async def update(self, user_id: int, user_data: UserUpdate) -> Optional[UserRead]:
+        """Update a user."""
+        # Validate user data before update
+        await self.before_update(user_id, user_data)
+        
+        user = await self.dao.get_by_id(user_id)
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        return self.to_read_model(user)
+            return None
+        
+        user.username = user_data.username
+        user.email = user_data.email
+        user.full_name = user_data.full_name
+        
+        updated_user = await self.dao.update(user)
+        return UserRead.model_validate(updated_user)
+    
+    async def delete(self, user_id: int) -> bool:
+        """Delete a user."""
+        return await self.dao.delete(user_id)
 
 
-class EmployeeService(GenericService[Employee, EmployeeCreate, EmployeeUpdate, EmployeeRead]):
-    """Employee-specific service with custom validations"""
-
-    def __init__(self, session: Session, dao: EmployeeDAO = None):
-        super().__init__(session, Employee, EmployeeCreate, EmployeeUpdate, EmployeeRead)
-        self.dao = dao if dao is not None else EmployeeDAO(session, Employee)
-
+class EmployeeService:
+    """Service for interacting with Employee resources."""
+    
+    def __init__(self, dao: EmployeeDAO) -> None:
+        self.dao = dao
+    
+    async def get_all(self) -> List[EmployeeRead]:
+        """Get all employees."""
+        employees = await self.dao.get_all()
+        return [EmployeeRead.model_validate(employee) for employee in employees]
+    
+    async def get_by_id(self, employee_id: int) -> Optional[EmployeeRead]:
+        """Get an employee by ID."""
+        employee = await self.dao.get_by_id(employee_id)
+        if not employee:
+            return None
+        return EmployeeRead.model_validate(employee)
+    
+    async def get_by_employee_id(self, employee_id: str) -> Optional[EmployeeRead]:
+        """Get an employee by employee_id."""
+        employee = await self.dao.get_by_employee_id(employee_id)
+        if not employee:
+            return None
+        return EmployeeRead.model_validate(employee)
+    
+    async def get_by_email(self, email: str) -> Optional[EmployeeRead]:
+        """Get an employee by email."""
+        employee = await self.dao.get_by_email(email)
+        if not employee:
+            return None
+        return EmployeeRead.model_validate(employee)
+    
+    async def get_employees_by_department(self, department: str) -> List[EmployeeRead]:
+        """Get employees by department."""
+        employees = await self.dao.get_by_department(department)
+        return [EmployeeRead.model_validate(employee) for employee in employees]
+    
+    async def get_employees_by_position(self, position: str) -> List[EmployeeRead]:
+        """Get employees by position."""
+        employees = await self.dao.get_by_position(position)
+        return [EmployeeRead.model_validate(employee) for employee in employees]
+    
     async def before_create(self, employee_data: EmployeeCreate) -> EmployeeCreate:
         """Custom validation before employee creation"""
         # Initialize error collector
         errors = collect_validation_errors()
 
         # Check if employee_id already exists
-        existing_emp = await self.dao.get_by_employee_id(employee_data.employee_id)
-        if existing_emp:
+        existing_employee = await self.dao.get_by_employee_id(employee_data.employee_id)
+        if existing_employee:
             errors["add"](
-                "employee_id",
-                "Employee ID already exists",
-                "value_error.already_exists",
+                "employee_id", "Employee ID already in use", "value_error.already_exists"
             )
 
         # Check if email already exists
         existing_email = await self.dao.get_by_email(employee_data.email)
         if existing_email:
-            errors["add"]("email", "Email already registered", "value_error.already_exists")
+            errors["add"](
+                "email", "Email already registered", "value_error.already_exists"
+            )
 
         # Raise exception with all collected errors if any exist
         errors["raise_if_errors"]()
 
         return employee_data
-
-    async def before_update(
-        self, employee_id: int, employee_data: EmployeeUpdate
-    ) -> EmployeeUpdate:
+    
+    async def before_update(self, employee_id: int, employee_data: EmployeeUpdate) -> EmployeeUpdate:
         """Custom validation before employee update"""
-        # Get fields that were provided for update
-        update_data = employee_data.model_dump(exclude_unset=True)
-
         # Initialize error collector
         errors = collect_validation_errors()
-
-        # If employee_id was provided, check if it's unique
-        if "employee_id" in update_data:
-            existing_emp = await self.dao.get_by_employee_id(update_data["employee_id"])
-            if existing_emp and existing_emp.id != employee_id:
+        
+        # Get current employee to check if we're changing employee_id/email
+        current_employee = await self.dao.get_by_id(employee_id)
+        if not current_employee:
+            raise HTTPException(status_code=404, detail="Employee not found")
+            
+        # Check if employee_id already exists (if changed)
+        if current_employee.employee_id != employee_data.employee_id:
+            existing_employee = await self.dao.get_by_employee_id(employee_data.employee_id)
+            if existing_employee:
                 errors["add"](
-                    "employee_id",
-                    "Employee ID already exists",
-                    "value_error.already_exists",
+                    "employee_id", "Employee ID already in use", "value_error.already_exists"
                 )
 
-        # If email was provided, check if it's unique
-        if "email" in update_data:
-            existing_email = await self.dao.get_by_email(update_data["email"])
-            if existing_email and existing_email.id != employee_id:
-                errors["add"]("email", "Email already registered", "value_error.already_exists")
+        # Check if email already exists (if changed)
+        if current_employee.email != employee_data.email:
+            existing_email = await self.dao.get_by_email(employee_data.email)
+            if existing_email:
+                errors["add"](
+                    "email", "Email already registered", "value_error.already_exists"
+                )
 
         # Raise exception with all collected errors if any exist
         errors["raise_if_errors"]()
 
         return employee_data
+    
+    async def create(self, employee_data: EmployeeCreate) -> EmployeeRead:
+        """Create a new employee."""
+        # Validate employee data before creation
+        await self.before_create(employee_data)
+        
+        employee = Employee(
+            employee_id=employee_data.employee_id,
+            email=employee_data.email,
+            full_name=employee_data.full_name,
+            department=employee_data.department,
+            position=employee_data.position,
+        )
+        created_employee = await self.dao.create(employee)
+        return EmployeeRead.model_validate(created_employee)
+    
+    async def update(self, employee_id: int, employee_data: EmployeeUpdate) -> Optional[EmployeeRead]:
+        """Update an employee."""
+        # Validate employee data before update
+        await self.before_update(employee_id, employee_data)
+        
+        employee = await self.dao.get_by_id(employee_id)
+        if not employee:
+            return None
+        
+        employee.employee_id = employee_data.employee_id
+        employee.email = employee_data.email
+        employee.full_name = employee_data.full_name
+        employee.department = employee_data.department
+        employee.position = employee_data.position
+        
+        updated_employee = await self.dao.update(employee)
+        return EmployeeRead.model_validate(updated_employee)
+    
+    async def delete(self, employee_id: int) -> bool:
+        """Delete an employee."""
+        return await self.dao.delete(employee_id)
 
-    # Custom methods for employee-specific operations
-    async def get_employees_by_department(self, department: str) -> List[EmployeeRead]:
-        """Get all employees in a specific department"""
-        employees = await self.dao.get_by_department(department)
-        return self.to_read_model_list(employees)
 
-    async def get_employees_by_position(self, position: str) -> List[EmployeeRead]:
-        """Get all employees with a specific position"""
-        employees = await self.dao.get_by_position(position)
-        return self.to_read_model_list(employees)
-
-
-class SubscriberService(
-    GenericService[Subscriber, SubscriberCreate, SubscriberUpdate, SubscriberRead]
-):
-    """Subscriber-specific service with custom validations"""
-
-    def __init__(self, session: Session, dao: SubscriberDAO = None):
-        super().__init__(session, Subscriber, SubscriberCreate, SubscriberUpdate, SubscriberRead)
-        self.dao = dao if dao is not None else SubscriberDAO(session, Subscriber)
-
+class SubscriberService:
+    """Service for interacting with Subscriber resources."""
+    
+    def __init__(self, dao: SubscriberDAO) -> None:
+        self.dao = dao
+    
+    async def get_all(self) -> List[SubscriberRead]:
+        """Get all subscribers."""
+        subscribers = await self.dao.get_all()
+        return [SubscriberRead.model_validate(subscriber) for subscriber in subscribers]
+    
+    async def get_by_id(self, subscriber_id: int) -> Optional[SubscriberRead]:
+        """Get a subscriber by ID."""
+        subscriber = await self.dao.get_by_id(subscriber_id)
+        if not subscriber:
+            return None
+        return SubscriberRead.model_validate(subscriber)
+    
+    async def get_by_email(self, email: str) -> Optional[SubscriberRead]:
+        """Get a subscriber by email."""
+        subscriber = await self.dao.get_by_email(email)
+        if not subscriber:
+            return None
+        return SubscriberRead.model_validate(subscriber)
+    
+    async def get_by_subscription_tier(self, tier: SubscriptionTier) -> List[SubscriberRead]:
+        """Get subscribers by tier."""
+        subscribers = await self.dao.get_by_subscription_tier(tier)
+        return [SubscriberRead.model_validate(subscriber) for subscriber in subscribers]
+    
+    async def get_active_subscribers(self) -> List[SubscriberRead]:
+        """Get active subscribers."""
+        subscribers = await self.dao.get_active_subscribers()
+        return [SubscriberRead.model_validate(subscriber) for subscriber in subscribers]
+    
     async def before_create(self, subscriber_data: SubscriberCreate) -> SubscriberCreate:
         """Custom validation before subscriber creation"""
         # Initialize error collector
@@ -215,48 +354,72 @@ class SubscriberService(
         # Check if email already exists
         existing_email = await self.dao.get_by_email(subscriber_data.email)
         if existing_email:
-            errors["add"]("email", "Email already registered", "value_error.already_exists")
+            errors["add"](
+                "email", "Email already registered", "value_error.already_exists"
+            )
 
         # Raise exception with all collected errors if any exist
         errors["raise_if_errors"]()
 
         return subscriber_data
-
-    async def before_update(
-        self, subscriber_id: int, subscriber_data: SubscriberUpdate
-    ) -> SubscriberUpdate:
+    
+    async def before_update(self, subscriber_id: int, subscriber_data: SubscriberUpdate) -> SubscriberUpdate:
         """Custom validation before subscriber update"""
-        # Get fields that were provided for update
-        update_data = subscriber_data.model_dump(exclude_unset=True)
-
         # Initialize error collector
         errors = collect_validation_errors()
-
-        # If email was provided, check if it's unique
-        if "email" in update_data:
-            existing_email = await self.dao.get_by_email(update_data["email"])
-            if existing_email and existing_email.id != subscriber_id:
-                errors["add"]("email", "Email already registered", "value_error.already_exists")
+        
+        # Get current subscriber to check if we're changing email
+        current_subscriber = await self.dao.get_by_id(subscriber_id)
+        if not current_subscriber:
+            raise HTTPException(status_code=404, detail="Subscriber not found")
+            
+        # Check if email already exists (if changed)
+        if current_subscriber.email != subscriber_data.email:
+            existing_email = await self.dao.get_by_email(subscriber_data.email)
+            if existing_email:
+                errors["add"](
+                    "email", "Email already registered", "value_error.already_exists"
+                )
 
         # Raise exception with all collected errors if any exist
         errors["raise_if_errors"]()
 
         return subscriber_data
-
-    # Custom methods for subscriber-specific operations
-    async def get_by_email(self, email: str) -> SubscriberRead:
-        """Get a subscriber by email with proper error handling"""
-        subscriber = await self.dao.get_by_email(email)
+    
+    async def create(self, subscriber_data: SubscriberCreate) -> SubscriberRead:
+        """Create a new subscriber."""
+        # Validate subscriber data before creation
+        await self.before_create(subscriber_data)
+        
+        subscriber = Subscriber(
+            email=subscriber_data.email,
+            full_name=subscriber_data.full_name,
+            subscription_tier=subscriber_data.subscription_tier.value,
+            signup_date=subscriber_data.signup_date,
+            is_active=subscriber_data.is_active,
+            last_billing_date=subscriber_data.last_billing_date,
+        )
+        created_subscriber = await self.dao.create(subscriber)
+        return SubscriberRead.model_validate(created_subscriber)
+    
+    async def update(self, subscriber_id: int, subscriber_data: SubscriberUpdate) -> Optional[SubscriberRead]:
+        """Update a subscriber."""
+        # Validate subscriber data before update
+        await self.before_update(subscriber_id, subscriber_data)
+        
+        subscriber = await self.dao.get_by_id(subscriber_id)
         if not subscriber:
-            raise HTTPException(status_code=404, detail="Subscriber not found")
-        return self.to_read_model(subscriber)
-
-    async def get_by_subscription_tier(self, tier: SubscriptionTier) -> List[SubscriberRead]:
-        """Get all subscribers with a specific subscription tier"""
-        subscribers = await self.dao.get_by_subscription_tier(tier)
-        return self.to_read_model_list(subscribers)
-
-    async def get_active_subscribers(self) -> List[SubscriberRead]:
-        """Get all active subscribers"""
-        subscribers = await self.dao.get_active_subscribers()
-        return self.to_read_model_list(subscribers)
+            return None
+        
+        subscriber.email = subscriber_data.email
+        subscriber.full_name = subscriber_data.full_name
+        subscriber.subscription_tier = subscriber_data.subscription_tier.value
+        subscriber.is_active = subscriber_data.is_active
+        subscriber.last_billing_date = subscriber_data.last_billing_date
+        
+        updated_subscriber = await self.dao.update(subscriber)
+        return SubscriberRead.model_validate(updated_subscriber)
+    
+    async def delete(self, subscriber_id: int) -> bool:
+        """Delete a subscriber."""
+        return await self.dao.delete(subscriber_id)
