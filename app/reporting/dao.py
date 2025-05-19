@@ -1,4 +1,5 @@
 """Data Access Objects for the reporting module."""
+
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, text
 from typing import List, Dict, Any, Optional

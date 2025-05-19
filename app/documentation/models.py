@@ -1,4 +1,5 @@
 """Database models for the documentation module."""
+
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, DateTime
 

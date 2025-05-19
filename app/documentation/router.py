@@ -1,4 +1,5 @@
 """API router for the documentation module with endpoints for managing notes."""
+
 from fastapi import APIRouter, Depends, HTTPException
 from typing import List
 from app.core.dependencies import SessionDep

@@ -1,4 +1,5 @@
 """Middleware for logging HTTP requests and responses with detailed information."""
+
 import time
 import json
 import os

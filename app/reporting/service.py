@@ -1,4 +1,5 @@
 """Service layer for the reporting module handling business logic for reports."""
+
 from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
 from app.reporting.dao import ReportingDAO

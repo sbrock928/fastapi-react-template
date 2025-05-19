@@ -1,4 +1,5 @@
 """API router for the resources module with endpoints for managing users, employees, and subscribers."""
+
 from fastapi import APIRouter, Depends, HTTPException
 from typing import List, Annotated
 

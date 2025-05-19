@@ -1,4 +1,5 @@
 """Data Access Objects for the logging module."""
+
 from sqlalchemy.orm import Session
 from sqlalchemy import select, text, func, or_, cast, String
 from typing import List, Dict, Any, Optional

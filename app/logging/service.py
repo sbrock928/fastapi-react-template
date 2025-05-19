@@ -1,4 +1,5 @@
 """Service layer for the logging module handling business logic for logs."""
+
 from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
 from app.logging.models import Log
@@ -37,9 +38,7 @@ class LogService:
             # Convert SQLAlchemy models to Pydantic models directly using Pydantic's from_orm
             return [LogRead.model_validate(log) for log in logs]
         except Exception as e:
-            raise HTTPException(
-                status_code=500, detail=f"Error fetching logs: {str(e)}"
-            ) from e
+            raise HTTPException(status_code=500, detail=f"Error fetching logs: {str(e)}") from e
 
     async def get_logs_count(
         self,
@@ -54,9 +53,7 @@ class LogService:
                 hours=hours, status_min=status_min, status_max=status_max, search=search
             )
         except Exception as e:
-            raise HTTPException(
-                status_code=500, detail=f"Error counting logs: {str(e)}"
-            ) from e
+            raise HTTPException(status_code=500, detail=f"Error counting logs: {str(e)}") from e
 
     async def get_status_distribution(self, hours: int = 24) -> Dict[str, Any]:
         """Get distribution of logs by status code with time filter"""

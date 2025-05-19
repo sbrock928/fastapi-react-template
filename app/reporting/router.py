@@ -1,4 +1,5 @@
 """API router for the reporting module with endpoints for reports and statistics."""
+
 from fastapi import APIRouter, Depends, Body
 from fastapi.responses import StreamingResponse
 from typing import List, Dict, Any

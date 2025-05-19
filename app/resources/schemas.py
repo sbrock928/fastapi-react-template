@@ -1,4 +1,5 @@
 """Pydantic schemas for the resources module API."""
+
 from typing import Optional, Any
 from datetime import datetime
 from enum import Enum
@@ -7,6 +8,7 @@ from pydantic import BaseModel, EmailStr, field_validator, ConfigDict
 
 class SubscriptionTier(str, Enum):
     """Enumeration of available subscription tiers."""
+
     FREE = "FREE"
     BASIC = "BASIC"
     PREMIUM = "PREMIUM"
@@ -16,6 +18,7 @@ class SubscriptionTier(str, Enum):
 # Base Pydantic models
 class UserBase(BaseModel):
     """Base schema for user objects with common fields."""
+
     username: str
     email: EmailStr
     full_name: str
@@ -32,6 +35,7 @@ class UserBase(BaseModel):
 
 class EmployeeBase(BaseModel):
     """Base schema for employee objects with common fields."""
+
     employee_id: str
     email: EmailStr
     full_name: str
@@ -50,6 +54,7 @@ class EmployeeBase(BaseModel):
 
 class SubscriberBase(BaseModel):
     """Base schema for subscriber objects with common fields."""
+
     email: EmailStr
     full_name: str
     subscription_tier: SubscriptionTier = SubscriptionTier.FREE

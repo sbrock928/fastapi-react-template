@@ -1,4 +1,5 @@
 """Pydantic schemas for the logging module API."""
+
 from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict
@@ -6,6 +7,7 @@ from pydantic import BaseModel, Field, ConfigDict
 
 class LogBase(BaseModel):
     """Base schema for log objects with common fields."""
+
     timestamp: datetime = Field(default_factory=datetime.now)
     method: str
     path: str
@@ -25,9 +27,11 @@ class LogBase(BaseModel):
 
 class LogCreate(LogBase):
     """Schema for creating new logs."""
+
     pass
 
 
 class LogRead(LogBase):
     """Schema for reading log objects with all fields including ID."""
+
     id: int
