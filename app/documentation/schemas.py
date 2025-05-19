@@ -2,6 +2,7 @@ from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict
 
+
 # Pydantic models for API schemas
 class NoteBase(BaseModel):
     title: str = Field(min_length=1, max_length=100)
@@ -31,6 +32,7 @@ class NoteRead(NoteBase):
 
 # Import the Note model here to avoid circular imports
 from app.documentation.models import Note
+
 
 # Helper function to convert between SQLAlchemy and Pydantic models
 def note_to_pydantic(note: Note) -> NoteRead:
