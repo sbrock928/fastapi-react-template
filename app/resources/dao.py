@@ -1,3 +1,4 @@
+"""Data Access Objects for the resources module."""
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from typing import List, Optional
@@ -157,7 +158,7 @@ class SubscriberDAO:
 
     async def get_active_subscribers(self) -> List[Subscriber]:
         """Get all active subscribers"""
-        stmt = select(Subscriber).where(Subscriber.is_active == True)
+        stmt = select(Subscriber).where(Subscriber.is_active.is_(True))
         result = self.db.execute(stmt)
         return list(result.scalars().all())
 

@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Body, Query
+"""API router for the reporting module with endpoints for reports and statistics."""
+from fastapi import APIRouter, Depends, Body
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
-from typing import List, Dict, Any, Optional, IO, AsyncGenerator
+from typing import List, Dict, Any
 from app.core.dependencies import SessionDep
 from app.reporting.service import ReportingService
 from app.reporting.dao import ReportingDAO

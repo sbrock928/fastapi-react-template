@@ -1,6 +1,8 @@
+"""Database configuration and connection utilities."""
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
-from typing import Iterator, Any, TypeVar, Type, cast
+from typing import Iterator
+import importlib
 
 Base = declarative_base()
 
@@ -13,10 +15,11 @@ SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, expi
 
 
 def init_db() -> None:
-    # Make sure we import all models here
-    from app.resources.models import User, Employee, Subscriber
-    from app.logging.models import Log
-    from app.documentation.models import Note
+    """Initialize database tables for all models."""
+    # Import models using importlib to avoid circular imports
+    importlib.import_module("app.resources.models")
+    importlib.import_module("app.logging.models")
+    importlib.import_module("app.documentation.models")
 
     # Create tables
     Base.metadata.create_all(engine)
@@ -24,6 +27,7 @@ def init_db() -> None:
 
 
 def get_session() -> Iterator[Session]:
+    """Get database session as a dependency injection."""
     session = SessionLocal()
     try:
         yield session

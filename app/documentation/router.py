@@ -1,6 +1,6 @@
+"""API router for the documentation module with endpoints for managing notes."""
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List
 from app.core.dependencies import SessionDep
 from app.documentation.schemas import NoteCreate, NoteUpdate, NoteRead
 from app.documentation.service import DocumentationService

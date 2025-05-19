@@ -1,3 +1,4 @@
+"""Data Access Objects for the logging module."""
 from sqlalchemy.orm import Session
 from sqlalchemy import select, text, func, or_, cast, String
 from typing import List, Dict, Any, Optional
@@ -6,6 +7,8 @@ from datetime import datetime, timedelta
 
 
 class LogDAO:
+    """Data access methods for retrieving and managing logs."""
+
     def __init__(self, session: Session):
         self.session = session
 
@@ -69,7 +72,7 @@ class LogDAO:
         time_threshold = datetime.now() - timedelta(hours=hours)
 
         # Start with time filter
-        query = select(func.count(Log.id)).where(Log.timestamp >= time_threshold)
+        query = select(func.count()).select_from(Log).where(Log.timestamp >= time_threshold)
 
         # Add status code range filter if provided
         if status_min is not None:

@@ -1,14 +1,15 @@
+"""Service layer for the logging module handling business logic for logs."""
 from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
-from pydantic import BaseModel
 from app.logging.models import Log
-from app.logging.schemas import LogRead, LogBase, LogCreate
+from app.logging.schemas import LogRead
 from app.logging.dao import LogDAO
-from datetime import datetime, timedelta
+from datetime import datetime
 
 
 class LogService:
+    """Service for retrieving and analyzing log data."""
+
     def __init__(self, log_dao: LogDAO):
         self.dao = log_dao
 
@@ -36,7 +37,9 @@ class LogService:
             # Convert SQLAlchemy models to Pydantic models directly using Pydantic's from_orm
             return [LogRead.model_validate(log) for log in logs]
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error fetching logs: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Error fetching logs: {str(e)}"
+            ) from e
 
     async def get_logs_count(
         self,
@@ -51,7 +54,9 @@ class LogService:
                 hours=hours, status_min=status_min, status_max=status_max, search=search
             )
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error counting logs: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Error counting logs: {str(e)}"
+            ) from e
 
     async def get_status_distribution(self, hours: int = 24) -> Dict[str, Any]:
         """Get distribution of logs by status code with time filter"""
@@ -80,7 +85,7 @@ class LogService:
             raise HTTPException(
                 status_code=500,
                 detail=f"Error generating status distribution: {str(e)}",
-            )
+            ) from e
 
     async def get_recent_activities(self, days: int = 7) -> Dict[str, Any]:
         """Get recent activities for the dashboard"""
@@ -97,7 +102,7 @@ class LogService:
         except Exception as e:
             raise HTTPException(
                 status_code=500, detail=f"Error generating recent activities: {str(e)}"
-            )
+            ) from e
 
     def _format_log(self, log: Log) -> Dict[str, Any]:
         """Format a log object for API response"""

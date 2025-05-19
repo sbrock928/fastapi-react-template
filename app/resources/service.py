@@ -1,4 +1,5 @@
-from typing import List, Optional, Dict, cast, Any
+"""Service layer for managing user, employee, and subscriber resources."""
+from typing import List, Optional, Dict, Any
 from fastapi import HTTPException
 from app.resources.dao import UserDAO, EmployeeDAO, SubscriberDAO
 from app.resources.models import User, Employee, Subscriber

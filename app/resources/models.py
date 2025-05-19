@@ -1,5 +1,6 @@
+"""Database models for the resources module."""
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, Boolean
 from app.core.database import Base
 
 

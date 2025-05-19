@@ -1,3 +1,4 @@
+"""Database models for the logging module."""
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, DateTime, Float
 from app.core.database import Base
@@ -5,6 +6,8 @@ from app.core.database import Base
 
 # SQLAlchemy model for database operations
 class Log(Base):
+    """SQLAlchemy model for API request and response logs."""
+
     __tablename__ = "log"
 
     id = Column(Integer, primary_key=True, index=True)

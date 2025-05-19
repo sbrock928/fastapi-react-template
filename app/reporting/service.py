@@ -1,15 +1,15 @@
-from typing import List, Dict, Any, Optional, BinaryIO
+"""Service layer for the reporting module handling business logic for reports."""
+from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
-from sqlalchemy import select, func, text
 from app.reporting.dao import ReportingDAO
-from app.resources.models import User, Employee, Subscriber
-from datetime import datetime, timedelta
+from datetime import datetime
 import pandas as pd
 from io import BytesIO
 
 
 class ReportingService:
+    """Service for generating and managing reports and statistics."""
+
     def __init__(self, dao: ReportingDAO):
         self.report_dao = dao
 
@@ -33,7 +33,7 @@ class ReportingService:
         except Exception as e:
             raise HTTPException(
                 status_code=500, detail=f"Error generating summary statistics: {str(e)}"
-            )
+            ) from e
 
     async def get_employees_by_department(self) -> List[Dict[str, Any]]:
         """Report showing employee count by department"""
@@ -45,7 +45,7 @@ class ReportingService:
             raise HTTPException(
                 status_code=500,
                 detail=f"Error generating employees by department report: {str(e)}",
-            )
+            ) from e
 
     async def get_resource_counts(self, cycle_code: Optional[str] = None) -> List[Dict[str, Any]]:
         """Report showing count of different resource types, optionally filtered by cycle code"""
@@ -56,7 +56,7 @@ class ReportingService:
             raise HTTPException(
                 status_code=500,
                 detail=f"Error generating resource counts report: {str(e)}",
-            )
+            ) from e
 
     async def export_to_xlsx(self, export_data: Dict[str, Any]) -> BytesIO:
         """Export report data to Excel format"""
@@ -80,14 +80,18 @@ class ReportingService:
             output.seek(0)
             return output
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error exporting to Excel: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Error exporting to Excel: {str(e)}"
+            ) from e
 
     async def get_distinct_cycle_codes(self) -> List[Dict[str, str]]:
         """Get list of distinct cycle codes for report filters"""
         try:
             return await self.report_dao.get_distinct_cycle_codes()
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error fetching cycle codes: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Error fetching cycle codes: {str(e)}"
+            ) from e
 
     def _parse_date_range(self, date_range: str) -> int:
         """Helper to parse a date range string into number of days"""

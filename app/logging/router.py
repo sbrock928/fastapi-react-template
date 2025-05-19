@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy.orm import Session
+"""API router for the logging module with endpoints for retrieving and analyzing logs."""
+from fastapi import APIRouter, Depends, Query, Response
 from typing import List, Optional, Dict, Any
 from app.core.dependencies import SessionDep
 from app.logging.schemas import LogRead

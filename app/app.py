@@ -1,16 +1,12 @@
-from fastapi import FastAPI, Request, Depends, Response
+"""FastAPI application entry point for the Vibez application."""
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from sqlalchemy import select
-import os
-from datetime import datetime
-import json
-from app.logging.middleware import LoggingMiddleware  # Import the middleware
+from app.logging.middleware import LoggingMiddleware
 from app.core.router import register_routes
 from app.core.database import init_db
-from typing import Union, Any
+from typing import Any
 
 
 def create_app() -> FastAPI:
@@ -38,13 +34,13 @@ def create_app() -> FastAPI:
 
     # Serve the static files from the React build in the new static directory
     @app.get("/{full_path:path}")
-    async def serve_react_app(request: Request, full_path: str) -> Any:
+    async def serve_react_app(full_path: str) -> Any:
         # If it's an API request, let it pass through to the API endpoints
         if full_path.startswith("api/"):
             return RedirectResponse(url=f"/api/{full_path[4:]}")
 
         # For all other routes, serve the React app's index.html from the new static directory
-        with open("static/index.html", "r") as f:
+        with open("static/index.html", "r", encoding="utf-8") as f:
             html_content = f.read()
 
         return HTMLResponse(content=html_content)

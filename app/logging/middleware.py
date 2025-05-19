@@ -1,3 +1,4 @@
+"""Middleware for logging HTTP requests and responses with detailed information."""
 import time
 import json
 import os
@@ -7,15 +8,12 @@ import socket
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
-from typing import Callable, Awaitable, List, Dict, Any, AsyncIterator
+from typing import Callable, AsyncIterator
 
 from datetime import datetime
 from starlette.background import BackgroundTask
-from sqlalchemy.orm import Session
-from app.logging.models import Log  # Now using SQLAlchemy model
-from app.core.database import SessionLocal  # Your session generator
-import time
-import os
+from app.logging.models import Log
+from app.core.database import SessionLocal
 
 # Import APPLICATION_ID from environment variables
 from dotenv import load_dotenv
@@ -26,6 +24,8 @@ APPLICATION_ID = os.environ.get("APPLICATION_ID", "Unknown")
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
+    """Middleware that logs HTTP requests and responses to the database."""
+
     def __init__(self, app: ASGIApp):
         super().__init__(app)
         # Get the current username when middleware is initialized
@@ -37,20 +37,21 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 or getpass.getuser()
                 or "unknown_user"
             )
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             self.username = "unknown_user"
 
         # Get the computer hostname
         try:
             self.hostname = socket.gethostname() or platform.node() or "unknown_host"
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             self.hostname = "unknown_host"
 
         # Store the application ID from environment
         self.application_id = APPLICATION_ID
 
         print(
-            f"Logging middleware initialized with username: {self.username} on host: {self.hostname}, App ID: {self.application_id}"
+            f"Logging middleware initialized with username: {self.username} on host: "
+            f"{self.hostname}, App ID: {self.application_id}"
         )
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
@@ -84,7 +85,8 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         # Capture response information
         status_code = response.status_code
         headers = response.headers
-        media_type = getattr(response, "media_type", "")
+        content_type = headers.get("content-type", "")
+        is_html = "text/html" in content_type
 
         # Create a new response with captured body
         response_body = b""
@@ -118,16 +120,6 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         else:
             # Unknown response type - use as is
             new_response = response
-
-        # Determine if we should log the response body
-        # Only log HTML response bodies for error responses (status >= 400)
-        should_log_body = True
-        is_html = False
-        content_type = headers.get("content-type", "")
-        if "text/html" in content_type:
-            is_html = True
-            if status_code < 400:  # Not an error response
-                should_log_body = False
 
         # --- Log to DB (in background) ---
         def log_to_db() -> None:
