@@ -8,12 +8,16 @@ type CycleOption = {
 
 interface CycleContextType {
   cycleCodes: CycleOption[];
+  selectedCycle: CycleOption;
+  setSelectedCycle: (cycle: CycleOption) => void;
   loading: boolean;
   error: string | null;
 }
 
 const defaultContextValue: CycleContextType = {
   cycleCodes: [{ value: '', label: 'All Cycles' }],
+  selectedCycle: { value: '', label: 'All Cycles' },
+  setSelectedCycle: () => {},
   loading: false,
   error: null
 };
@@ -28,22 +32,21 @@ interface CycleProviderProps {
 
 export const CycleProvider = ({ children }: CycleProviderProps) => {
   const [cycleCodes, setCycleCodes] = useState<CycleOption[]>([{ value: '', label: 'All Cycles' }]);
+  const [selectedCycle, setSelectedCycle] = useState<CycleOption>({ value: '', label: 'All Cycles' });
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState<boolean>(false);
 
   useEffect(() => {
     const fetchCycleCodes = async () => {
-      // Only fetch once
       if (initialized) return;
-      
+
       setLoading(true);
       setError(null);
-      
+
       try {
         const response = await reportsApi.getCycleCodes();
-        
-        // Prepare options with 'All Cycles' as the first option
+
         const options = [
           { value: '', label: 'All Cycles' },
           ...response.data.map((item: { code: string }) => ({
@@ -51,7 +54,7 @@ export const CycleProvider = ({ children }: CycleProviderProps) => {
             label: item.code
           }))
         ];
-        
+
         setCycleCodes(options);
         setInitialized(true);
       } catch (error) {
@@ -61,12 +64,12 @@ export const CycleProvider = ({ children }: CycleProviderProps) => {
         setLoading(false);
       }
     };
-    
+
     fetchCycleCodes();
   }, [initialized]);
 
   return (
-    <CycleContext.Provider value={{ cycleCodes, loading, error }}>
+    <CycleContext.Provider value={{ cycleCodes, selectedCycle, setSelectedCycle, loading, error }}>
       {children}
     </CycleContext.Provider>
   );

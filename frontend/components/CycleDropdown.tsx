@@ -1,18 +1,16 @@
 import React from 'react';
 import { useCycleContext } from '@/context/CycleContext';
 
-interface CycleDropdownProps {
-  value: string;
-  onChange: (value: string) => void;
-}
+const CycleDropdown: React.FC = () => {
+  const { cycleCodes, selectedCycle, setSelectedCycle, loading, error } = useCycleContext();
 
-const CycleDropdown: React.FC<CycleDropdownProps> = ({ value, onChange }) => {
-  const { cycleCodes, loading, error } = useCycleContext();
-  
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    onChange(e.target.value);
+    const selected = cycleCodes.find(c => c.value === e.target.value);
+    if (selected) {
+      setSelectedCycle(selected);
+    }
   };
-  
+
   if (error) {
     return (
       <div className="form-group">
@@ -21,7 +19,7 @@ const CycleDropdown: React.FC<CycleDropdownProps> = ({ value, onChange }) => {
       </div>
     );
   }
-  
+
   return (
     <div className="form-group">
       <label htmlFor="cycleCode" className="form-label">Cycle Code</label>
@@ -29,7 +27,7 @@ const CycleDropdown: React.FC<CycleDropdownProps> = ({ value, onChange }) => {
         id="cycleCode"
         name="cycle_code"
         className="form-select"
-        value={value}
+        value={selectedCycle.value}
         onChange={handleChange}
         disabled={loading}
       >
