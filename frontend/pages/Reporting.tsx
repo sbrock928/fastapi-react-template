@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { reportsApi } from '@/services/api';
 import { CycleProvider, useCycleContext } from '@/context/CycleContext';
-import CycleDropdown from '@/components/CycleDropdown';
 import ReportingTable from '@/components/ReportingTable';
+import { ConfigureReportsCard, RunReportsCard } from '@/features/reporting/components';
 import type { ReportRow, DynamicReportConfig, ReportConfigurationResponse } from '@/types';
 
 const ReportingContent = () => {
   const { selectedCycle } = useCycleContext();
 
+  // Run reports states
   const [activeReport, setActiveReport] = useState<string>('');
   const [reportData, setReportData] = useState<ReportRow[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -15,6 +16,27 @@ const ReportingContent = () => {
   const [isSkeletonMode, setIsSkeletonMode] = useState<boolean>(false);
   const [reportConfigurations, setReportConfigurations] = useState<ReportConfigurationResponse>({});
   const [configLoading, setConfigLoading] = useState<boolean>(true);
+  // Configure reports states
+  const [selectedReportToEdit, setSelectedReportToEdit] = useState<string>('');
+  const [configureMode, setConfigureMode] = useState<'create' | 'edit' | null>(null);
+  const [reportAggregationLevel, setReportAggregationLevel] = useState<'deal' | 'asset' | ''>('');  const [reportName, setReportName] = useState<string>('');
+  const [selectedAttributes, setSelectedAttributes] = useState<string[]>([]);
+  const [availableAttributes, _setAvailableAttributes] = useState<
+    { name: string; label: string; aggregationLevel: 'deal' | 'asset' | 'both' }[]
+  >([
+    { name: 'deal_name', label: 'Deal Name', aggregationLevel: 'deal' },
+    { name: 'deal_type', label: 'Deal Type', aggregationLevel: 'deal' },
+    { name: 'deal_value', label: 'Deal Value', aggregationLevel: 'deal' },
+    { name: 'deal_status', label: 'Deal Status', aggregationLevel: 'deal' },
+    { name: 'deal_date', label: 'Deal Date', aggregationLevel: 'deal' },
+    { name: 'asset_name', label: 'Asset Name', aggregationLevel: 'asset' },
+    { name: 'asset_type', label: 'Asset Type', aggregationLevel: 'asset' },
+    { name: 'asset_value', label: 'Asset Value', aggregationLevel: 'asset' },
+    { name: 'asset_acquisition_date', label: 'Acquisition Date', aggregationLevel: 'asset' },
+    { name: 'id', label: 'ID', aggregationLevel: 'both' },
+    { name: 'created_date', label: 'Created Date', aggregationLevel: 'both' },
+    { name: 'modified_date', label: 'Modified Date', aggregationLevel: 'both' },
+  ]);
 
   const generateSkeletonData = (config: DynamicReportConfig, rowCount = 5): ReportRow[] => {
     const skeletonRows: ReportRow[] = [];
@@ -73,6 +95,84 @@ const ReportingContent = () => {
       setShowResults(false);
     }
   };
+  // Handler for selecting a report to edit
+  const handleReportEditChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const reportId = e.target.value;
+    setSelectedReportToEdit(reportId);
+    
+    if (reportId) {
+      // Fetch the current report configuration from API
+      // For now, we'll just use the existing configurations
+      const reportConfig = reportConfigurations[reportId];
+      if (reportConfig) {
+        setConfigureMode('edit');
+        // You would set these values based on the fetched report
+        setReportName(reportConfig.title);
+        // This is a placeholder - in a real implementation, you'd get this from the database
+        setReportAggregationLevel(reportId.includes('asset') ? 'asset' : 'deal');
+        // For now, simulate that we're retrieving attributes
+        setSelectedAttributes([]);
+      }
+    } else {
+      setConfigureMode(null);
+    }
+  };
+
+  // Handler for creating a new report
+  const handleCreateNewReport = () => {
+    setSelectedReportToEdit('');
+    setReportName('');
+    setSelectedAttributes([]);
+    setConfigureMode('create');
+  };
+
+  // Handler for selecting/deselecting attributes
+  const handleAttributeToggle = (attributeName: string) => {
+    setSelectedAttributes(prev => {
+      if (prev.includes(attributeName)) {
+        return prev.filter(attr => attr !== attributeName);
+      } else {
+        return [...prev, attributeName];
+      }
+    });
+  };
+
+  // Handler for saving report configuration
+  const handleSaveReportConfig = async () => {
+    if (!reportName) {
+      alert('Please enter a report name');
+      return;
+    }
+    
+    if (!reportAggregationLevel) {
+      alert('Please select aggregation level');
+      return;
+    }
+    
+    if (selectedAttributes.length === 0) {
+      alert('Please select at least one attribute');
+      return;
+    }
+    
+    try {
+      // Here you would call your API to save the report configuration
+      alert(`Report configuration saved! This would be stored in the database.
+Name: ${reportName}
+Type: ${reportAggregationLevel}-level
+Attributes: ${selectedAttributes.join(', ')}`);
+      
+      // Reset form
+      setConfigureMode(null);
+      setReportName('');
+      setSelectedAttributes([]);
+      setReportAggregationLevel('');
+      
+      // In real implementation, you would refresh the list of reports here
+    } catch (error) {
+      console.error('Error saving report configuration:', error);
+      alert('Error saving report configuration. See console for details.');
+    }
+  };
 
   const runReport = async () => {
     if (!activeReport) {
@@ -109,72 +209,35 @@ const ReportingContent = () => {
     <div>
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h3>Reporting Dashboard</h3>
-      </div>
-
-      {/* Report Parameters Card */}
-      <div className="card mb-4">
-        <div className="card-header bg-primary text-white">
-          <h5 className="card-title mb-0">Report Parameters</h5>
-        </div>
-        <div className="card-body">
-          <form id="reportForm" className="row g-3">
-            <div className="col-md-6">
-              <label htmlFor="reportSelect" className="form-label">Select Report</label>
-              <select
-                id="reportSelect"
-                className="form-select"
-                required
-                value={activeReport}
-                onChange={handleReportChange}
-                disabled={configLoading}
-              >
-                <option value="" disabled>Choose a report...</option>
-                {Object.entries(reportConfigurations).map(([key, config]) => (
-                  <option key={key} value={key}>
-                    {config.title}
-                  </option>
-                ))}
-              </select>
-              {configLoading && <div className="text-muted mt-1">Loading report types...</div>}
-            </div>
-
-            <div className="col-md-6">
-              <CycleDropdown />
-            </div>            <div className="col-12 mt-3 d-flex gap-2">
-              <button
-                type="button"
-                id="runReportBtn"
-                className="btn"
-                style={{ backgroundColor: '#93186C', color: 'white' }}
-                onClick={runReport}
-                disabled={loading || !activeReport}
-              >
-                {loading ? (
-                  <>
-                    <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                    <span className="ms-2">Running...</span>
-                  </>
-                ) : (
-                  <>
-                    <i className="bi bi-play-fill"></i> Run Report
-                  </>
-                )}
-              </button>
-              
-              <button
-                type="button"
-                id="scheduleReportBtn"
-                className="btn btn-outline-secondary"
-                disabled={true}
-                title="Coming soon: Schedule reports to run automatically"
-              >
-                <i className="bi bi-calendar-event"></i> Schedule Report
-                <span className="badge bg-info ms-2" style={{ fontSize: '0.7rem' }}>Coming Soon</span>
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
+      </div>      {/* Configure Reports Card */}
+      <ConfigureReportsCard 
+        reportConfigurations={reportConfigurations}
+        configLoading={configLoading}
+        selectedReportToEdit={selectedReportToEdit}
+        configureMode={configureMode}
+        reportName={reportName}
+        reportAggregationLevel={reportAggregationLevel}
+        selectedAttributes={selectedAttributes}
+        availableAttributes={availableAttributes}
+        onReportEditChange={handleReportEditChange}
+        onCreateNewReport={handleCreateNewReport}
+        onReportNameChange={(value) => setReportName(value)}
+        onAggregationLevelChange={(value) => setReportAggregationLevel(value)}
+        onAttributeToggle={handleAttributeToggle}
+        onSaveReportConfig={handleSaveReportConfig}
+        onCancelConfig={() => setConfigureMode(null)}        onDeleteReport={() => {
+          alert('This would delete the report in a real implementation');
+          setSelectedReportToEdit('');
+        }}
+      />      {/* Report Parameters Card */}
+      <RunReportsCard 
+        activeReport={activeReport}
+        reportConfigurations={reportConfigurations}
+        configLoading={configLoading}
+        loading={loading}
+        onReportChange={handleReportChange}
+        onRunReport={runReport}
+      />
 
       {/* Report Results */}
       {showResults && (
