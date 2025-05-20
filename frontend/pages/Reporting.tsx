@@ -140,9 +140,7 @@ const ReportingContent = () => {
 
             <div className="col-md-6">
               <CycleDropdown />
-            </div>
-
-            <div className="col-12 mt-3">
+            </div>            <div className="col-12 mt-3 d-flex gap-2">
               <button
                 type="button"
                 id="runReportBtn"
@@ -161,6 +159,17 @@ const ReportingContent = () => {
                     <i className="bi bi-play-fill"></i> Run Report
                   </>
                 )}
+              </button>
+              
+              <button
+                type="button"
+                id="scheduleReportBtn"
+                className="btn btn-outline-secondary"
+                disabled={true}
+                title="Coming soon: Schedule reports to run automatically"
+              >
+                <i className="bi bi-calendar-event"></i> Schedule Report
+                <span className="badge bg-info ms-2" style={{ fontSize: '0.7rem' }}>Coming Soon</span>
               </button>
             </div>
           </form>
