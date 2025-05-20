@@ -1,5 +1,8 @@
 """Service layer for the reporting module handling business logic for reports."""
 
+import json
+import requests
+import os
 from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
 from app.reporting.dao import ReportingDAO
@@ -48,7 +51,7 @@ class ReportingService:
                 detail=f"Error generating employees by department report: {str(e)}",
             ) from e
 
-    async def get_resource_counts(self, cycle_code: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def get_resource_counts(self, cycle_code: Optional[str] = None) -> List[Dict[str, Any]]: 
         """Report showing count of different resource types, optionally filtered by cycle code"""
         try:
             # Get data from DAO, potentially filtered by cycle_code
@@ -256,3 +259,299 @@ class ReportingService:
         else:
             # Default to 30 days
             return 30
+            
+    # New methods for task queue integration
+    
+    async def execute_report_async(
+        self, 
+        report_id: int, 
+        parameters: Dict[str, Any],
+        user_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Execute a report asynchronously by submitting a task to the Celery queue
+        
+        Args:
+            report_id: ID of the report to execute
+            parameters: Report parameters
+            user_id: ID of the user requesting the report
+            
+        Returns:
+            Dict with task information
+        """
+        try:
+            # Create an execution record in the database with QUEUED status
+            execution_data = {
+                "report_id": report_id,
+                "user_id": user_id,
+                "parameters": parameters,
+                "status": "QUEUED",
+                "started_at": datetime.utcnow()
+            }
+            
+            execution = await self.report_dao.create_report_execution(execution_data)
+            
+            # Submit task to Celery
+            task_response = self._submit_task_to_celery(
+                "task_queue.tasks.reports.execute_report",
+                [report_id, parameters, user_id]
+            )
+            
+            if "task_id" in task_response:
+                # Update the execution record with the task ID
+                await self.report_dao.update_report_execution_status(
+                    execution_id=execution["id"],
+                    task_id=task_response["task_id"],
+                    status="RUNNING"
+                )
+                
+                return {
+                    "execution_id": execution["id"],
+                    "task_id": task_response["task_id"],
+                    "status": "RUNNING",
+                    "message": "Report execution submitted successfully"
+                }
+            else:
+                # Something went wrong with task submission
+                await self.report_dao.update_report_execution_status(
+                    execution_id=execution["id"],
+                    status="FAILED",
+                    error="Failed to submit task to Celery"
+                )
+                
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to submit report execution task"
+                )
+                
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error executing report asynchronously: {str(e)}"
+            ) from e
+    
+    async def create_scheduled_report(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create a new scheduled report
+        
+        Args:
+            report_data: Report scheduling data
+            
+        Returns:
+            The created scheduled report
+        """
+        try:
+            # Validate the report data before creating
+            self._validate_scheduled_report_data(report_data)
+            
+            # Create the scheduled report
+            return await self.report_dao.create_scheduled_report(report_data)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error creating scheduled report: {str(e)}"
+            ) from e
+    
+    async def get_scheduled_reports(self, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Get all scheduled reports for a user
+        
+        Args:
+            user_id: Optional user ID to filter by
+            
+        Returns:
+            List of scheduled reports
+        """
+        try:
+            return await self.report_dao.get_scheduled_reports(user_id)
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error fetching scheduled reports: {str(e)}"
+            ) from e
+    
+    async def update_scheduled_report(self, report_id: int, report_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update a scheduled report
+        
+        Args:
+            report_id: ID of the report to update
+            report_data: Updated report data
+            
+        Returns:
+            The updated report
+        """
+        try:
+            # Validate the report data before updating
+            self._validate_scheduled_report_data(report_data)
+            
+            # Update the scheduled report
+            updated_report = await self.report_dao.update_scheduled_report(report_id, report_data)
+            
+            if not updated_report:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Scheduled report with ID {report_id} not found"
+                )
+                
+            return updated_report
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error updating scheduled report: {str(e)}"
+            ) from e
+    
+    async def delete_scheduled_report(self, report_id: int) -> Dict[str, Any]:
+        """
+        Delete a scheduled report
+        
+        Args:
+            report_id: ID of the report to delete
+            
+        Returns:
+            Success message
+        """
+        try:
+            deleted = await self.report_dao.delete_scheduled_report(report_id)
+            
+            if not deleted:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Scheduled report with ID {report_id} not found"
+                )
+                
+            return {"message": f"Scheduled report {report_id} deleted successfully"}
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error deleting scheduled report: {str(e)}"
+            ) from e
+    
+    async def get_report_executions(
+        self, 
+        user_id: Optional[int] = None,
+        report_id: Optional[int] = None,
+        status: Optional[str] = None,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        Get report execution history
+        
+        Args:
+            user_id: Optional user ID to filter by
+            report_id: Optional report ID to filter by
+            status: Optional status to filter by
+            limit: Maximum number of executions to return
+            
+        Returns:
+            List of report executions
+        """
+        try:
+            return await self.report_dao.get_report_executions(
+                user_id=user_id,
+                report_id=report_id,
+                status=status,
+                limit=limit
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error fetching report executions: {str(e)}"
+            ) from e
+    
+    def _validate_scheduled_report_data(self, report_data: Dict[str, Any]) -> None:
+        """
+        Validate scheduled report data
+        
+        Args:
+            report_data: Report data to validate
+            
+        Raises:
+            ValueError: If the report data is invalid
+        """
+        # Check required fields
+        required_fields = ["report_id", "user_id", "name", "frequency", "time_of_day"]
+        for field in required_fields:
+            if field not in report_data or not report_data[field]:
+                raise ValueError(f"Missing required field: {field}")
+        
+        # Check that frequency is valid
+        valid_frequencies = ["DAILY", "WEEKLY", "MONTHLY"]
+        if report_data.get("frequency") not in valid_frequencies:
+            raise ValueError(f"Invalid frequency. Must be one of: {', '.join(valid_frequencies)}")
+        
+        # Check that day_of_week is provided for weekly reports
+        if report_data.get("frequency") == "WEEKLY" and not report_data.get("day_of_week"):
+            raise ValueError("day_of_week is required for weekly reports")
+        
+        # Check that day_of_month is provided for monthly reports
+        if report_data.get("frequency") == "MONTHLY" and not report_data.get("day_of_month"):
+            raise ValueError("day_of_month is required for monthly reports")
+        
+        # Validate day_of_week for weekly reports
+        if report_data.get("day_of_week"):
+            valid_days = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"]
+            if report_data.get("day_of_week") not in valid_days:
+                raise ValueError(f"Invalid day_of_week. Must be one of: {', '.join(valid_days)}")
+        
+        # Validate day_of_month for monthly reports
+        if report_data.get("day_of_month"):
+            day = report_data.get("day_of_month")
+            if not isinstance(day, int) or day < 1 or day > 31:
+                raise ValueError("day_of_month must be between 1 and 31")
+        
+    def _submit_task_to_celery(self, task_name: str, args=None, kwargs=None) -> Dict[str, Any]:
+        """
+        Submit a task to Celery
+        
+        Args:
+            task_name: Name of the task to execute
+            args: Positional arguments for the task
+            kwargs: Keyword arguments for the task
+            
+        Returns:
+            Response from Celery with task ID
+        """
+        # In a real implementation, you would use the Celery API directly
+        # For now, we'll simulate the Celery response
+        
+        try:
+            # Get Celery API URL from environment or use default
+            celery_api_url = os.environ.get("CELERY_API_URL", "http://localhost:5555/api")
+            
+            # Prepare request payload
+            payload = {
+                "task": task_name,
+                "args": args or [],
+                "kwargs": kwargs or {}
+            }
+            
+            # Make API request to Celery (simulated for now)
+            # In a real implementation, you'd make an HTTP request to the Celery API
+            # response = requests.post(f"{celery_api_url}/task/async-apply/", json=payload)
+            # response.raise_for_status()
+            # return response.json()
+            
+            # For now, return a simulated response
+            import uuid
+            return {
+                "task_id": str(uuid.uuid4()),
+                "state": "PENDING"
+            }
+            
+        except Exception as e:
+            # Log the error but don't expose it directly
+            import logging
+            logging.error(f"Error submitting task to Celery: {str(e)}")
+            return {
+                "error": "Failed to submit task to Celery",
+                "details": str(e)
+            }

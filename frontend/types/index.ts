@@ -58,6 +58,39 @@ export interface ReportConfig {
 
 export type ReportRow = Record<string, any>;
 
+// New types for task queue integration
+export interface ScheduledReport {
+  id: number;
+  report_id: number;
+  report_name?: string;
+  user_id: number;
+  name: string;
+  description?: string;
+  parameters: Record<string, any>;
+  frequency: 'DAILY' | 'WEEKLY' | 'MONTHLY';
+  day_of_week?: 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY' | 'SUNDAY';
+  day_of_month?: number;
+  time_of_day: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReportExecution {
+  id: number;
+  report_id: number;
+  report_name?: string;
+  scheduled_report_id?: number;
+  task_id?: string;
+  user_id?: number;
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  parameters: Record<string, any>;
+  started_at?: string;
+  completed_at?: string;
+  result_path?: string;
+  error?: string;
+}
+
 // Logs Types
 export interface Log {
   id: number;

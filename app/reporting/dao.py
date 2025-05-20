@@ -4,6 +4,8 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, text
 from typing import List, Dict, Any, Optional
+import json
+import datetime
 from app.resources.models import User, Employee, Subscriber
 from app.logging.models import Log
 
@@ -261,4 +263,399 @@ class ReportingDAO:
             return log_data
         except Exception as e:
             logging.error(f"Error in get_log_details: {str(e)}")
+            raise
+
+    # New methods for task queue integration
+
+    async def create_scheduled_report(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create a new scheduled report
+        
+        Args:
+            report_data: Dictionary containing the scheduled report details
+            
+        Returns:
+            The created scheduled report
+        """
+        try:
+            # Convert parameters to JSON string if needed
+            if isinstance(report_data.get("parameters"), dict):
+                parameters = json.dumps(report_data["parameters"])
+            else:
+                parameters = report_data.get("parameters", "{}")
+            
+            # Create the SQL query
+            query = text("""
+                INSERT INTO scheduled_reports 
+                (report_id, user_id, name, description, parameters, frequency, 
+                day_of_week, day_of_month, time_of_day, is_active)
+                VALUES (:report_id, :user_id, :name, :description, :parameters, :frequency,
+                :day_of_week, :day_of_month, :time_of_day, :is_active)
+                RETURNING id, created_at, updated_at
+            """)
+            
+            # Execute the query with parameters
+            result = self.session.execute(query, {
+                "report_id": report_data.get("report_id"),
+                "user_id": report_data.get("user_id"),
+                "name": report_data.get("name"),
+                "description": report_data.get("description"),
+                "parameters": parameters,
+                "frequency": report_data.get("frequency"),
+                "day_of_week": report_data.get("day_of_week"),
+                "day_of_month": report_data.get("day_of_month"),
+                "time_of_day": report_data.get("time_of_day"),
+                "is_active": report_data.get("is_active", True)
+            })
+            
+            self.session.commit()
+            
+            row = result.fetchone()
+            if row:
+                # Return the created report with all fields
+                report_data["id"] = row[0]
+                report_data["created_at"] = row[1]
+                report_data["updated_at"] = row[2]
+                return report_data
+            return None
+        except Exception as e:
+            self.session.rollback()
+            logging.error(f"Error in create_scheduled_report: {str(e)}")
+            raise
+
+    async def get_scheduled_reports(self, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Get all scheduled reports, optionally filtered by user_id
+        
+        Args:
+            user_id: Optional user ID to filter reports by
+            
+        Returns:
+            List of scheduled reports
+        """
+        try:
+            query_text = """
+                SELECT sr.*, r.name as report_name 
+                FROM scheduled_reports sr
+                JOIN reports r ON sr.report_id = r.id
+            """
+            
+            params = {}
+            if user_id is not None:
+                query_text += " WHERE sr.user_id = :user_id"
+                params["user_id"] = user_id
+                
+            query_text += " ORDER BY sr.updated_at DESC"
+            
+            query = text(query_text)
+            result = self.session.execute(query, params)
+            
+            scheduled_reports = []
+            for row in result:
+                # Convert row to a dictionary
+                report = {
+                    "id": row.id,
+                    "report_id": row.report_id,
+                    "report_name": row.report_name,
+                    "user_id": row.user_id,
+                    "name": row.name,
+                    "description": row.description,
+                    "parameters": json.loads(row.parameters) if row.parameters else {},
+                    "frequency": row.frequency,
+                    "day_of_week": row.day_of_week,
+                    "day_of_month": row.day_of_month,
+                    "time_of_day": str(row.time_of_day) if row.time_of_day else None,
+                    "is_active": row.is_active,
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                    "updated_at": row.updated_at.isoformat() if row.updated_at else None
+                }
+                scheduled_reports.append(report)
+                
+            return scheduled_reports
+        except Exception as e:
+            logging.error(f"Error in get_scheduled_reports: {str(e)}")
+            raise
+
+    async def update_scheduled_report(self, report_id: int, report_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update a scheduled report
+        
+        Args:
+            report_id: ID of the report to update
+            report_data: Dictionary containing the updated report details
+            
+        Returns:
+            The updated report
+        """
+        try:
+            # Convert parameters to JSON string if needed
+            if isinstance(report_data.get("parameters"), dict):
+                parameters = json.dumps(report_data["parameters"])
+            else:
+                parameters = report_data.get("parameters")
+            
+            # Build update parts and parameters
+            update_parts = []
+            params = {"id": report_id}
+            
+            fields = [
+                "report_id", "user_id", "name", "description", "parameters",
+                "frequency", "day_of_week", "day_of_month", "time_of_day", "is_active"
+            ]
+            
+            for field in fields:
+                if field in report_data:
+                    update_parts.append(f"{field} = :{field}")
+                    params[field] = report_data[field] if field != "parameters" else parameters
+            
+            # Add updated_at
+            update_parts.append("updated_at = :updated_at")
+            params["updated_at"] = datetime.datetime.utcnow()
+            
+            # Create the SQL query
+            query = text(f"""
+                UPDATE scheduled_reports 
+                SET {", ".join(update_parts)}
+                WHERE id = :id
+                RETURNING id, report_id, user_id, name, description, parameters,
+                          frequency, day_of_week, day_of_month, time_of_day, 
+                          is_active, created_at, updated_at
+            """)
+            
+            # Execute the query with parameters
+            result = self.session.execute(query, params)
+            self.session.commit()
+            
+            row = result.fetchone()
+            if row:
+                # Convert row to a dictionary
+                updated_report = {
+                    "id": row.id,
+                    "report_id": row.report_id,
+                    "user_id": row.user_id,
+                    "name": row.name,
+                    "description": row.description,
+                    "parameters": json.loads(row.parameters) if row.parameters else {},
+                    "frequency": row.frequency,
+                    "day_of_week": row.day_of_week,
+                    "day_of_month": row.day_of_month,
+                    "time_of_day": str(row.time_of_day) if row.time_of_day else None,
+                    "is_active": row.is_active,
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                    "updated_at": row.updated_at.isoformat() if row.updated_at else None
+                }
+                return updated_report
+            return None
+        except Exception as e:
+            self.session.rollback()
+            logging.error(f"Error in update_scheduled_report: {str(e)}")
+            raise
+
+    async def delete_scheduled_report(self, report_id: int) -> bool:
+        """
+        Delete a scheduled report
+        
+        Args:
+            report_id: ID of the report to delete
+            
+        Returns:
+            True if the report was deleted, False otherwise
+        """
+        try:
+            query = text("DELETE FROM scheduled_reports WHERE id = :id")
+            result = self.session.execute(query, {"id": report_id})
+            self.session.commit()
+            return result.rowcount > 0
+        except Exception as e:
+            self.session.rollback()
+            logging.error(f"Error in delete_scheduled_report: {str(e)}")
+            raise
+
+    async def get_report_executions(
+        self, 
+        user_id: Optional[int] = None,
+        report_id: Optional[int] = None,
+        status: Optional[str] = None,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        Get report execution history with optional filters
+        
+        Args:
+            user_id: Optional user ID to filter executions by
+            report_id: Optional report ID to filter executions by
+            status: Optional status to filter executions by
+            limit: Maximum number of executions to return
+            
+        Returns:
+            List of report executions
+        """
+        try:
+            query_text = """
+                SELECT re.*, r.name as report_name
+                FROM report_executions re
+                JOIN reports r ON re.report_id = r.id
+                WHERE 1=1
+            """
+            
+            params = {}
+            
+            if user_id is not None:
+                query_text += " AND re.user_id = :user_id"
+                params["user_id"] = user_id
+                
+            if report_id is not None:
+                query_text += " AND re.report_id = :report_id"
+                params["report_id"] = report_id
+                
+            if status is not None:
+                query_text += " AND re.status = :status"
+                params["status"] = status
+                
+            query_text += " ORDER BY re.started_at DESC LIMIT :limit"
+            params["limit"] = limit
+            
+            query = text(query_text)
+            result = self.session.execute(query, params)
+            
+            executions = []
+            for row in result:
+                # Convert row to a dictionary
+                execution = {
+                    "id": row.id,
+                    "report_id": row.report_id,
+                    "report_name": row.report_name,
+                    "scheduled_report_id": row.scheduled_report_id,
+                    "task_id": row.task_id,
+                    "user_id": row.user_id,
+                    "status": row.status,
+                    "parameters": json.loads(row.parameters) if row.parameters else {},
+                    "started_at": row.started_at.isoformat() if row.started_at else None,
+                    "completed_at": row.completed_at.isoformat() if row.completed_at else None,
+                    "result_path": row.result_path,
+                    "error": row.error
+                }
+                executions.append(execution)
+                
+            return executions
+        except Exception as e:
+            logging.error(f"Error in get_report_executions: {str(e)}")
+            raise
+
+    async def create_report_execution(self, execution_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create a new report execution record
+        
+        Args:
+            execution_data: Dictionary containing the execution details
+            
+        Returns:
+            The created execution record
+        """
+        try:
+            # Convert parameters to JSON string if needed
+            if isinstance(execution_data.get("parameters"), dict):
+                parameters = json.dumps(execution_data["parameters"])
+            else:
+                parameters = execution_data.get("parameters", "{}")
+            
+            # Create the SQL query
+            query = text("""
+                INSERT INTO report_executions 
+                (report_id, scheduled_report_id, task_id, user_id, status, parameters, started_at)
+                VALUES (:report_id, :scheduled_report_id, :task_id, :user_id, :status, :parameters, :started_at)
+                RETURNING id
+            """)
+            
+            # Default started_at to current time if not provided
+            if "started_at" not in execution_data:
+                execution_data["started_at"] = datetime.datetime.utcnow()
+            
+            # Execute the query with parameters
+            result = self.session.execute(query, {
+                "report_id": execution_data.get("report_id"),
+                "scheduled_report_id": execution_data.get("scheduled_report_id"),
+                "task_id": execution_data.get("task_id"),
+                "user_id": execution_data.get("user_id"),
+                "status": execution_data.get("status", "QUEUED"),
+                "parameters": parameters,
+                "started_at": execution_data.get("started_at")
+            })
+            
+            self.session.commit()
+            
+            row = result.fetchone()
+            if row:
+                # Return the created execution with the ID
+                execution_data["id"] = row[0]
+                return execution_data
+            return None
+        except Exception as e:
+            self.session.rollback()
+            logging.error(f"Error in create_report_execution: {str(e)}")
+            raise
+
+    async def update_report_execution_status(
+        self, 
+        execution_id: Optional[int] = None,
+        task_id: Optional[str] = None,
+        status: str = "COMPLETED",
+        result_path: Optional[str] = None,
+        error: Optional[str] = None
+    ) -> bool:
+        """
+        Update a report execution status
+        
+        Args:
+            execution_id: ID of the execution to update (either this or task_id must be provided)
+            task_id: Task ID of the execution to update (either this or execution_id must be provided)
+            status: New status (default: COMPLETED)
+            result_path: Path to the report result file (optional)
+            error: Error message if the execution failed (optional)
+            
+        Returns:
+            True if the execution was updated, False otherwise
+        """
+        try:
+            if execution_id is None and task_id is None:
+                raise ValueError("Either execution_id or task_id must be provided")
+                
+            params = {
+                "status": status,
+                "completed_at": datetime.datetime.utcnow()
+            }
+            
+            if result_path is not None:
+                params["result_path"] = result_path
+                
+            if error is not None:
+                params["error"] = error
+                
+            # Build the query
+            query_text = """
+                UPDATE report_executions
+                SET status = :status, completed_at = :completed_at
+            """
+            
+            if result_path is not None:
+                query_text += ", result_path = :result_path"
+                
+            if error is not None:
+                query_text += ", error = :error"
+                
+            if execution_id is not None:
+                query_text += " WHERE id = :id"
+                params["id"] = execution_id
+            else:
+                query_text += " WHERE task_id = :task_id"
+                params["task_id"] = task_id
+                
+            query = text(query_text)
+            result = self.session.execute(query, params)
+            self.session.commit()
+            
+            return result.rowcount > 0
+        except Exception as e:
+            self.session.rollback()
+            logging.error(f"Error in update_report_execution_status: {str(e)}")
             raise

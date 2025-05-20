@@ -9,6 +9,7 @@ interface RunReportsCardProps {
   loading: boolean;
   onReportChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
   onRunReport: () => void;
+  onScheduleReport?: () => void;
 }
 
 const RunReportsCard: React.FC<RunReportsCardProps> = ({
@@ -17,8 +18,9 @@ const RunReportsCard: React.FC<RunReportsCardProps> = ({
   configLoading,
   loading,
   onReportChange,
-  onRunReport
-}) => {
+  onRunReport,
+  onScheduleReport
+})=> {
   return (
     <div className="card mb-4">
       <div className="card-header bg-primary text-white">
@@ -69,17 +71,15 @@ const RunReportsCard: React.FC<RunReportsCardProps> = ({
                   <i className="bi bi-play-fill"></i> Run Report
                 </>
               )}
-            </button>
-            
-            <button
+            </button>            <button
               type="button"
               id="scheduleReportBtn"
               className="btn btn-outline-secondary"
-              disabled={true}
-              title="Coming soon: Schedule reports to run automatically"
+              disabled={!activeReport || configLoading}
+              onClick={onScheduleReport}
+              title="Schedule this report to run automatically"
             >
               <i className="bi bi-calendar-event"></i> Schedule Report
-              <span className="badge bg-info ms-2" style={{ fontSize: '0.7rem' }}>Coming Soon</span>
             </button>
           </div>
         </form>

@@ -1,0 +1,10 @@
+celery>=5.2.7
+redis>=4.3.4
+flower>=1.2.0
+# Database connection
+psycopg2-binary>=2.9.3
+sqlalchemy>=1.4.40
+# API integration
+requests>=2.28.1
+# Monitoring and logging
+prometheus-client>=0.15.0

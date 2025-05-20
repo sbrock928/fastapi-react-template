@@ -2,8 +2,12 @@ import { useState, useEffect } from 'react';
 import { reportsApi } from '@/services/api';
 import { CycleProvider, useCycleContext } from '@/context/CycleContext';
 import ReportingTable from '@/components/ReportingTable';
-import CycleDropdown from '@/components/CycleDropdown';
-import type { ReportRow, DynamicReportConfig, ReportConfigurationResponse } from '@/types';
+import RunReportsCard from '@/features/reporting/components/RunReportsCard';
+import ConfigureReportsCard from '@/features/reporting/components/ConfigureReportsCard';
+import ScheduleReportModal from '@/features/reporting/components/ScheduleReportModal';
+import ReportExecutionsCard from '@/features/reporting/components/ReportExecutionsCard';
+import ScheduledReportsCard from '@/features/reporting/components/ScheduledReportsCard';
+import type { ReportRow, DynamicReportConfig, ReportConfigurationResponse, ScheduledReport } from '@/types';
 
 const ReportingContent = () => {
   const { selectedCycle } = useCycleContext();
@@ -16,12 +20,14 @@ const ReportingContent = () => {
   const [isSkeletonMode, setIsSkeletonMode] = useState<boolean>(false);
   const [reportConfigurations, setReportConfigurations] = useState<ReportConfigurationResponse>({});
   const [configLoading, setConfigLoading] = useState<boolean>(true);
+
   // Configure reports states
   const [selectedReportToEdit, setSelectedReportToEdit] = useState<string>('');
   const [configureMode, setConfigureMode] = useState<'create' | 'edit' | null>(null);
   const [reportAggregationLevel, setReportAggregationLevel] = useState<'deal' | 'asset' | ''>('');  const [reportName, setReportName] = useState<string>('');
   const [selectedAttributes, setSelectedAttributes] = useState<string[]>([]);
-  const [availableAttributes, _setAvailableAttributes] = useState<
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [availableAttributes, _] = useState<
     { name: string; label: string; aggregationLevel: 'deal' | 'asset' | 'both' }[]
   >([
     { name: 'deal_name', label: 'Deal Name', aggregationLevel: 'deal' },
@@ -37,6 +43,9 @@ const ReportingContent = () => {
     { name: 'created_date', label: 'Created Date', aggregationLevel: 'both' },
     { name: 'modified_date', label: 'Modified Date', aggregationLevel: 'both' },
   ]);
+    // Task queue states
+  const [showScheduleModal, setShowScheduleModal] = useState<boolean>(false);
+  const [refreshTrigger, setRefreshTrigger] = useState<number>(0);
 
   const generateSkeletonData = (config: DynamicReportConfig, rowCount = 5): ReportRow[] => {
     const skeletonRows: ReportRow[] = [];
@@ -173,7 +182,6 @@ Attributes: ${selectedAttributes.join(', ')}`);
       alert('Error saving report configuration. See console for details.');
     }
   };
-
   const runReport = async () => {
     if (!activeReport) {
       alert('Please select a report to run');
@@ -204,204 +212,97 @@ Attributes: ${selectedAttributes.join(', ')}`);
       setLoading(false);
     }
   };
+  
+  // Schedule report handlers
+  const handleOpenScheduleModal = () => {
+    if (!activeReport) {
+      alert('Please select a report to schedule');
+      return;
+    }
 
+    if (!selectedCycle || selectedCycle.value === '') {
+      alert('Please select a cycle');
+      return;
+    }
+
+    setShowScheduleModal(true);
+  };
+  
+  const handleSaveSchedule = async (scheduledReport: Partial<ScheduledReport>) => {
+    try {
+      // Add cycle parameters to the scheduled report
+      const updatedReport = {
+        ...scheduledReport,
+        parameters: {
+          ...scheduledReport.parameters,
+          cycle_code: selectedCycle!.value
+        }
+      };
+      
+      await reportsApi.createScheduledReport(updatedReport as Omit<ScheduledReport, 'id' | 'created_at' | 'updated_at'>);
+      
+      // Refresh the scheduled reports list
+      setRefreshTrigger(prev => prev + 1);
+      alert('Report scheduled successfully!');
+    } catch (error) {
+      console.error('Error scheduling report:', error);
+      alert('Error scheduling report. See console for details.');
+    }
+  };
+    const handleEditSchedule = (schedule: ScheduledReport) => {
+    // In a real implementation, you would show a modal to edit the schedule
+    alert(`Edit schedule functionality would be implemented here for schedule ID: ${schedule.id}`);
+  };
   return (
     <div>
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h3>Reporting Dashboard</h3>
-      </div>      {/* Configure Reports Card */}      {/* Configure Reports Card */}
-      <div className="card mb-4">
-        <div className="card-header bg-success text-white d-flex justify-content-between align-items-center">
-          <h5 className="card-title mb-0">Configure Reports</h5>
-          {configureMode && (
-            <button 
-              type="button"
-              className="btn btn-outline-light btn-sm"
-              onClick={() => setConfigureMode(null)}
-            >
-              <i className="bi bi-x-lg"></i> Cancel
-            </button>
-          )}
-        </div>
-        <div className="card-body">
-          {configureMode ? (
-            <form id="reportConfigForm" className="row g-3">
-              <div className="col-md-6">
-                <label htmlFor="reportNameInput" className="form-label">Report Name</label>
-                <input 
-                  type="text" 
-                  id="reportNameInput" 
-                  className="form-control"
-                  value={reportName}
-                  onChange={(e) => setReportName(e.target.value)}
-                  placeholder="Enter report name"
-                  required
-                />
-              </div>
-              <div className="col-md-6">
-                <label htmlFor="aggregationLevelSelect" className="form-label">Aggregation Level</label>
-                <select
-                  id="aggregationLevelSelect"
-                  className="form-select"
-                  value={reportAggregationLevel}
-                  onChange={(e) => setReportAggregationLevel(e.target.value as 'deal' | 'asset')}
-                  required
-                >
-                  <option value="" disabled>Select level...</option>
-                  <option value="deal">Deal Level</option>
-                  <option value="asset">Asset Level</option>
-                </select>
-              </div>
-              <div className="col-12">
-                <label className="form-label">Select Attributes</label>
-                <div className="row">
-                  {availableAttributes
-                    .filter(attr => 
-                      reportAggregationLevel === '' || 
-                      attr.aggregationLevel === 'both' || 
-                      attr.aggregationLevel === reportAggregationLevel
-                    )
-                    .map(attr => (
-                      <div key={attr.name} className="col-md-4 mb-2">
-                        <div className="form-check">
-                          <input
-                            type="checkbox"
-                            id={`attribute-${attr.name}`}
-                            className="form-check-input"
-                            checked={selectedAttributes.includes(attr.name)}
-                            onChange={() => handleAttributeToggle(attr.name)}
-                          />
-                          <label className="form-check-label" htmlFor={`attribute-${attr.name}`}>
-                            {attr.label}
-                          </label>
-                        </div>
-                      </div>
-                    ))
-                  }
-                </div>
-              </div>
-              <div className="col-12 mt-3">
-                <button
-                  type="button"
-                  className="btn btn-success"
-                  onClick={handleSaveReportConfig}
-                >
-                  <i className="bi bi-save"></i> Save Report Configuration
-                </button>
-              </div>
-            </form>
-          ) : (
-            <div className="row g-3">
-              <div className="col-md-6">
-                <label htmlFor="existingReportSelect" className="form-label">Existing Report Configurations</label>
-                <select
-                  id="existingReportSelect"
-                  className="form-select"
-                  value={selectedReportToEdit}
-                  onChange={handleReportEditChange}
-                  disabled={configLoading}
-                >
-                  <option value="">Select a report to edit...</option>
-                  {Object.entries(reportConfigurations).map(([key, config]) => (
-                    <option key={key} value={key}>
-                      {config.title}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="col-md-6 d-flex align-items-end">
-                <button
-                  type="button"
-                  className="btn btn-success me-2"
-                  onClick={handleCreateNewReport}
-                >
-                  <i className="bi bi-plus-lg"></i> Create New Report
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-outline-danger"
-                  disabled={!selectedReportToEdit}
-                  onClick={() => {
-                    if (selectedReportToEdit && window.confirm('Are you sure you want to delete this report configuration?')) {
-                      alert('This would delete the report in a real implementation');
-                      setSelectedReportToEdit('');
-                    }
-                  }}
-                >
-                  <i className="bi bi-trash"></i> Delete
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>      {/* Report Parameters Card */}
-      <div className="card mb-4">
-        <div className="card-header bg-primary text-white">
-          <h5 className="card-title mb-0">Run Reports</h5>
-        </div>
-        <div className="card-body">
-          <form id="reportForm" className="row g-3">
-            <div className="col-md-6">
-              <label htmlFor="reportSelect" className="form-label">Select Report</label>
-              <select
-                id="reportSelect"
-                className="form-select"
-                required
-                value={activeReport}
-                onChange={handleReportChange}
-                disabled={configLoading}
-              >
-                <option value="" disabled>Choose a report...</option>
-                {Object.entries(reportConfigurations).map(([key, config]) => (
-                  <option key={key} value={key}>
-                    {config.title}
-                  </option>
-                ))}
-              </select>
-              {configLoading && <div className="text-muted mt-1">Loading report types...</div>}
-            </div>
-
-            <div className="col-md-6">
-              <CycleDropdown />
-            </div>
-            
-            <div className="col-12 mt-3 d-flex gap-2">
-              <button
-                type="button"
-                id="runReportBtn"
-                className="btn"
-                style={{ backgroundColor: '#93186C', color: 'white' }}
-                onClick={runReport}
-                disabled={loading || !activeReport}
-              >
-                {loading ? (
-                  <>
-                    <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                    <span className="ms-2">Running...</span>
-                  </>
-                ) : (
-                  <>
-                    <i className="bi bi-play-fill"></i> Run Report
-                  </>
-                )}
-              </button>
-              
-              <button
-                type="button"
-                id="scheduleReportBtn"
-                className="btn btn-outline-secondary"
-                disabled={true}
-                title="Coming soon: Schedule reports to run automatically"
-              >
-                <i className="bi bi-calendar-event"></i> Schedule Report
-                <span className="badge bg-info ms-2" style={{ fontSize: '0.7rem' }}>Coming Soon</span>
-              </button>
-            </div>
-          </form>
-        </div>
       </div>
 
-      {/* Report Results */}
+      {/* Configure Reports Card */}
+      <ConfigureReportsCard
+        reportConfigurations={reportConfigurations}
+        configLoading={configLoading}
+        selectedReportToEdit={selectedReportToEdit}
+        configureMode={configureMode}
+        reportName={reportName}
+        reportAggregationLevel={reportAggregationLevel}
+        selectedAttributes={selectedAttributes}
+        availableAttributes={availableAttributes}
+        onReportEditChange={handleReportEditChange}
+        onCreateNewReport={handleCreateNewReport}
+        onReportNameChange={setReportName}
+        onAggregationLevelChange={setReportAggregationLevel}
+        onAttributeToggle={handleAttributeToggle}
+        onSaveReportConfig={handleSaveReportConfig}
+        onCancelConfig={() => setConfigureMode(null)}        onDeleteReport={(_) => {
+          alert('This would delete the report in a real implementation');
+          setSelectedReportToEdit('');
+        }}
+      />
+
+      {/* Run Reports Card */}
+      <RunReportsCard
+        activeReport={activeReport}
+        reportConfigurations={reportConfigurations}
+        configLoading={configLoading}
+        loading={loading}
+        onReportChange={handleReportChange}
+        onRunReport={runReport}
+        onScheduleReport={handleOpenScheduleModal}
+      />
+      
+      {/* Report Executions Card - Shows history of report runs */}
+      <ReportExecutionsCard 
+        refreshTrigger={refreshTrigger}
+        reportId={activeReport ? parseInt(activeReport.replace(/\D/g, '')) : undefined}
+      />
+      
+      {/* Scheduled Reports Card - Shows scheduled reports */}
+      <ScheduledReportsCard
+        refreshTrigger={refreshTrigger}
+        onEditSchedule={handleEditSchedule}
+      />      {/* Report Results */}
       {showResults && (
         <ReportingTable
           reportType={activeReport}
@@ -410,8 +311,17 @@ Attributes: ${selectedAttributes.join(', ')}`);
           reportConfig={reportConfigurations[activeReport]}
           isSkeletonMode={isSkeletonMode}
         />
+      )}{/* Schedule Report Modal */}
+      {showScheduleModal && activeReport && (
+        <ScheduleReportModal
+          show={showScheduleModal}
+          reportId={parseInt(activeReport.replace(/\D/g, ''))}
+          reportName={reportConfigurations[activeReport]?.title || 'Report'}
+          onHide={() => setShowScheduleModal(false)}
+          onSave={handleSaveSchedule}
+        />
       )}
-
+      
       {/* Loading Overlay */}
       {loading && (
         <div className="position-fixed top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center"

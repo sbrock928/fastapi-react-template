@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { ResourceItem, Note, ReportRow } from '@/types';
+import type { ResourceItem, Note, ReportRow, ScheduledReport } from '@/types';
 
 // Create an axios instance with common configuration
 const api = axios.create({
@@ -75,6 +75,32 @@ export const reportsApi = {
   exportXlsx: (data: { reportType: string, data: ReportRow[], fileName: string }) => 
     api.post('/reports/export-xlsx', data, { responseType: 'blob' }),
   getCycleCodes: () => api.get('/reports/cycle-codes'),
+  
+  // New methods for task queue integration
+  executeReportAsync: (reportId: number, parameters: Record<string, any>, userId?: number) => 
+    api.post(`/reports/execute-async/${reportId}`, parameters, { params: userId ? { user_id: userId } : {} }),
+  
+  getReportExecutions: (params?: { user_id?: number, report_id?: number, status?: string, limit?: number }) => 
+    api.get('/reports/executions', { params }),
+  
+  getReportExecution: (executionId: number) => 
+    api.get(`/reports/executions/${executionId}`),
+  
+  // Scheduled reports
+  createScheduledReport: (reportData: Omit<ScheduledReport, 'id' | 'created_at' | 'updated_at'>) => 
+    api.post('/reports/schedules', reportData),
+  
+  getScheduledReports: (userId?: number) => 
+    api.get('/reports/schedules', { params: userId ? { user_id: userId } : {} }),
+  
+  getScheduledReport: (reportId: number) => 
+    api.get(`/reports/schedules/${reportId}`),
+  
+  updateScheduledReport: (reportId: number, reportData: Partial<ScheduledReport>) => 
+    api.put(`/reports/schedules/${reportId}`, reportData),
+  
+  deleteScheduledReport: (reportId: number) => 
+    api.delete(`/reports/schedules/${reportId}`)
 };
 
 // Documentation API
