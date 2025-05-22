@@ -1,13 +1,12 @@
-"""
-Async database setup and utility functions.
+"""Enhanced dependencies with dual database support."""
 
-This module sets up the async database connection, initializes the metadata,
-and provides a dependency for async DB sessions.
-"""
-
-from fastapi import Depends
 from typing import Annotated
-from app.core.database import get_session
+from fastapi import Depends
 from sqlalchemy.orm import Session
+from app.core.database import get_db, get_dw_db
 
-SessionDep = Annotated[Session, Depends(get_session)]
+# Existing dependency for config database
+SessionDep = Annotated[Session, Depends(get_db)]
+
+# New dependency for data warehouse database
+DWSessionDep = Annotated[Session, Depends(get_dw_db)]

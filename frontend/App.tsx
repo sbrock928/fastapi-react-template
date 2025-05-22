@@ -6,10 +6,12 @@ import Toast from './components/Toast'
 import Dashboard from './pages/Dashboard'
 import Resources from './pages/Resources'
 import Reporting from './pages/Reporting'
+import NewReportingUX from './pages/new-reporting-ux'
 import Logs from './pages/Logs'
 import Documentation from './pages/Documentation'
 import { ToastProvider } from './context/ToastContext'
 import './index.css'  // Import the new layout styles
+
 
 function App() {
   // Toggle sidebar collapsed state
@@ -59,6 +61,7 @@ function App() {
                 <Route path="/reporting" element={<Reporting />} />
                 <Route path="/logs" element={<Logs />} />
                 <Route path="/documentation" element={<Documentation />} />
+                <Route path="/test" element={<NewReportingUX />} />
               </Routes>
             </div>
           </div>

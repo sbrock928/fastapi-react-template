@@ -67,12 +67,12 @@ const Resources = () => {
     }
 
     const config = resourceConfig[activeResource];
-    const searchableColumns = config.columns.filter(col => 
+    const searchableColumns = config.columns.filter((col: { type: string; searchable?: boolean }) => 
       col.type !== 'hidden' && col.type !== 'password'
     );
 
     const filtered = items.filter(item => {
-      return searchableColumns.some(column => {
+      return searchableColumns.some((column: { field: string }) => {
         const value = item[column.field];
         if (value !== undefined && value !== null) {
           return String(value).toLowerCase().includes(filterText.toLowerCase());
@@ -96,7 +96,7 @@ const Resources = () => {
     // Initialize with empty values or defaults
     if (activeResource) {
       const config = resourceConfig[activeResource];
-      config.columns.forEach(col => {
+      config.columns.forEach((col: { type: string; field: string; options?: Array<{value: string | number}> }) => {
         if (col.type === 'checkbox') {
           emptyItem[col.field] = false;
         } else if (col.type === 'select' && col.options && col.options.length > 0) {
@@ -182,7 +182,7 @@ const Resources = () => {
     }
     
     // Get visible columns (not hidden)
-    const visibleColumns = config.columns.filter(col => col.type !== 'hidden');
+    const visibleColumns = config.columns.filter((col: { type: string }) => col.type !== 'hidden');
     
     return (
       <>
@@ -190,7 +190,7 @@ const Resources = () => {
           <table className="table table-striped table-hover">
             <thead>
               <tr>
-                {visibleColumns.map(column => (
+                {visibleColumns.map((column: { field: string; header: string }) => (
                   <th key={column.field}>{column.header}</th>
                 ))}
                 <th className="text-end">Actions</th>
@@ -199,14 +199,14 @@ const Resources = () => {
             <tbody>
               {pagination.pageItems.map((item, idx) => (
                 <tr key={item.id || idx}>
-                  {visibleColumns.map(column => {
+                  {visibleColumns.map((column: { field: string; type: string; options?: Array<{value: string | number; text: string}> }) => {
                     let cellContent = item[column.field];
                     
                     // Format cell content based on type
                     if (column.type === 'checkbox') {
                       cellContent = cellContent ? '✅' : '❌';
                     } else if (column.type === 'select' && column.options) {
-                      const option = column.options.find(opt => opt.value === cellContent);
+                      const option = column.options.find((opt: {value: string | number; text: string}) => opt.value === cellContent);
                       cellContent = option ? option.text : cellContent;
                     }
                     

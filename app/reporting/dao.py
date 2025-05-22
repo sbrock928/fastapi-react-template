@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, func, text
 from typing import List, Dict, Any, Optional
 from app.resources.models import User, Employee, Subscriber
+from app.reporting.models import Report
 from app.logging.models import Log
 
 
@@ -262,3 +263,87 @@ class ReportingDAO:
         except Exception as e:
             logging.error(f"Error in get_log_details: {str(e)}")
             raise
+
+
+class ReportDAO:
+    """DB functionality for interaction with `Report` objects in config database."""
+
+    def __init__(self, db_session: Session):
+        self.db = db_session
+
+    async def get_all(self) -> List[Report]:
+        """Get all reports"""
+        stmt = select(Report).where(Report.is_active == True)
+        result = self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_by_id(self, report_id: int) -> Optional[Report]:
+        """Get a report by ID"""
+        stmt = select(Report).where(Report.id == report_id)
+        result = self.db.execute(stmt)
+        return result.scalars().first()
+
+    async def get_by_created_by(self, created_by: str) -> List[Report]:
+        """Get reports by creator"""
+        stmt = select(Report).where(
+            Report.created_by == created_by,
+            Report.is_active == True
+        ).order_by(Report.created_date.desc())
+        result = self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_by_name_and_creator(self, name: str, created_by: str) -> Optional[Report]:
+        """Get a report by name and creator (for duplicate checking)"""
+        stmt = select(Report).where(
+            Report.name == name,
+            Report.created_by == created_by,
+            Report.is_active == True
+        )
+        result = self.db.execute(stmt)
+        return result.scalars().first()
+
+    async def create(self, report_obj: Report) -> Report:
+        """Create a new report"""
+        self.db.add(report_obj)
+        self.db.commit()
+        self.db.refresh(report_obj)
+        return report_obj
+
+    async def update(self, report_obj: Report) -> Report:
+        """Update an existing report"""
+        self.db.add(report_obj)
+        self.db.commit()
+        self.db.refresh(report_obj)
+        return report_obj
+
+    async def delete(self, report_id: int) -> bool:
+        """Soft delete a report by ID"""
+        report = await self.get_by_id(report_id)
+        if report:
+            report.is_active = False
+            await self.update(report)
+            return True
+        return False
+
+    async def hard_delete(self, report_id: int) -> bool:
+        """Hard delete a report by ID"""
+        report = await self.get_by_id(report_id)
+        if report:
+            self.db.delete(report)
+            self.db.commit()
+            return True
+        return False
+
+    async def get_report_count(self) -> int:
+        """Get total count of active reports"""
+        result = self.db.execute(select(func.count()).select_from(Report).where(Report.is_active == True))
+        return int(result.scalar_one() or 0)
+
+    async def get_reports_by_scope(self, scope: str) -> List[Report]:
+        """Get reports by scope (DEAL or TRANCHE)"""
+        stmt = select(Report).where(
+            Report.scope == scope,
+            Report.is_active == True
+        ).order_by(Report.created_date.desc())
+        result = self.db.execute(stmt)
+        return list(result.scalars().all())

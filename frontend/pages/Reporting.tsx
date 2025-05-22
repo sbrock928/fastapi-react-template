@@ -3,12 +3,23 @@ import { reportsApi } from '@/services/api';
 import { CycleProvider, useCycleContext } from '@/context/CycleContext';
 import ReportingTable from '@/components/ReportingTable';
 import CycleDropdown from '@/components/CycleDropdown';
-import type { ReportRow, DynamicReportConfig, ReportConfigurationResponse } from '@/types';
+import { 
+  ReportBuilderWizard, 
+  SavedReportsManager 
+} from '@/components/reporting';
+import type { 
+  ReportRow, 
+  DynamicReportConfig, 
+  ReportConfigurationResponse,
+  ReportSummary,
+  DealReportRow,
+  TrancheReportRow
+} from '@/types';
 
 const ReportingContent = () => {
   const { selectedCycle } = useCycleContext();
 
-  // Run reports states
+  // ===== EXISTING LEGACY REPORTS STATE (preserved for backward compatibility) =====
   const [activeReport, setActiveReport] = useState<string>('');
   const [reportData, setReportData] = useState<ReportRow[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -16,28 +27,18 @@ const ReportingContent = () => {
   const [isSkeletonMode, setIsSkeletonMode] = useState<boolean>(false);
   const [reportConfigurations, setReportConfigurations] = useState<ReportConfigurationResponse>({});
   const [configLoading, setConfigLoading] = useState<boolean>(true);
-  // Configure reports states
-  const [selectedReportToEdit, setSelectedReportToEdit] = useState<string>('');
-  const [configureMode, setConfigureMode] = useState<'create' | 'edit' | null>(null);
-  const [reportAggregationLevel, setReportAggregationLevel] = useState<'deal' | 'asset' | ''>('');  const [reportName, setReportName] = useState<string>('');
-  const [selectedAttributes, setSelectedAttributes] = useState<string[]>([]);
-  const [availableAttributes, _setAvailableAttributes] = useState<
-    { name: string; label: string; aggregationLevel: 'deal' | 'asset' | 'both' }[]
-  >([
-    { name: 'deal_name', label: 'Deal Name', aggregationLevel: 'deal' },
-    { name: 'deal_type', label: 'Deal Type', aggregationLevel: 'deal' },
-    { name: 'deal_value', label: 'Deal Value', aggregationLevel: 'deal' },
-    { name: 'deal_status', label: 'Deal Status', aggregationLevel: 'deal' },
-    { name: 'deal_date', label: 'Deal Date', aggregationLevel: 'deal' },
-    { name: 'asset_name', label: 'Asset Name', aggregationLevel: 'asset' },
-    { name: 'asset_type', label: 'Asset Type', aggregationLevel: 'asset' },
-    { name: 'asset_value', label: 'Asset Value', aggregationLevel: 'asset' },
-    { name: 'asset_acquisition_date', label: 'Acquisition Date', aggregationLevel: 'asset' },
-    { name: 'id', label: 'ID', aggregationLevel: 'both' },
-    { name: 'created_date', label: 'Created Date', aggregationLevel: 'both' },
-    { name: 'modified_date', label: 'Modified Date', aggregationLevel: 'both' },
-  ]);
 
+  // ===== NEW REPORT BUILDER STATE =====
+  const [reportBuilderMode, setReportBuilderMode] = useState<boolean>(false);
+  const [selectedSavedReport, setSelectedSavedReport] = useState<string>('');
+  const [savedReports, setSavedReports] = useState<ReportSummary[]>([]);
+  const [savedReportsLoading, setSavedReportsLoading] = useState<boolean>(false);
+  
+  // Edit mode state
+  const [editingReport, setEditingReport] = useState<ReportConfig | null>(null);
+  const [wizardMode, setWizardMode] = useState<'create' | 'edit'>('create');
+
+  // ===== UTILITY FUNCTIONS (preserved) =====
   const generateSkeletonData = (config: DynamicReportConfig, rowCount = 5): ReportRow[] => {
     const skeletonRows: ReportRow[] = [];
 
@@ -62,12 +63,17 @@ const ReportingContent = () => {
     return skeletonRows;
   };
 
+  // ===== INITIALIZATION =====
   useEffect(() => {
+    // Load both legacy and new report configurations
     const fetchReportConfigurations = async () => {
       try {
         setConfigLoading(true);
-        const response = await reportsApi.getReportConfigurations();
-        setReportConfigurations(response.data);
+        
+        // Load legacy report configurations for backward compatibility
+        const legacyResponse = await reportsApi.getReportConfigurations();
+        setReportConfigurations(legacyResponse.data);
+        
       } catch (error) {
         console.error('Error fetching report configurations:', error);
         alert('Error loading report configurations. See console for details.');
@@ -77,8 +83,58 @@ const ReportingContent = () => {
     };
 
     fetchReportConfigurations();
+    loadSavedReports();
   }, []);
 
+  // ===== NEW REPORT MANAGEMENT =====
+  const loadSavedReports = async () => {
+    setSavedReportsLoading(true);
+    try {
+      // TODO: Get actual user ID from auth context
+      const response = await reportsApi.getUserReports('current_user');
+      setSavedReports(response.data);
+    } catch (error) {
+      console.error('Error loading saved reports:', error);
+      // Don't show alert here as this is background loading
+    } finally {
+      setSavedReportsLoading(false);
+    }
+  };
+
+  const handleReportSaved = () => {
+    setReportBuilderMode(false);
+    setEditingReport(null);
+    setWizardMode('create');
+    loadSavedReports(); // Refresh the saved reports list
+  };
+
+  const handleCreateNewReport = () => {
+    setSelectedSavedReport('');
+    setEditingReport(null);
+    setWizardMode('create');
+    setReportBuilderMode(true);
+  };
+
+  const handleEditReport = (report: ReportConfig) => {
+    setEditingReport(report);
+    setWizardMode('edit');
+    setReportBuilderMode(true);
+  };
+
+  const handleCancelWizard = () => {
+    setReportBuilderMode(false);
+    setEditingReport(null);
+    setWizardMode('create');
+  };
+
+  const handleSavedReportSelect = (reportId: string) => {
+    setSelectedSavedReport(reportId);
+    // Clear any existing results when changing selection
+    setShowResults(false);
+    setReportData([]);
+  };
+
+  // ===== LEGACY REPORT HANDLERS (preserved for backward compatibility) =====
   const handleReportChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const reportType = e.target.value;
     setActiveReport(reportType);
@@ -95,86 +151,8 @@ const ReportingContent = () => {
       setShowResults(false);
     }
   };
-  // Handler for selecting a report to edit
-  const handleReportEditChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const reportId = e.target.value;
-    setSelectedReportToEdit(reportId);
-    
-    if (reportId) {
-      // Fetch the current report configuration from API
-      // For now, we'll just use the existing configurations
-      const reportConfig = reportConfigurations[reportId];
-      if (reportConfig) {
-        setConfigureMode('edit');
-        // You would set these values based on the fetched report
-        setReportName(reportConfig.title);
-        // This is a placeholder - in a real implementation, you'd get this from the database
-        setReportAggregationLevel(reportId.includes('asset') ? 'asset' : 'deal');
-        // For now, simulate that we're retrieving attributes
-        setSelectedAttributes([]);
-      }
-    } else {
-      setConfigureMode(null);
-    }
-  };
 
-  // Handler for creating a new report
-  const handleCreateNewReport = () => {
-    setSelectedReportToEdit('');
-    setReportName('');
-    setSelectedAttributes([]);
-    setConfigureMode('create');
-  };
-
-  // Handler for selecting/deselecting attributes
-  const handleAttributeToggle = (attributeName: string) => {
-    setSelectedAttributes(prev => {
-      if (prev.includes(attributeName)) {
-        return prev.filter(attr => attr !== attributeName);
-      } else {
-        return [...prev, attributeName];
-      }
-    });
-  };
-
-  // Handler for saving report configuration
-  const handleSaveReportConfig = async () => {
-    if (!reportName) {
-      alert('Please enter a report name');
-      return;
-    }
-    
-    if (!reportAggregationLevel) {
-      alert('Please select aggregation level');
-      return;
-    }
-    
-    if (selectedAttributes.length === 0) {
-      alert('Please select at least one attribute');
-      return;
-    }
-    
-    try {
-      // Here you would call your API to save the report configuration
-      alert(`Report configuration saved! This would be stored in the database.
-Name: ${reportName}
-Type: ${reportAggregationLevel}-level
-Attributes: ${selectedAttributes.join(', ')}`);
-      
-      // Reset form
-      setConfigureMode(null);
-      setReportName('');
-      setSelectedAttributes([]);
-      setReportAggregationLevel('');
-      
-      // In real implementation, you would refresh the list of reports here
-    } catch (error) {
-      console.error('Error saving report configuration:', error);
-      alert('Error saving report configuration. See console for details.');
-    }
-  };
-
-  const runReport = async () => {
+  const runLegacyReport = async () => {
     if (!activeReport) {
       alert('Please select a report to run');
       return;
@@ -194,7 +172,7 @@ Attributes: ${selectedAttributes.join(', ')}`);
         cycle_code: selectedCycle.value,
       });
 
-      setReportData(response.data)
+      setReportData(response.data);
       setIsSkeletonMode(false);
       setShowResults(true);
     } catch (error) {
@@ -205,174 +183,174 @@ Attributes: ${selectedAttributes.join(', ')}`);
     }
   };
 
+  // ===== NEW SAVED REPORT EXECUTION =====
+  const runSavedReport = async () => {
+    if (!selectedSavedReport) {
+      alert('Please select a saved report to run');
+      return;
+    }
+
+    if (!selectedCycle || selectedCycle.value === '') {
+      alert('Please select a cycle');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const reportId = parseInt(selectedSavedReport);
+      const response = await reportsApi.runReportById(reportId, selectedCycle.value);
+      
+      // Convert the response data to the format expected by ReportingTable
+      setReportData(response.data as ReportRow[]);
+      setIsSkeletonMode(false);
+      setShowResults(true);
+      
+      // Clear legacy selection to avoid confusion
+      setActiveReport('');
+      
+    } catch (error) {
+      console.error('Error running saved report:', error);
+      alert('Error running saved report. See console for details.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ===== RENDER HELPERS =====
+  const getCurrentReportConfig = (): DynamicReportConfig | null => {
+    if (activeReport && reportConfigurations[activeReport]) {
+      return reportConfigurations[activeReport];
+    }
+    
+    // For saved reports, we'd need to create a dynamic config
+    // This is a simplified version - in practice, you'd want to 
+    // fetch the report structure from the API
+    if (selectedSavedReport && reportData.length > 0) {
+      const firstRow = reportData[0];
+      const columns = Object.keys(firstRow).map(key => ({
+        field: key,
+        header: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+        type: typeof firstRow[key] === 'number' ? 'number' : 'string'
+      }));
+      
+      const selectedReport = savedReports.find(r => r.id.toString() === selectedSavedReport);
+      
+      return {
+        apiEndpoint: `/reports/run/${selectedSavedReport}`,
+        title: selectedReport?.name || 'Saved Report',
+        columns
+      };
+    }
+    
+    return null;
+  };
+
   return (
     <div>
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h3>Reporting Dashboard</h3>
-      </div>      {/* Configure Reports Card */}      {/* Configure Reports Card */}
+      </div>
+
+      {/* ===== NEW ENHANCED CONFIGURE REPORTS CARD ===== */}
       <div className="card mb-4">
         <div className="card-header bg-success text-white d-flex justify-content-between align-items-center">
-          <h5 className="card-title mb-0">Configure Reports</h5>
-          {configureMode && (
+          <h5 className="card-title mb-0">
+            {reportBuilderMode 
+              ? (wizardMode === 'edit' ? 'Edit Report Configuration' : 'Create New Report') 
+              : 'Configure Reports'
+            }
+          </h5>
+          {reportBuilderMode && (
             <button 
               type="button"
               className="btn btn-outline-light btn-sm"
-              onClick={() => setConfigureMode(null)}
+              onClick={handleCancelWizard}
             >
               <i className="bi bi-x-lg"></i> Cancel
             </button>
           )}
         </div>
         <div className="card-body">
-          {configureMode ? (
-            <form id="reportConfigForm" className="row g-3">
-              <div className="col-md-6">
-                <label htmlFor="reportNameInput" className="form-label">Report Name</label>
-                <input 
-                  type="text" 
-                  id="reportNameInput" 
-                  className="form-control"
-                  value={reportName}
-                  onChange={(e) => setReportName(e.target.value)}
-                  placeholder="Enter report name"
-                  required
-                />
-              </div>
-              <div className="col-md-6">
-                <label htmlFor="aggregationLevelSelect" className="form-label">Aggregation Level</label>
-                <select
-                  id="aggregationLevelSelect"
-                  className="form-select"
-                  value={reportAggregationLevel}
-                  onChange={(e) => setReportAggregationLevel(e.target.value as 'deal' | 'asset')}
-                  required
-                >
-                  <option value="" disabled>Select level...</option>
-                  <option value="deal">Deal Level</option>
-                  <option value="asset">Asset Level</option>
-                </select>
-              </div>
-              <div className="col-12">
-                <label className="form-label">Select Attributes</label>
-                <div className="row">
-                  {availableAttributes
-                    .filter(attr => 
-                      reportAggregationLevel === '' || 
-                      attr.aggregationLevel === 'both' || 
-                      attr.aggregationLevel === reportAggregationLevel
-                    )
-                    .map(attr => (
-                      <div key={attr.name} className="col-md-4 mb-2">
-                        <div className="form-check">
-                          <input
-                            type="checkbox"
-                            id={`attribute-${attr.name}`}
-                            className="form-check-input"
-                            checked={selectedAttributes.includes(attr.name)}
-                            onChange={() => handleAttributeToggle(attr.name)}
-                          />
-                          <label className="form-check-label" htmlFor={`attribute-${attr.name}`}>
-                            {attr.label}
-                          </label>
-                        </div>
-                      </div>
-                    ))
-                  }
-                </div>
-              </div>
-              <div className="col-12 mt-3">
-                <button
-                  type="button"
-                  className="btn btn-success"
-                  onClick={handleSaveReportConfig}
-                >
-                  <i className="bi bi-save"></i> Save Report Configuration
-                </button>
-              </div>
-            </form>
+          {reportBuilderMode ? (
+            <ReportBuilderWizard
+              onReportSaved={handleReportSaved}
+              onCancel={handleCancelWizard}
+              editingReport={editingReport}
+              mode={wizardMode}
+            />
           ) : (
-            <div className="row g-3">
-              <div className="col-md-6">
-                <label htmlFor="existingReportSelect" className="form-label">Existing Report Configurations</label>
-                <select
-                  id="existingReportSelect"
-                  className="form-select"
-                  value={selectedReportToEdit}
-                  onChange={handleReportEditChange}
-                  disabled={configLoading}
-                >
-                  <option value="">Select a report to edit...</option>
-                  {Object.entries(reportConfigurations).map(([key, config]) => (
-                    <option key={key} value={key}>
-                      {config.title}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="col-md-6 d-flex align-items-end">
-                <button
-                  type="button"
-                  className="btn btn-success me-2"
-                  onClick={handleCreateNewReport}
-                >
-                  <i className="bi bi-plus-lg"></i> Create New Report
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-outline-danger"
-                  disabled={!selectedReportToEdit}
-                  onClick={() => {
-                    if (selectedReportToEdit && window.confirm('Are you sure you want to delete this report configuration?')) {
-                      alert('This would delete the report in a real implementation');
-                      setSelectedReportToEdit('');
-                    }
-                  }}
-                >
-                  <i className="bi bi-trash"></i> Delete
-                </button>
-              </div>
-            </div>
+            <SavedReportsManager
+              selectedReportId={selectedSavedReport}
+              onReportSelect={handleSavedReportSelect}
+              onCreateNew={handleCreateNewReport}
+              onReportsUpdated={loadSavedReports}
+              onEditReport={handleEditReport}
+            />
           )}
         </div>
-      </div>      {/* Report Parameters Card */}
+      </div>
+
+      {/* ===== ENHANCED RUN REPORTS CARD ===== */}
       <div className="card mb-4">
         <div className="card-header bg-primary text-white">
           <h5 className="card-title mb-0">Run Reports</h5>
         </div>
         <div className="card-body">
-          <form id="reportForm" className="row g-3">
+          <div className="row g-3">
+            {/* New Saved Reports Section */}
             <div className="col-md-6">
-              <label htmlFor="reportSelect" className="form-label">Select Report</label>
+              <label htmlFor="savedReportSelect" className="form-label">Saved Report Configurations</label>
               <select
-                id="reportSelect"
+                id="savedReportSelect"
                 className="form-select"
-                required
+                value={selectedSavedReport}
+                onChange={(e) => handleSavedReportSelect(e.target.value)}
+                disabled={savedReportsLoading}
+              >
+                <option value="">Choose a saved report...</option>
+                {savedReports.map(report => (
+                  <option key={report.id} value={report.id.toString()}>
+                    {report.name} ({report.scope} Level)
+                  </option>
+                ))}
+              </select>
+              {savedReportsLoading && <div className="text-muted mt-1">Loading saved reports...</div>}
+            </div>
+
+            {/* Legacy Reports Section */}
+            <div className="col-md-6">
+              <label htmlFor="legacyReportSelect" className="form-label">Legacy Report Templates</label>
+              <select
+                id="legacyReportSelect"
+                className="form-select"
                 value={activeReport}
                 onChange={handleReportChange}
                 disabled={configLoading}
               >
-                <option value="" disabled>Choose a report...</option>
+                <option value="">Choose a legacy report...</option>
                 {Object.entries(reportConfigurations).map(([key, config]) => (
                   <option key={key} value={key}>
                     {config.title}
                   </option>
                 ))}
               </select>
-              {configLoading && <div className="text-muted mt-1">Loading report types...</div>}
+              {configLoading && <div className="text-muted mt-1">Loading legacy reports...</div>}
             </div>
 
+            {/* Cycle Selection */}
             <div className="col-md-6">
               <CycleDropdown />
             </div>
             
+            {/* Action Buttons */}
             <div className="col-12 mt-3 d-flex gap-2">
               <button
                 type="button"
-                id="runReportBtn"
                 className="btn"
                 style={{ backgroundColor: '#93186C', color: 'white' }}
-                onClick={runReport}
-                disabled={loading || !activeReport}
+                onClick={selectedSavedReport ? runSavedReport : runLegacyReport}
+                disabled={loading || (!selectedSavedReport && !activeReport)}
               >
                 {loading ? (
                   <>
@@ -388,7 +366,6 @@ Attributes: ${selectedAttributes.join(', ')}`);
               
               <button
                 type="button"
-                id="scheduleReportBtn"
                 className="btn btn-outline-secondary"
                 disabled={true}
                 title="Coming soon: Schedule reports to run automatically"
@@ -397,22 +374,33 @@ Attributes: ${selectedAttributes.join(', ')}`);
                 <span className="badge bg-info ms-2" style={{ fontSize: '0.7rem' }}>Coming Soon</span>
               </button>
             </div>
-          </form>
+          </div>
+
+          {/* Report Selection Info */}
+          {(selectedSavedReport || activeReport) && (
+            <div className="alert alert-info mt-3">
+              <i className="bi bi-info-circle me-2"></i>
+              {selectedSavedReport 
+                ? `Selected saved report: ${savedReports.find(r => r.id.toString() === selectedSavedReport)?.name}`
+                : `Selected legacy report: ${reportConfigurations[activeReport]?.title}`
+              }
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Report Results */}
+      {/* ===== REPORT RESULTS (preserved) ===== */}
       {showResults && (
         <ReportingTable
-          reportType={activeReport}
+          reportType={selectedSavedReport || activeReport}
           reportData={reportData}
           loading={loading}
-          reportConfig={reportConfigurations[activeReport]}
+          reportConfig={getCurrentReportConfig()!}
           isSkeletonMode={isSkeletonMode}
         />
       )}
 
-      {/* Loading Overlay */}
+      {/* ===== LOADING OVERLAY (preserved) ===== */}
       {loading && (
         <div className="position-fixed top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center"
           style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 9999 }}>

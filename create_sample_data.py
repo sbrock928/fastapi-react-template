@@ -1,100 +1,21 @@
-"""Enhanced database configuration with dual database support."""
+#!/usr/bin/env python3
+"""Script to create comprehensive sample data for the Deal & Tranche system."""
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+import sys
 import os
+from decimal import Decimal
+from datetime import date
 
-# ===== CONFIG DATABASE (existing) =====
-# Stores report configurations, users, employees, etc.
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./vibez_config.db")
+# Add the current directory to the path so we can import our modules
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-engine = create_engine(
-    DATABASE_URL, 
-    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+from app.core.database import DWSessionLocal
+from app.datawarehouse.models import Deal, Tranche
 
 
-# ===== DATA WAREHOUSE DATABASE (new) =====
-# Stores financial data: deals, tranches, etc.
-DATA_WAREHOUSE_URL = os.getenv(
-    "DATA_WAREHOUSE_URL", 
-    "sqlite:///./vibez_datawarehouse.db"
-)
-
-dw_engine = create_engine(
-    DATA_WAREHOUSE_URL,
-    connect_args={"check_same_thread": False} if DATA_WAREHOUSE_URL.startswith("sqlite") else {}
-)
-DWSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=dw_engine)
-DWBase = declarative_base()
-
-
-# ===== SESSION GENERATORS =====
-
-def get_db():
-    """Get config database session."""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-def get_dw_db():
-    """Get data warehouse database session."""
-    db = DWSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-def init_db():
-    """Initialize database - for backward compatibility."""
-    initialize_databases()
-
-# ===== TABLE CREATION =====
-
-def create_all_tables():
-    """Create tables in both databases."""
-    # Import models to ensure they're registered with Base classes
-    from app.reporting.models import Report  # noqa: F401
-    from app.datawarehouse.models import Deal, Tranche  # noqa: F401
+def create_comprehensive_sample_data():
+    """Create a comprehensive set of sample deals and tranches."""
     
-    print("Creating config database tables...")
-    Base.metadata.create_all(bind=engine)
-    
-    print("Creating data warehouse tables...")
-    DWBase.metadata.create_all(bind=dw_engine)
-    
-    print("All tables created successfully!")
-
-
-def drop_all_tables():
-    """Drop all tables in both databases (use with caution!)."""
-    # Import models to ensure they're registered with Base classes
-    from app.reporting.models import Report  # noqa: F401
-    from app.datawarehouse.models import Deal, Tranche  # noqa: F401
-    
-    print("Dropping config database tables...")
-    Base.metadata.drop_all(bind=engine)
-    
-    print("Dropping data warehouse tables...")
-    DWBase.metadata.drop_all(bind=dw_engine)
-    
-    print("All tables dropped!")
-
-
-# ===== SAMPLE DATA CREATION =====
-
-def create_sample_data():
-    """Create comprehensive sample data for development and testing."""
-    from app.datawarehouse.models import Deal, Tranche
-    from datetime import date
-    from decimal import Decimal
-    
-    # Create data warehouse session
     dw_db = DWSessionLocal()
     
     try:
@@ -448,22 +369,6 @@ def create_sample_data():
             tranche = Tranche(**tranche_data)
             dw_db.add(tranche)
         
-                # Replicate each tranche across additional cycles to simulate monthly updates
-        additional_cycles = ["2024-04", "2024-05", "2024-06"]
-        expanded_tranches = []
-
-        for tranche_data in tranches_data:
-            for cycle in additional_cycles:
-                new_tranche = tranche_data.copy()
-                new_tranche["cycle_code"] = cycle
-                # Simulate principal amortization and interest rate drift
-                new_tranche["principal_amount"] = new_tranche["principal_amount"] * Decimal("0.97")
-                new_tranche["interest_rate"] = new_tranche["interest_rate"] + Decimal("0.0005")
-                expanded_tranches.append(new_tranche)
-
-        # Combine all tranches
-        tranches_data.extend(expanded_tranches)
-        
         # Commit everything
         dw_db.commit()
         
@@ -479,31 +384,36 @@ def create_sample_data():
             cycle_tranches = [t for t in tranches_data if t["cycle_code"] == cycle]
             print(f"   {cycle}: {len(cycle_deals)} deals, {len(cycle_tranches)} tranches")
         
+        return True
+        
     except Exception as e:
         dw_db.rollback()
         print(f"❌ Error creating sample data: {e}")
         import traceback
         traceback.print_exc()
-        raise
+        return False
     finally:
         dw_db.close()
 
 
-# ===== INITIALIZATION FUNCTION =====
-
-def initialize_databases():
-    """Initialize both databases with tables and sample data."""
-    print("Initializing dual database system...")
+def main():
+    """Main function to run the sample data creation."""
+    print("🚀 Creating comprehensive sample data for Deal & Tranche system...")
     
-    # Create all tables
-    create_all_tables()
+    success = create_comprehensive_sample_data()
     
-    # Create sample data for development
-    create_sample_data()
+    if success:
+        print("\n🎉 Sample data creation completed successfully!")
+        print("\n🔗 You can now test the APIs:")
+        print("   curl http://localhost:8000/api/reports/data/deals")
+        print("   curl http://localhost:8000/api/reports/data/deals/1/tranches")
+        print("   curl http://localhost:8000/api/reports/stats/summary")
+    else:
+        print("\n❌ Sample data creation failed!")
+        return 1
     
-    print("Database initialization complete!")
+    return 0
 
 
 if __name__ == "__main__":
-    # Allow running this file directly to initialize databases
-    initialize_databases()
+    exit(main())
