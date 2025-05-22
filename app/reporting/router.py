@@ -235,3 +235,44 @@ async def get_available_cycles(deal_dao: DealDAODep) -> List[Dict[str, str]]:
         {"code": "2024-03", "label": "March 2024"},
         {"code": "2024-04", "label": "April 2024"},
     ]
+
+@router.get("/columns/{scope}")
+async def get_available_columns(scope: str) -> Dict[str, List[Dict[str, Any]]]:
+    """Get available columns for a report scope."""
+    from app.reporting.column_registry import get_columns_by_category, ColumnScope
+    
+    try:
+        scope_enum = ColumnScope(scope.upper())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid scope")
+    
+    categories = get_columns_by_category(scope_enum)
+    
+    # Convert to API response format
+    result = {}
+    for category, columns in categories.items():
+        result[category] = [
+            {
+                "key": col.key,
+                "label": col.label,
+                "description": col.description,
+                "column_type": col.column_type,
+                "data_type": col.data_type,
+                "is_default": col.is_default,
+                "sort_order": col.sort_order
+            }
+            for col in columns
+        ]
+    
+    return result
+
+@router.get("/columns/{scope}/defaults")
+async def get_default_columns(scope: str) -> List[str]:
+    """Get default column keys for a scope."""
+    from app.reporting.column_registry import get_default_columns, ColumnScope
+    
+    try:
+        scope_enum = ColumnScope(scope.upper())
+        return get_default_columns(scope_enum)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid scope")

@@ -180,7 +180,17 @@ export const reportsApi = {
   // Get available cycles from data warehouse
   getAvailableCycles: (): Promise<{ data: Array<{ code: string; label: string }> }> => {
     return api.get('/reports/data/cycles');
-  }
+  },
+
+  // NEW: Column management endpoints
+  getAvailableColumns: (scope: 'deal' | 'tranche'): Promise<{ data: Record<string, ColumnDefinition[]> }> => {
+    return api.get(`/reports/columns/${scope}`);
+  },
+
+  getDefaultColumns: (scope: 'deal' | 'tranche'): Promise<{ data: string[] }> => {
+    return api.get(`/reports/columns/${scope}/defaults`);
+  },
+  
 };
 
 export default api;

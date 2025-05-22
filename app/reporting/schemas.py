@@ -20,6 +20,7 @@ class ReportBase(BaseModel):
     created_by: str
     selected_deals: List[int] = []
     selected_tranches: Dict[str, List[int]] = {}  # Keys are deal_id as strings
+    selected_columns: List[str] = []  # NEW FIELD
     is_active: bool = True
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
@@ -64,7 +65,25 @@ class ReportBase(BaseModel):
         
         return v
 
-
+    @field_validator("selected_columns")
+    @classmethod
+    def validate_selected_columns(cls, v: List[str], info) -> List[str]:
+        if not v:
+            # If no columns specified, use defaults
+            from app.reporting.column_registry import get_default_columns, ColumnScope
+            scope = info.data.get('scope') if hasattr(info, 'data') and info.data else None
+            if scope:
+                return get_default_columns(ColumnScope(scope))
+            return []
+        
+        # Validate that all specified columns exist
+        from app.reporting.column_registry import COLUMN_REGISTRY
+        invalid_columns = [col for col in v if col not in COLUMN_REGISTRY]
+        if invalid_columns:
+            raise ValueError(f"Invalid columns: {', '.join(invalid_columns)}")
+        
+        return v
+    
 class ReportCreate(ReportBase):
     pass
 
@@ -124,3 +143,5 @@ class RunReportRequest(BaseModel):
         if not v or not v.strip():
             raise ValueError("Cycle code cannot be empty")
         return v.strip()
+    
+

@@ -3,6 +3,7 @@ import { reportsApi } from '@/services/api';
 import { useToast } from '@/context/ToastContext';
 import DealSelector from './DealSelector';
 import TrancheSelector from './TrancheSelector';
+import ColumnSelector from './ColumnSelector';
 import type { Deal, Tranche, ReportConfig } from '@/types';
 
 interface ReportBuilderWizardProps {
@@ -30,6 +31,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
   const [reportScope, setReportScope] = useState<'DEAL' | 'TRANCHE' | ''>('');
   const [selectedDeals, setSelectedDeals] = useState<number[]>([]);
   const [selectedTranches, setSelectedTranches] = useState<Record<number, number[]>>({});
+  const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
 
   // Data state
   const [deals, setDeals] = useState<Deal[]>([]);
@@ -49,6 +51,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       setReportScope(editingReport.scope);
       setSelectedDeals(editingReport.selected_deals);
       setSelectedTranches(editingReport.selected_tranches);
+      setSelectedColumns(editingReport.selected_columns || []);
     }
   }, [isEditMode, editingReport]);
 
@@ -71,6 +74,28 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
 
     loadTranches();
   }, [selectedDeals, reportScope]);
+
+  // Load default columns when scope changes
+  useEffect(() => {
+    const loadDefaultColumns = async () => {
+      if (reportScope && !isEditMode) {
+        try {
+          const response = await fetch(`/api/reports/columns/${reportScope.toLowerCase()}/defaults`);
+          const defaultColumns = await response.json();
+          setSelectedColumns(defaultColumns);
+        } catch (error) {
+          console.error('Error loading default columns:', error);
+          // Use fallback defaults
+          const fallbackColumns = reportScope === 'DEAL' 
+            ? ['deal_name', 'originator', 'deal_type', 'total_principal', 'credit_rating']
+            : ['deal_name', 'tranche_name', 'class_name', 'principal_amount', 'interest_rate'];
+          setSelectedColumns(fallbackColumns);
+        }
+      }
+    };
+
+    loadDefaultColumns();
+  }, [reportScope, isEditMode]);
 
   // Load available deals (no cycle filtering during configuration)
   const loadDeals = async () => {
@@ -128,9 +153,51 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     }));
   };
 
+  // Handle column selection
+  const handleColumnToggle = (columnKey: string) => {
+    setSelectedColumns(prev => {
+      if (prev.includes(columnKey)) {
+        return prev.filter(key => key !== columnKey);
+      } else {
+        return [...prev, columnKey];
+      }
+    });
+  };
+
+  const handleSelectDefaultColumns = async () => {
+    if (!reportScope) return;
+    
+    try {
+      const response = await fetch(`/api/reports/columns/${reportScope.toLowerCase()}/defaults`);
+      const defaultColumns = await response.json();
+      setSelectedColumns(defaultColumns);
+    } catch (error) {
+      console.error('Error loading default columns:', error);
+      showToast('Error loading default columns', 'error');
+    }
+  };
+
+  const handleSelectAllColumns = async () => {
+    if (!reportScope) return;
+    
+    try {
+      const response = await fetch(`/api/reports/columns/${reportScope.toLowerCase()}`);
+      const categories = await response.json();
+      const allColumns = Object.values(categories).flat().map((col: any) => col.key);
+      setSelectedColumns(allColumns);
+    } catch (error) {
+      console.error('Error loading all columns:', error);
+      showToast('Error loading columns', 'error');
+    }
+  };
+
+  const handleSelectNoColumns = () => {
+    setSelectedColumns([]);
+  };
+
   // Wizard navigation
   const nextStep = () => {
-    if (currentStep < 4) setCurrentStep(currentStep + 1);
+    if (currentStep < 5) setCurrentStep(currentStep + 1);
   };
 
   const prevStep = () => {
@@ -148,7 +215,8 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
           name: reportName,
           scope: reportScope as 'DEAL' | 'TRANCHE',
           selected_deals: selectedDeals,
-          selected_tranches: selectedTranches
+          selected_tranches: selectedTranches,
+          selected_columns: selectedColumns
         };
 
         await reportsApi.updateReport(editingReport.id, updateData);
@@ -160,7 +228,8 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
           scope: reportScope as 'DEAL' | 'TRANCHE',
           created_by: 'current_user', // TODO: Get from auth context
           selected_deals: selectedDeals,
-          selected_tranches: selectedTranches
+          selected_tranches: selectedTranches,
+          selected_columns: selectedColumns
         };
 
         await reportsApi.createReport(reportConfig);
@@ -175,6 +244,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
         setReportScope('');
         setSelectedDeals([]);
         setSelectedTranches({});
+        setSelectedColumns([]);
         setCurrentStep(1);
       }
       
@@ -184,16 +254,6 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     } finally {
       setLoading(false);
     }
-  };
-
-  // Format currency
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      notation: 'compact',
-      maximumFractionDigits: 1
-    }).format(amount);
   };
 
   // Render wizard step content
@@ -276,12 +336,8 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
                     return (
                       <div key={dealId} className="d-flex justify-content-between align-items-center py-2 border-bottom">
                         <div>
-                          <strong>{deal.name}</strong>
-                          <div className="small text-muted">{deal.deal_type} • {deal.originator}</div>
-                        </div>
-                        <div className="text-end">
-                          <div>{formatCurrency(deal.total_principal)}</div>
-                          <div className="small text-muted">{deal.credit_rating}</div>
+                          <strong>{deal.deal_number}: {deal.deal_name}</strong>
+                          <div className="small text-muted">{deal.deal_number}</div>
                         </div>
                       </div>
                     );
@@ -305,6 +361,18 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
         );
 
       case 4:
+        return (
+          <ColumnSelector
+            reportScope={reportScope as 'DEAL' | 'TRANCHE'}
+            selectedColumns={selectedColumns}
+            onColumnToggle={handleColumnToggle}
+            onSelectDefaults={handleSelectDefaultColumns}
+            onSelectAll={handleSelectAllColumns}
+            onSelectNone={handleSelectNoColumns}
+          />
+        );
+
+      case 5:
         return (
           <div>
             <h5 className="mb-3">Step 4: Review & Save</h5>
@@ -334,6 +402,9 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
                     </>
                   )}
                   
+                  <dt className="col-sm-3">Selected Columns:</dt>
+                  <dd className="col-sm-9">{selectedColumns.length} column{selectedColumns.length !== 1 ? 's' : ''}</dd>
+                  
                   <dt className="col-sm-3">Expected Output:</dt>
                   <dd className="col-sm-9">
                     {reportScope === 'DEAL' 
@@ -362,6 +433,8 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       case 3:
         return reportScope === 'DEAL' || Object.values(selectedTranches).flat().length > 0;
       case 4:
+        return selectedColumns.length > 0;
+      case 5:
         return true;
       default:
         return false;
@@ -375,16 +448,16 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
         <div 
           className="progress-bar" 
           role="progressbar" 
-          style={{ width: `${(currentStep / 4) * 100}%` }}
+          style={{ width: `${(currentStep / 5) * 100}%` }}
           aria-valuenow={currentStep} 
           aria-valuemin={0} 
-          aria-valuemax={4}
+          aria-valuemax={5}
         ></div>
       </div>
       
       {/* Step indicators */}
       <div className="d-flex justify-content-between mb-4">
-        {[1, 2, 3, 4].map(step => (
+        {[1, 2, 3, 4, 5].map(step => (
           <div key={step} className={`text-center ${currentStep >= step ? 'text-primary' : 'text-muted'}`}>
             <div className={`rounded-circle d-inline-flex align-items-center justify-content-center ${
               currentStep >= step ? 'bg-primary text-white' : 'bg-light'
@@ -394,8 +467,9 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
             <div className="small mt-1">
               {step === 1 && 'Setup'}
               {step === 2 && 'Deals'}
-              {step === 3 && (reportScope === 'TRANCHE' ? 'Tranches' : 'Review')}
-              {step === 4 && 'Save'}
+              {step === 3 && (reportScope === 'TRANCHE' ? 'Tranches' : 'Skip')}
+              {step === 4 && 'Columns'}
+              {step === 5 && 'Save'}
             </div>
           </div>
         ))}
@@ -416,7 +490,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
         </button>
         
         <div>
-          {currentStep < 4 ? (
+          {currentStep < 5 ? (
             <button
               type="button"
               className="btn btn-primary"
