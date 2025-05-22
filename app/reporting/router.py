@@ -276,3 +276,259 @@ async def get_default_columns(scope: str) -> List[str]:
         return get_default_columns(scope_enum)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid scope")
+    
+
+
+    """Additional router endpoints for tranche overrides.
+
+Add these endpoints to app/reporting/router.py
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
+from typing import List, Dict, Any
+from app.core.dependencies import SessionDep
+from app.reporting.dao import OverrideDAO
+from app.reporting.schemas import (
+    TrancheOverrideRead, TrancheOverrideCreate, TrancheOverrideUpdate,
+    BulkOverrideRequest, OverrideSummary, OverrideableColumn
+)
+from app.reporting.overrideable_columns import (
+    get_overrideable_columns_for_scope, get_override_categories
+)
+from app.reporting.service_extensions import extend_report_service_with_overrides
+
+
+# Dependency factory for OverrideDAO
+def get_override_dao(session: SessionDep) -> OverrideDAO:
+    """Create OverrideDAO with session."""
+    return OverrideDAO(session)
+
+
+# Update the get_report_service dependency to include override functionality
+def get_enhanced_report_service(
+    config_session: SessionDep, 
+    dw_session: DWSessionDep
+) -> ReportService:
+    """Create ReportService with override functionality."""
+    from app.reporting.service import ReportService
+    from app.reporting.dao import ReportDAO
+    from app.datawarehouse.dao import DealDAO, TrancheDAO
+    
+    base_service = ReportService(
+        ReportDAO(config_session),
+        DealDAO(dw_session),
+        TrancheDAO(dw_session)
+    )
+    
+    # Extend with override functionality
+    override_dao = OverrideDAO(config_session)
+    return extend_report_service_with_overrides(base_service, override_dao)
+
+
+# --- Override Management Routes ---
+
+@router.get("/{report_id}/overrides", response_model=List[TrancheOverrideRead])
+async def get_report_overrides(
+    report_id: int, 
+    service: ReportService = Depends(get_enhanced_report_service)
+) -> List[TrancheOverrideRead]:
+    """Get all overrides for a report."""
+    return await service.get_report_overrides(report_id)
+
+
+@router.get("/{report_id}/overrides/summary", response_model=OverrideSummary)
+async def get_override_summary(
+    report_id: int,
+    service: ReportService = Depends(get_enhanced_report_service)
+) -> OverrideSummary:
+    """Get summary statistics for report overrides."""
+    return await service.get_override_summary(report_id)
+
+
+@router.get("/{report_id}/overrides/tranche/{tranche_id}", response_model=List[TrancheOverrideRead])
+async def get_tranche_overrides(
+    report_id: int,
+    tranche_id: int,
+    service: ReportService = Depends(get_enhanced_report_service)
+) -> List[TrancheOverrideRead]:
+    """Get all overrides for a specific tranche."""
+    return await service.get_tranche_overrides(report_id, tranche_id)
+
+
+@router.post("/{report_id}/overrides", response_model=TrancheOverrideRead)
+async def set_tranche_override(
+    report_id: int,
+    override_data: TrancheOverrideCreate,
+    service: ReportService = Depends(get_enhanced_report_service)
+) -> TrancheOverrideRead:
+    """Set or update a tranche override."""
+    return await service.set_tranche_override(report_id, override_data)
+
+
+@router.patch("/{report_id}/overrides/{tranche_id}/{column_name}", response_model=TrancheOverrideRead)
+async def update_tranche_override(
+    report_id: int,
+    tranche_id: int,
+    column_name: str,
+    update_data: TrancheOverrideUpdate,
+    service: ReportService = Depends(get_enhanced_report_service)
+) -> TrancheOverrideRead:
+    """Update an existing override."""
+    updated = await service.update_tranche_override(report_id, tranche_id, column_name, update_data)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Override not found")
+    return updated
+
+
+@router.delete("/{report_id}/overrides/{tranche_id}/{column_name}")
+async def clear_tranche_override(
+    report_id: int,
+    tranche_id: int,
+    column_name: str,
+    service: ReportService = Depends(get_enhanced_report_service)
+) -> Dict[str, str]:
+    """Clear a specific override."""
+    result = await service.clear_tranche_override(report_id, tranche_id, column_name)
+    if not result:
+        raise HTTPException(status_code=404, detail="Override not found")
+    return {"message": "Override cleared successfully"}
+
+
+@router.delete("/{report_id}/overrides")
+async def clear_all_report_overrides(
+    report_id: int,
+    service: ReportService = Depends(get_enhanced_report_service)
+) -> Dict[str, Any]:
+    """Clear all overrides for a report."""
+    count = await service.clear_all_overrides_for_report(report_id)
+    return {"message": f"Cleared {count} overrides"}
+
+
+@router.delete("/{report_id}/overrides/tranche/{tranche_id}")
+async def clear_tranche_overrides(
+    report_id: int,
+    tranche_id: int,
+    service: ReportService = Depends(get_enhanced_report_service)
+) -> Dict[str, Any]:
+    """Clear all overrides for a specific tranche."""
+    count = await service.clear_all_overrides_for_tranche(report_id, tranche_id)
+    return {"message": f"Cleared {count} overrides for tranche {tranche_id}"}
+
+
+@router.post("/{report_id}/overrides/bulk", response_model=List[TrancheOverrideRead])
+async def bulk_set_overrides(
+    report_id: int,
+    bulk_request: BulkOverrideRequest,
+    service: ReportService = Depends(get_enhanced_report_service)
+) -> List[TrancheOverrideRead]:
+    """Set multiple overrides in bulk."""
+    return await service.bulk_set_overrides(report_id, bulk_request)
+
+
+@router.get("/{report_id}/overrides/template")
+async def export_overrides_template(
+    report_id: int,
+    service: ReportService = Depends(get_enhanced_report_service)
+) -> List[Dict[str, Any]]:
+    """Export override template for bulk editing."""
+    return await service.export_overrides_template(report_id)
+
+
+# --- Override Column Configuration Routes ---
+
+@router.get("/overrides/columns/{scope}", response_model=List[OverrideableColumn])
+async def get_overrideable_columns(scope: str) -> List[OverrideableColumn]:
+    """Get columns that support overrides for a specific scope."""
+    if scope.upper() not in ["DEAL", "TRANCHE"]:
+        raise HTTPException(status_code=400, detail="Invalid scope. Must be DEAL or TRANCHE")
+    
+    return get_overrideable_columns_for_scope(scope)
+
+
+@router.get("/overrides/columns/{scope}/categories")
+async def get_overrideable_columns_by_category(scope: str) -> Dict[str, List[OverrideableColumn]]:
+    """Get overrideable columns grouped by category."""
+    if scope.upper() not in ["DEAL", "TRANCHE"]:
+        raise HTTPException(status_code=400, detail="Invalid scope. Must be DEAL or TRANCHE")
+    
+    return get_override_categories(scope)
+
+
+# --- Override Import/Export Routes ---
+
+@router.post("/{report_id}/overrides/import")
+async def import_overrides_from_csv(
+    report_id: int,
+    csv_data: str = Body(..., media_type="text/csv"),
+    replace_existing: bool = Query(False, description="Replace all existing overrides"),
+    service: ReportService = Depends(get_enhanced_report_service)
+) -> Dict[str, Any]:
+    """Import overrides from CSV data."""
+    try:
+        import csv
+        import io
+        
+        # Parse CSV
+        csv_reader = csv.DictReader(io.StringIO(csv_data))
+        override_requests = []
+        
+        for row in csv_reader:
+            if row.get('override_value') and row.get('override_value').strip():
+                override_req = TrancheOverrideCreate(
+                    tranche_id=int(row['tranche_id']),
+                    column_name=row['column_name'],
+                    override_value=row['override_value'],
+                    override_type=row.get('override_type', 'manual'),
+                    notes=row.get('notes', ''),
+                    created_by='import_user'  # TODO: Get from auth context
+                )
+                override_requests.append(override_req)
+        
+        # Bulk import
+        bulk_request = BulkOverrideRequest(
+            overrides=override_requests,
+            replace_existing=replace_existing
+        )
+        
+        imported_overrides = await service.bulk_set_overrides(report_id, bulk_request)
+        
+        return {
+            "message": f"Successfully imported {len(imported_overrides)} overrides",
+            "imported_count": len(imported_overrides),
+            "replaced_existing": replace_existing
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"CSV import failed: {str(e)}")
+
+
+@router.get("/{report_id}/overrides/export.csv")
+async def export_overrides_to_csv(
+    report_id: int,
+    service: ReportService = Depends(get_enhanced_report_service)
+) -> Dict[str, Any]:
+    """Export overrides template as CSV."""
+    try:
+        import csv
+        import io
+        
+        template_data = await service.export_overrides_template(report_id)
+        
+        # Generate CSV
+        output = io.StringIO()
+        if template_data:
+            fieldnames = template_data[0].keys()
+            writer = csv.DictWriter(output, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(template_data)
+        
+        csv_content = output.getvalue()
+        
+        return {
+            "csv_content": csv_content,
+            "filename": f"report_{report_id}_overrides_template.csv",
+            "row_count": len(template_data)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"CSV export failed: {str(e)}")

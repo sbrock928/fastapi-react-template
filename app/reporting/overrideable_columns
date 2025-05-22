@@ -1,0 +1,187 @@
+"""Registry for columns that support manual overrides."""
+
+from typing import Dict, List
+from app.reporting.column_registry import (
+    ColumnDefinition, ColumnType, ColumnScope, get_available_columns
+)
+from app.reporting.schemas import OverrideableColumn
+
+
+# Define which columns can be overridden
+OVERRIDEABLE_COLUMNS = {
+    # Basic fields that might need manual adjustment
+    "principal_amount": {
+        "can_override": True,
+        "calculation_description": "Principal amount from tranche table - may need adjustment for reconciliation"
+    },
+    "interest_rate": {
+        "can_override": True,
+        "calculation_description": "Interest rate from tranche table - may need adjustment for rate changes"
+    },
+    "credit_rating": {
+        "can_override": True,
+        "calculation_description": "Credit rating from tranche table - may be updated based on external ratings"
+    },
+    "yield_rate": {
+        "can_override": True,
+        "calculation_description": "Deal yield rate - may need manual adjustment based on market conditions"
+    },
+    
+    # Calculated/aggregated fields that commonly need overrides
+    "weighted_avg_interest_rate": {
+        "can_override": True,
+        "calculation_description": "Calculated weighted average - may need adjustment for complex structures"
+    },
+    "total_tranche_principal": {
+        "can_override": True,
+        "calculation_description": "Sum of tranche principals - may need adjustment for reconciliation"
+    },
+    "avg_tranche_interest_rate": {
+        "can_override": True,
+        "calculation_description": "Average of tranche rates - may need weighted calculation override"
+    },
+    
+    # Deal-level fields that might need bridging from external tables
+    "duration": {
+        "can_override": True,
+        "calculation_description": "Deal duration - may be sourced from external pricing systems"
+    },
+    "subordination_level": {
+        "can_override": True,
+        "calculation_description": "Tranche subordination level - may need adjustment based on structure changes"
+    },
+    "payment_priority": {
+        "can_override": True,
+        "calculation_description": "Payment priority - may need adjustment for complex waterfall structures"
+    },
+    
+    # Fields that commonly need external data bridging
+    "market_value": {
+        "can_override": True,
+        "calculation_description": "Market value from external pricing service - manual override for illiquid securities"
+    },
+    "credit_spread": {
+        "can_override": True,
+        "calculation_description": "Credit spread from market data - manual adjustment for unique structures"
+    },
+    "effective_yield": {
+        "can_override": True,
+        "calculation_description": "Effective yield calculation - may need adjustment for prepayment assumptions"
+    }
+}
+
+
+def get_overrideable_columns_for_scope(scope: str) -> List[OverrideableColumn]:
+    """Get columns that can be overridden for a specific scope."""
+    try:
+        scope_enum = ColumnScope(scope.upper())
+    except ValueError:
+        return []
+    
+    available_columns = get_available_columns(scope_enum)
+    overrideable = []
+    
+    for col in available_columns:
+        override_config = OVERRIDEABLE_COLUMNS.get(col.key, {})
+        
+        # Only include columns that are explicitly marked as overrideable
+        # or calculated/aggregated columns (which commonly need overrides)
+        can_override = (
+            override_config.get("can_override", False) or 
+            col.column_type in [ColumnType.CALCULATED, ColumnType.AGGREGATED]
+        )
+        
+        if can_override:
+            overrideable_col = OverrideableColumn(
+                key=col.key,
+                label=col.label,
+                data_type=col.data_type,
+                can_override=True,
+                calculation_description=override_config.get(
+                    "calculation_description", 
+                    f"{col.column_type.value.title()} field that may require manual adjustment"
+                ),
+                category=col.category
+            )
+            overrideable.append(overrideable_col)
+    
+    # Sort by category and then by label
+    overrideable.sort(key=lambda x: (x.category, x.label))
+    return overrideable
+
+
+def get_override_categories(scope: str) -> Dict[str, List[OverrideableColumn]]:
+    """Get overrideable columns grouped by category."""
+    columns = get_overrideable_columns_for_scope(scope)
+    categories = {}
+    
+    for col in columns:
+        if col.category not in categories:
+            categories[col.category] = []
+        categories[col.category].append(col)
+    
+    return categories
+
+
+def is_column_overrideable(column_key: str) -> bool:
+    """Check if a specific column can be overridden."""
+    return column_key in OVERRIDEABLE_COLUMNS or column_key.endswith('_calculated')
+
+
+def get_override_description(column_key: str) -> str:
+    """Get the description for why a column might need overrides."""
+    return OVERRIDEABLE_COLUMNS.get(column_key, {}).get(
+        "calculation_description",
+        "Field that may require manual adjustment based on external data sources"
+    )
+
+
+# Common override value templates for different data types
+OVERRIDE_VALUE_TEMPLATES = {
+    "currency": {
+        "zero": 0.0,
+        "million": 1000000.0,
+        "billion": 1000000000.0
+    },
+    "percentage": {
+        "zero": 0.0,
+        "low": 0.02,  # 2%
+        "medium": 0.05,  # 5%
+        "high": 0.10   # 10%
+    },
+    "number": {
+        "zero": 0,
+        "one": 1,
+        "priority_senior": 1,
+        "priority_mezzanine": 2,
+        "priority_subordinate": 3
+    },
+    "string": {
+        "aaa": "AAA",
+        "aa": "AA",
+        "a": "A",
+        "bbb": "BBB",
+        "tbd": "TBD",
+        "pending": "Pending Review"
+    }
+}
+
+
+def get_value_templates_for_column(column_key: str, data_type: str) -> Dict[str, any]:
+    """Get common override value templates for a column."""
+    templates = OVERRIDE_VALUE_TEMPLATES.get(data_type, {})
+    
+    # Add column-specific templates
+    if column_key == "credit_rating":
+        templates.update({
+            "investment_grade": ["AAA", "AA+", "AA", "AA-", "A+", "A", "A-", "BBB+", "BBB", "BBB-"],
+            "speculative_grade": ["BB+", "BB", "BB-", "B+", "B", "B-", "CCC+", "CCC", "CCC-"]
+        })
+    elif column_key == "subordination_level":
+        templates.update({
+            "senior": 1,
+            "mezzanine": 2,
+            "subordinate": 3
+        })
+    
+    return templates

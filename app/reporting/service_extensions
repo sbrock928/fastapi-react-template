@@ -1,0 +1,269 @@
+"""Extensions to ReportService for handling tranche overrides."""
+
+from typing import List, Dict, Any, Optional
+from fastapi import HTTPException
+import json
+
+from app.reporting.dao import OverrideDAO
+from app.reporting.models import ReportTrancheOverride
+from app.reporting.schemas import (
+    TrancheOverrideRead, TrancheOverrideCreate, TrancheOverrideUpdate,
+    BulkOverrideRequest, OverrideSummary
+)
+
+
+class ReportServiceOverrideExtensions:
+    """Extensions to ReportService for handling overrides."""
+    
+    def __init__(self, report_service, override_dao: OverrideDAO):
+        self.report_service = report_service
+        self.override_dao = override_dao
+
+    async def get_report_overrides(self, report_id: int) -> List[TrancheOverrideRead]:
+        """Get all overrides for a report."""
+        # Verify report exists
+        report = await self.report_service.report_dao.get_by_id(report_id)
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        overrides = await self.override_dao.get_all_for_report(report_id)
+        return [TrancheOverrideRead.model_validate(override) for override in overrides]
+
+    async def get_tranche_overrides(self, report_id: int, tranche_id: int) -> List[TrancheOverrideRead]:
+        """Get all overrides for a specific tranche."""
+        overrides = await self.override_dao.get_by_tranche(report_id, tranche_id)
+        return [TrancheOverrideRead.model_validate(override) for override in overrides]
+
+    async def set_tranche_override(
+        self, 
+        report_id: int, 
+        override_data: TrancheOverrideCreate
+    ) -> TrancheOverrideRead:
+        """Set or update a tranche override."""
+        # Verify report exists and user has access
+        report = await self.report_service.report_dao.get_by_id(report_id)
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        # Verify tranche is part of the report
+        if report.scope == "TRANCHE":
+            # Check if tranche is in selected_tranches
+            tranche_found = False
+            if report.selected_tranches:
+                for deal_tranches in report.selected_tranches.values():
+                    if override_data.tranche_id in deal_tranches:
+                        tranche_found = True
+                        break
+            
+            if not tranche_found:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Tranche is not part of this report configuration"
+                )
+
+        # Create or update the override
+        override = await self.override_dao.upsert_override(
+            report_id=report_id,
+            tranche_id=override_data.tranche_id,
+            column_name=override_data.column_name,
+            override_value=override_data.override_value,
+            override_type=override_data.override_type.value,
+            notes=override_data.notes,
+            created_by=override_data.created_by
+        )
+
+        return TrancheOverrideRead.model_validate(override)
+
+    async def update_tranche_override(
+        self,
+        report_id: int,
+        tranche_id: int,
+        column_name: str,
+        update_data: TrancheOverrideUpdate
+    ) -> Optional[TrancheOverrideRead]:
+        """Update an existing override."""
+        existing = await self.override_dao.get_specific_override(report_id, tranche_id, column_name)
+        if not existing:
+            return None
+
+        # Update fields
+        if update_data.override_value is not None:
+            existing.override_value = update_data.override_value
+        if update_data.override_type is not None:
+            existing.override_type = update_data.override_type.value
+        if update_data.notes is not None:
+            existing.notes = update_data.notes
+
+        updated = await self.override_dao.update_override(existing)
+        return TrancheOverrideRead.model_validate(updated)
+
+    async def clear_tranche_override(
+        self, 
+        report_id: int, 
+        tranche_id: int, 
+        column_name: str
+    ) -> bool:
+        """Clear a specific override."""
+        return await self.override_dao.delete_override(report_id, tranche_id, column_name)
+
+    async def clear_all_overrides_for_report(self, report_id: int) -> int:
+        """Clear all overrides for a report."""
+        return await self.override_dao.delete_all_for_report(report_id)
+
+    async def clear_all_overrides_for_tranche(self, report_id: int, tranche_id: int) -> int:
+        """Clear all overrides for a specific tranche."""
+        return await self.override_dao.delete_all_for_tranche(report_id, tranche_id)
+
+    async def get_override_summary(self, report_id: int) -> OverrideSummary:
+        """Get summary statistics about overrides for a report."""
+        summary_data = await self.override_dao.get_override_summary(report_id)
+        return OverrideSummary.model_validate(summary_data)
+
+    async def bulk_set_overrides(
+        self, 
+        report_id: int, 
+        bulk_request: BulkOverrideRequest
+    ) -> List[TrancheOverrideRead]:
+        """Set multiple overrides in bulk."""
+        # Verify report exists
+        report = await self.report_service.report_dao.get_by_id(report_id)
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        # Clear existing overrides if requested
+        if bulk_request.replace_existing:
+            await self.override_dao.delete_all_for_report(report_id)
+
+        # Create override objects
+        override_objects = []
+        for override_data in bulk_request.overrides:
+            override_obj = ReportTrancheOverride(
+                report_id=report_id,
+                tranche_id=override_data.tranche_id,
+                column_name=override_data.column_name,
+                override_value=override_data.override_value,
+                override_type=override_data.override_type.value,
+                notes=override_data.notes,
+                created_by=override_data.created_by
+            )
+            override_objects.append(override_obj)
+
+        # Bulk create
+        created_overrides = await self.override_dao.bulk_create_overrides(override_objects)
+        return [TrancheOverrideRead.model_validate(override) for override in created_overrides]
+
+    def apply_overrides_to_report_data(
+        self, 
+        report_data: List[Dict[str, Any]], 
+        overrides: List[TrancheOverrideRead]
+    ) -> List[Dict[str, Any]]:
+        """Apply overrides to report data."""
+        if not overrides:
+            return report_data
+
+        # Create override lookup map: (tranche_id, column_name) -> override_value
+        override_map = {}
+        for override in overrides:
+            key = (override.tranche_id, override.column_name)
+            # Parse JSON value back to Python object
+            try:
+                if isinstance(override.override_value, str):
+                    parsed_value = json.loads(override.override_value)
+                else:
+                    parsed_value = override.override_value
+                override_map[key] = parsed_value
+            except (json.JSONDecodeError, TypeError):
+                override_map[key] = override.override_value
+
+        # Apply overrides to report data
+        for row in report_data:
+            tranche_id = row.get('tranche_id')
+            if tranche_id:
+                for column_name in row.keys():
+                    override_key = (tranche_id, column_name)
+                    if override_key in override_map:
+                        # Apply the override value
+                        row[column_name] = override_map[override_key]
+                        # Add metadata to indicate this value was overridden
+                        row[f"{column_name}_is_override"] = True
+
+        return report_data
+
+    async def export_overrides_template(self, report_id: int) -> List[Dict[str, Any]]:
+        """Export override template for bulk editing."""
+        # Get report configuration
+        report = await self.report_service.report_dao.get_by_id(report_id)
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        # Get existing overrides
+        existing_overrides = await self.get_report_overrides(report_id)
+        override_lookup = {
+            (o.tranche_id, o.column_name): o for o in existing_overrides
+        }
+
+        # Build template rows
+        template_rows = []
+        
+        if report.scope == "TRANCHE" and report.selected_tranches:
+            # Get overrideable columns
+            from app.reporting.overrideable_columns import get_overrideable_columns_for_scope
+            overrideable_cols = get_overrideable_columns_for_scope("TRANCHE")
+            
+            for deal_id_str, tranche_ids in report.selected_tranches.items():
+                for tranche_id in tranche_ids:
+                    for col in overrideable_cols:
+                        existing_override = override_lookup.get((tranche_id, col.key))
+                        
+                        template_row = {
+                            "tranche_id": tranche_id,
+                            "column_name": col.key,
+                            "column_label": col.label,
+                            "data_type": col.data_type,
+                            "override_value": existing_override.override_value if existing_override else "",
+                            "override_type": existing_override.override_type if existing_override else "manual",
+                            "notes": existing_override.notes if existing_override else "",
+                            "calculation_description": col.calculation_description
+                        }
+                        template_rows.append(template_row)
+
+        return template_rows
+
+
+# Update the main ReportService to include override functionality
+def extend_report_service_with_overrides(report_service, override_dao: OverrideDAO):
+    """Extend an existing ReportService with override functionality."""
+    extensions = ReportServiceOverrideExtensions(report_service, override_dao)
+    
+    # Add override methods to the service
+    report_service.get_report_overrides = extensions.get_report_overrides
+    report_service.get_tranche_overrides = extensions.get_tranche_overrides
+    report_service.set_tranche_override = extensions.set_tranche_override
+    report_service.update_tranche_override = extensions.update_tranche_override
+    report_service.clear_tranche_override = extensions.clear_tranche_override
+    report_service.clear_all_overrides_for_report = extensions.clear_all_overrides_for_report
+    report_service.clear_all_overrides_for_tranche = extensions.clear_all_overrides_for_tranche
+    report_service.get_override_summary = extensions.get_override_summary
+    report_service.bulk_set_overrides = extensions.bulk_set_overrides
+    report_service.apply_overrides_to_report_data = extensions.apply_overrides_to_report_data
+    report_service.export_overrides_template = extensions.export_overrides_template
+    
+    # Update the run_saved_report method to apply overrides
+    original_run_saved_report = report_service.run_saved_report
+    
+    async def run_saved_report_with_overrides(report_id: int, cycle_code: str) -> List[Dict[str, Any]]:
+        """Enhanced run_saved_report that applies overrides."""
+        # Get the base report data
+        report_data = await original_run_saved_report(report_id, cycle_code)
+        
+        # Get and apply overrides
+        overrides = await extensions.get_report_overrides(report_id)
+        if overrides:
+            report_data = extensions.apply_overrides_to_report_data(report_data, overrides)
+        
+        return report_data
+    
+    # Replace the method
+    report_service.run_saved_report = run_saved_report_with_overrides
+    
+    return report_service

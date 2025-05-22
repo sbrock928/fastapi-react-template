@@ -347,3 +347,219 @@ class ReportDAO:
         ).order_by(Report.created_date.desc())
         result = self.db.execute(stmt)
         return list(result.scalars().all())
+    
+
+    """Data Access Objects for tranche overrides."""
+
+from sqlalchemy.orm import Session
+from sqlalchemy import select, delete, func, and_
+from typing import List, Optional, Dict, Any
+from app.reporting.models import ReportTrancheOverride
+from app.reporting.schemas import OverrideType
+
+
+class OverrideDAO:
+    """Data access methods for tranche overrides."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    async def get_all_for_report(self, report_id: int) -> List[ReportTrancheOverride]:
+        """Get all overrides for a specific report."""
+        stmt = select(ReportTrancheOverride).where(
+            ReportTrancheOverride.report_id == report_id
+        ).order_by(
+            ReportTrancheOverride.tranche_id,
+            ReportTrancheOverride.column_name
+        )
+        result = self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_by_tranche(self, report_id: int, tranche_id: int) -> List[ReportTrancheOverride]:
+        """Get all overrides for a specific tranche in a report."""
+        stmt = select(ReportTrancheOverride).where(
+            and_(
+                ReportTrancheOverride.report_id == report_id,
+                ReportTrancheOverride.tranche_id == tranche_id
+            )
+        ).order_by(ReportTrancheOverride.column_name)
+        result = self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_by_column(self, report_id: int, column_name: str) -> List[ReportTrancheOverride]:
+        """Get all overrides for a specific column in a report."""
+        stmt = select(ReportTrancheOverride).where(
+            and_(
+                ReportTrancheOverride.report_id == report_id,
+                ReportTrancheOverride.column_name == column_name
+            )
+        ).order_by(ReportTrancheOverride.tranche_id)
+        result = self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_specific_override(
+        self, 
+        report_id: int, 
+        tranche_id: int, 
+        column_name: str
+    ) -> Optional[ReportTrancheOverride]:
+        """Get a specific override by report, tranche, and column."""
+        stmt = select(ReportTrancheOverride).where(
+            and_(
+                ReportTrancheOverride.report_id == report_id,
+                ReportTrancheOverride.tranche_id == tranche_id,
+                ReportTrancheOverride.column_name == column_name
+            )
+        )
+        result = self.session.execute(stmt)
+        return result.scalars().first()
+
+    async def create_override(self, override_obj: ReportTrancheOverride) -> ReportTrancheOverride:
+        """Create a new override."""
+        self.session.add(override_obj)
+        self.session.commit()
+        self.session.refresh(override_obj)
+        return override_obj
+
+    async def update_override(self, override_obj: ReportTrancheOverride) -> ReportTrancheOverride:
+        """Update an existing override."""
+        self.session.add(override_obj)
+        self.session.commit()
+        self.session.refresh(override_obj)
+        return override_obj
+
+    async def upsert_override(
+        self,
+        report_id: int,
+        tranche_id: int,
+        column_name: str,
+        override_value: str,
+        override_type: str,
+        notes: Optional[str],
+        created_by: str
+    ) -> ReportTrancheOverride:
+        """Create or update an override (upsert operation)."""
+        existing = await self.get_specific_override(report_id, tranche_id, column_name)
+        
+        if existing:
+            # Update existing override
+            existing.override_value = override_value
+            existing.override_type = override_type
+            existing.notes = notes
+            return await self.update_override(existing)
+        else:
+            # Create new override
+            new_override = ReportTrancheOverride(
+                report_id=report_id,
+                tranche_id=tranche_id,
+                column_name=column_name,
+                override_value=override_value,
+                override_type=override_type,
+                notes=notes,
+                created_by=created_by
+            )
+            return await self.create_override(new_override)
+
+    async def delete_override(
+        self, 
+        report_id: int, 
+        tranche_id: int, 
+        column_name: str
+    ) -> bool:
+        """Delete a specific override."""
+        stmt = delete(ReportTrancheOverride).where(
+            and_(
+                ReportTrancheOverride.report_id == report_id,
+                ReportTrancheOverride.tranche_id == tranche_id,
+                ReportTrancheOverride.column_name == column_name
+            )
+        )
+        result = self.session.execute(stmt)
+        self.session.commit()
+        return result.rowcount > 0
+
+    async def delete_all_for_report(self, report_id: int) -> int:
+        """Delete all overrides for a report."""
+        stmt = delete(ReportTrancheOverride).where(
+            ReportTrancheOverride.report_id == report_id
+        )
+        result = self.session.execute(stmt)
+        self.session.commit()
+        return result.rowcount
+
+    async def delete_all_for_tranche(self, report_id: int, tranche_id: int) -> int:
+        """Delete all overrides for a specific tranche in a report."""
+        stmt = delete(ReportTrancheOverride).where(
+            and_(
+                ReportTrancheOverride.report_id == report_id,
+                ReportTrancheOverride.tranche_id == tranche_id
+            )
+        )
+        result = self.session.execute(stmt)
+        self.session.commit()
+        return result.rowcount
+
+    async def get_override_summary(self, report_id: int) -> Dict[str, Any]:
+        """Get summary statistics about overrides for a report."""
+        # Total count
+        total_stmt = select(func.count()).select_from(ReportTrancheOverride).where(
+            ReportTrancheOverride.report_id == report_id
+        )
+        total_count = self.session.execute(total_stmt).scalar_one_or_none() or 0
+
+        # Count by type
+        type_stmt = select(
+            ReportTrancheOverride.override_type,
+            func.count()
+        ).where(
+            ReportTrancheOverride.report_id == report_id
+        ).group_by(ReportTrancheOverride.override_type)
+        
+        type_result = self.session.execute(type_stmt).all()
+        overrides_by_type = {row[0]: row[1] for row in type_result}
+
+        # Count by column
+        column_stmt = select(
+            ReportTrancheOverride.column_name,
+            func.count()
+        ).where(
+            ReportTrancheOverride.report_id == report_id
+        ).group_by(ReportTrancheOverride.column_name)
+        
+        column_result = self.session.execute(column_stmt).all()
+        overrides_by_column = {row[0]: row[1] for row in column_result}
+
+        # Last updated
+        last_updated_stmt = select(
+            func.max(ReportTrancheOverride.updated_date)
+        ).where(ReportTrancheOverride.report_id == report_id)
+        last_updated = self.session.execute(last_updated_stmt).scalar_one_or_none()
+
+        return {
+            "report_id": report_id,
+            "total_overrides": total_count,
+            "overrides_by_type": overrides_by_type,
+            "overrides_by_column": overrides_by_column,
+            "last_updated": last_updated
+        }
+
+    async def bulk_create_overrides(self, overrides: List[ReportTrancheOverride]) -> List[ReportTrancheOverride]:
+        """Create multiple overrides in bulk."""
+        for override in overrides:
+            self.session.add(override)
+        
+        self.session.commit()
+        
+        # Refresh all objects
+        for override in overrides:
+            self.session.refresh(override)
+        
+        return overrides
+
+    async def get_overrideable_tranches(self, report_id: int) -> List[int]:
+        """Get list of tranche IDs that have overrides in this report."""
+        stmt = select(ReportTrancheOverride.tranche_id.distinct()).where(
+            ReportTrancheOverride.report_id == report_id
+        )
+        result = self.session.execute(stmt)
+        return [row[0] for row in result.all()]

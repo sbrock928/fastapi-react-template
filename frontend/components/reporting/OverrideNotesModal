@@ -1,0 +1,194 @@
+import React, { useState } from 'react';
+import type { Tranche, TrancheOverride } from '@/types';
+
+interface OverrideNotesModalProps {
+  trancheId: number;
+  tranche: Tranche;
+  activeOverrides: TrancheOverride[];
+  onClose: () => void;
+  onNotesUpdate: (
+    trancheId: number, 
+    columnName: string, 
+    value: any, 
+    notes?: string
+  ) => void;
+}
+
+const OverrideNotesModal: React.FC<OverrideNotesModalProps> = ({
+  trancheId,
+  tranche,
+  activeOverrides,
+  onClose,
+  onNotesUpdate
+}) => {
+  const [notes, setNotes] = useState<Record<string, string>>(() => {
+    const initialNotes: Record<string, string> = {};
+    activeOverrides.forEach(override => {
+      if (override.notes) {
+        initialNotes[override.column_name] = override.notes;
+      }
+    });
+    return initialNotes;
+  });
+
+  const [generalNotes, setGeneralNotes] = useState('');
+
+  const handleSaveNotes = () => {
+    // Update notes for each override that has notes
+    Object.entries(notes).forEach(([columnName, noteText]) => {
+      if (noteText.trim()) {
+        const existingOverride = activeOverrides.find(o => o.column_name === columnName);
+        if (existingOverride) {
+          onNotesUpdate(
+            trancheId, 
+            columnName, 
+            existingOverride.override_value, 
+            noteText.trim()
+          );
+        }
+      }
+    });
+
+    onClose();
+  };
+
+  const handleNotesChange = (columnName: string, noteText: string) => {
+    setNotes(prev => ({
+      ...prev,
+      [columnName]: noteText
+    }));
+  };
+
+  const formatValue = (value: any): string => {
+    if (value === null || value === undefined) return '';
+    
+    if (typeof value === 'number') {
+      return value.toLocaleString();
+    }
+    
+    return String(value);
+  };
+
+  return (
+    <div className="modal fade show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+      <div className="modal-dialog modal-lg">
+        <div className="modal-content">
+          <div className="modal-header">
+            <h5 className="modal-title">
+              Override Notes - {tranche.name}
+            </h5>
+            <button 
+              type="button" 
+              className="btn-close" 
+              onClick={onClose}
+            ></button>
+          </div>
+          
+          <div className="modal-body">
+            {/* Tranche Information */}
+            <div className="card mb-3 border-primary">
+              <div className="card-header bg-primary text-white">
+                <h6 className="mb-0">Tranche Information</h6>
+              </div>
+              <div className="card-body">
+                <div className="row">
+                  <div className="col-md-6">
+                    <strong>Name:</strong> {tranche.name}<br/>
+                    <strong>Class:</strong> {tranche.class_name}<br/>
+                    <strong>Deal ID:</strong> {tranche.deal_id}
+                  </div>
+                  <div className="col-md-6">
+                    <strong>Principal:</strong> ${tranche.principal_amount?.toLocaleString()}<br/>
+                    <strong>Interest Rate:</strong> {((tranche.interest_rate || 0) * 100).toFixed(2)}%<br/>
+                    <strong>Priority:</strong> {tranche.payment_priority}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Override Notes */}
+            {activeOverrides.length > 0 ? (
+              <div className="card mb-3">
+                <div className="card-header">
+                  <h6 className="mb-0">Override Notes</h6>
+                </div>
+                <div className="card-body">
+                  {activeOverrides.map(override => (
+                    <div key={override.column_name} className="mb-3">
+                      <div className="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                          <strong>{override.column_name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</strong>
+                          <div className="small text-muted">
+                            Override Value: <span className="badge bg-warning text-dark">
+                              {formatValue(override.override_value)}
+                            </span>
+                          </div>
+                        </div>
+                        <span className="badge bg-info">
+                          {override.override_type}
+                        </span>
+                      </div>
+                      
+                      <textarea
+                        className="form-control"
+                        rows={2}
+                        placeholder={`Add notes for ${override.column_name} override...`}
+                        value={notes[override.column_name] || ''}
+                        onChange={(e) => handleNotesChange(override.column_name, e.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="alert alert-info">
+                <i className="bi bi-info-circle me-2"></i>
+                No overrides have been set for this tranche yet. 
+                Override some values first to add specific notes.
+              </div>
+            )}
+
+            {/* General Notes */}
+            <div className="card">
+              <div className="card-header">
+                <h6 className="mb-0">General Notes</h6>
+              </div>
+              <div className="card-body">
+                <textarea
+                  className="form-control"
+                  rows={3}
+                  placeholder="Add general notes about this tranche..."
+                  value={generalNotes}
+                  onChange={(e) => setGeneralNotes(e.target.value)}
+                />
+                <div className="form-text">
+                  General notes about the tranche that don't relate to specific overrides.
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="modal-footer">
+            <button 
+              type="button" 
+              className="btn btn-secondary" 
+              onClick={onClose}
+            >
+              Cancel
+            </button>
+            <button 
+              type="button" 
+              className="btn btn-primary"
+              onClick={handleSaveNotes}
+            >
+              <i className="bi bi-save me-1"></i>
+              Save Notes
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default OverrideNotesModal;

@@ -4,7 +4,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel, field_validator, ConfigDict
-
+import json
 
 class ReportScope(str, Enum):
     """Enumeration of report scope options."""
@@ -146,3 +146,134 @@ class RunReportRequest(BaseModel):
         if not v or not v.strip():
             raise ValueError("Cycle code cannot be empty")
         return v.strip()
+    
+
+    class OverrideType(str, Enum):
+        """Types of overrides available."""
+        MANUAL = "manual"
+        CALCULATED = "calculated"
+        MAPPED = "mapped"
+
+
+class OverrideableColumn(BaseModel):
+    """Schema for columns that can be overridden."""
+    key: str
+    label: str
+    data_type: str  # 'string', 'number', 'currency', 'percentage', 'date'
+    can_override: bool = True
+    calculation_description: Optional[str] = None
+    category: str = "General"
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TrancheOverrideBase(BaseModel):
+    """Base schema for tranche override objects."""
+    
+    tranche_id: int
+    column_name: str
+    override_value: Optional[Any] = None
+    override_type: OverrideType = OverrideType.MANUAL
+    notes: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    @field_validator("column_name")
+    @classmethod
+    def validate_column_name(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Column name cannot be empty")
+        return v.strip()
+
+    @field_validator("tranche_id")
+    @classmethod
+    def validate_tranche_id(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("Tranche ID must be positive")
+        return v
+
+    @field_validator("override_value")
+    @classmethod
+    def validate_override_value(cls, v: Any) -> Optional[str]:
+        """Convert override value to JSON string for storage."""
+        if v is None:
+            return None
+        # Convert to JSON string for storage
+        try:
+            return json.dumps(v)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"Override value must be JSON serializable: {e}")
+
+
+class TrancheOverrideCreate(TrancheOverrideBase):
+    """Schema for creating tranche overrides."""
+    created_by: str
+
+    @field_validator("created_by")
+    @classmethod
+    def validate_created_by(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Created by cannot be empty")
+        return v.strip()
+
+
+class TrancheOverrideUpdate(BaseModel):
+    """Schema for updating tranche overrides."""
+    override_value: Optional[Any] = None
+    override_type: Optional[OverrideType] = None
+    notes: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    @field_validator("override_value")
+    @classmethod
+    def validate_override_value(cls, v: Any) -> Optional[str]:
+        """Convert override value to JSON string for storage."""
+        if v is None:
+            return None
+        try:
+            return json.dumps(v)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"Override value must be JSON serializable: {e}")
+
+
+class TrancheOverrideRead(TrancheOverrideBase):
+    """Schema for reading tranche override objects with all fields."""
+    
+    id: int
+    report_id: int
+    created_by: str
+    created_date: datetime
+    updated_date: datetime
+
+    @field_validator("override_value", mode="before")
+    @classmethod
+    def parse_override_value(cls, v: Any) -> Any:
+        """Parse JSON string back to Python object."""
+        if v is None or v == "":
+            return None
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                return v
+        return v
+
+
+class BulkOverrideRequest(BaseModel):
+    """Schema for bulk override operations."""
+    overrides: List[TrancheOverrideCreate]
+    replace_existing: bool = False
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class OverrideSummary(BaseModel):
+    """Summary of overrides for a report."""
+    report_id: int
+    total_overrides: int
+    overrides_by_type: dict  # {override_type: count}
+    overrides_by_column: dict  # {column_name: count}
+    last_updated: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
