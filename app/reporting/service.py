@@ -3,7 +3,6 @@
 from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
 from decimal import Decimal
-from datetime import date, datetime
 
 from app.reporting.dao import ReportDAO
 from app.reporting.models import Report
@@ -65,6 +64,7 @@ class ReportService:
             tranche_count = 0
             if report.selected_tranches:
                 tranche_count = sum(len(tranches) for tranches in report.selected_tranches.values())
+            column_count = len(report.selected_columns) if report.selected_columns else 0
             
             summary = ReportSummary(
                 id=report.id,
@@ -74,6 +74,7 @@ class ReportService:
                 created_date=report.created_date,
                 deal_count=deal_count,
                 tranche_count=tranche_count,
+                column_count=column_count,
                 is_active=report.is_active
             )
             summaries.append(summary)
@@ -108,20 +109,6 @@ class ReportService:
                 if not tranche_deal_ids.issubset(set(report_data.selected_deals)):
                     errors["add"]("selected_tranches", "Tranche selections contain deals not in selected deals")
 
-        # Validate selected columns
-        if report_data.selected_columns:
-            from app.reporting.column_registry import COLUMN_REGISTRY, get_available_columns, ColumnScope
-            
-            # Get available columns for this scope
-            scope_enum = ColumnScope.DEAL if report_data.scope == ReportScope.DEAL else ColumnScope.TRANCHE
-            available_columns = get_available_columns(scope_enum)
-            available_keys = [col.key for col in available_columns]
-            
-            # Check for invalid columns
-            invalid_columns = [col for col in report_data.selected_columns if col not in available_keys]
-            if invalid_columns:
-                errors["add"]("selected_columns", f"Invalid columns for {report_data.scope} scope: {', '.join(invalid_columns)}")
-
         errors["raise_if_errors"]()
         return report_data
 
@@ -142,21 +129,6 @@ class ReportService:
             if existing_report:
                 errors["add"]("name", "Report name already exists", "value_error.already_exists")
 
-        # Validate columns if being updated
-        if report_data.selected_columns is not None:
-            from app.reporting.column_registry import get_available_columns, ColumnScope
-            
-            # Determine scope (use current if not being updated)
-            scope = report_data.scope or ReportScope(current_report.scope)
-            scope_enum = ColumnScope.DEAL if scope == ReportScope.DEAL else ColumnScope.TRANCHE
-            
-            available_columns = get_available_columns(scope_enum)
-            available_keys = [col.key for col in available_columns]
-            
-            invalid_columns = [col for col in report_data.selected_columns if col not in available_keys]
-            if invalid_columns:
-                errors["add"]("selected_columns", f"Invalid columns for {scope} scope: {', '.join(invalid_columns)}")
-
         errors["raise_if_errors"]()
         return report_data
 
@@ -165,20 +137,13 @@ class ReportService:
         # Validate report data before creation
         await self.before_create(report_data)
 
-        # Set default columns if none provided
-        selected_columns = report_data.selected_columns
-        if not selected_columns:
-            from app.reporting.column_registry import get_default_columns, ColumnScope
-            scope_enum = ColumnScope.DEAL if report_data.scope == ReportScope.DEAL else ColumnScope.TRANCHE
-            selected_columns = get_default_columns(scope_enum)
-
         report = Report(
             name=report_data.name,
             scope=report_data.scope.value,
             created_by=report_data.created_by,
             selected_deals=report_data.selected_deals,
             selected_tranches=report_data.selected_tranches,
-            selected_columns=selected_columns,
+            selected_columns=report_data.selected_columns,
             is_active=report_data.is_active,
         )
         created_report = await self.report_dao.create(report)
@@ -209,85 +174,6 @@ class ReportService:
         """Delete a report."""
         return await self.report_dao.delete(report_id)
 
-    def build_report_row(self, deal, tranches: List, selected_columns: List[str], scope: str) -> Dict[str, Any]:
-        """Build a report row based on selected columns."""
-        from app.reporting.column_registry import COLUMN_REGISTRY
-        
-        row = {}
-        
-        for column_key in selected_columns:
-            if column_key not in COLUMN_REGISTRY:
-                continue
-                
-            col_def = COLUMN_REGISTRY[column_key]
-            
-            # Basic deal fields
-            if col_def.column_type == "basic":
-                # Try deal fields first
-                if hasattr(deal, column_key):
-                    value = getattr(deal, column_key)
-                    if isinstance(value, date):
-                        value = value.isoformat()
-                    elif isinstance(value, Decimal):
-                        value = float(value)
-                    elif isinstance(value, datetime):
-                        value = value.isoformat()
-                    row[column_key] = value
-                # For tranche reports, check tranche-specific fields
-                elif scope == "TRANCHE" and tranches and len(tranches) > 0 and hasattr(tranches[0], column_key):
-                    tranche = tranches[0]  # For tranche reports, there's typically one tranche per row
-                    value = getattr(tranche, column_key)
-                    if isinstance(value, date):
-                        value = value.isoformat()
-                    elif isinstance(value, Decimal):
-                        value = float(value)
-                    elif isinstance(value, datetime):
-                        value = value.isoformat()
-                    row[column_key] = value
-                else:
-                    row[column_key] = None
-            
-            # Calculated/Aggregated fields
-            elif col_def.column_type in ["calculated", "aggregated"]:
-                if column_key == "tranche_count":
-                    row[column_key] = len(tranches) if tranches else 0
-                elif column_key == "total_tranche_principal":
-                    row[column_key] = sum(float(t.principal_amount) for t in tranches) if tranches else 0.0
-                elif column_key == "avg_tranche_interest_rate":
-                    if tranches:
-                        avg_rate = sum(float(t.interest_rate) for t in tranches) / len(tranches)
-                        row[column_key] = avg_rate
-                    else:
-                        row[column_key] = 0.0
-                elif column_key == "weighted_avg_interest_rate":
-                    if tranches:
-                        total_principal = sum(float(t.principal_amount) for t in tranches)
-                        if total_principal > 0:
-                            weighted_sum = sum(
-                                float(t.principal_amount) * float(t.interest_rate) 
-                                for t in tranches
-                            )
-                            row[column_key] = weighted_sum / total_principal
-                        else:
-                            row[column_key] = 0.0
-                    else:
-                        row[column_key] = 0.0
-                elif column_key == "senior_tranche_count":
-                    row[column_key] = sum(1 for t in tranches if t.subordination_level == 1) if tranches else 0
-                elif column_key == "subordinate_tranche_count":
-                    row[column_key] = sum(1 for t in tranches if t.subordination_level > 1) if tranches else 0
-                elif column_key == "days_since_closing":
-                    if deal and hasattr(deal, 'closing_date') and deal.closing_date:
-                        days = (date.today() - deal.closing_date).days
-                        row[column_key] = days
-                    else:
-                        row[column_key] = None
-                else:
-                    # Default for unknown calculated fields
-                    row[column_key] = None
-        
-        return row
-
     async def run_saved_report(self, report_id: int, cycle_code: str) -> List[Dict[str, Any]]:
         """Run a saved report by fetching config and querying data warehouse."""
         
@@ -299,14 +185,7 @@ class ReportService:
         if not report.is_active:
             raise HTTPException(status_code=400, detail="Report is inactive")
 
-        # 2. Get selected columns (use defaults if none selected)
-        selected_columns = report.selected_columns
-        if not selected_columns:
-            from app.reporting.column_registry import get_default_columns, ColumnScope
-            scope_enum = ColumnScope.DEAL if report.scope == "DEAL" else ColumnScope.TRANCHE
-            selected_columns = get_default_columns(scope_enum)
-
-        # 3. Query data warehouse using stored IDs
+        # 2. Query data warehouse using stored IDs
         results = []
 
         if report.scope == "DEAL":
@@ -318,9 +197,43 @@ class ReportService:
                     # Get tranches for aggregation
                     tranches = await self.tranche_dao.get_by_deal_id(deal.id, cycle_code)
                     
-                    # Build row using selected columns
-                    row = self.build_report_row(deal, tranches, selected_columns, "DEAL")
-                    results.append(row)
+                    # Calculate aggregated metrics
+                    total_tranche_principal = sum(float(t.principal_amount) for t in tranches)
+                    avg_interest_rate = (
+                        sum(float(t.interest_rate) for t in tranches) / len(tranches) 
+                        if tranches else 0
+                    )
+                    tranche_count = len(tranches)
+                    
+                    # Build complete data dict with all possible columns
+                    complete_data = {
+                        "deal_id": deal.id,
+                        "deal_name": deal.name,
+                        "originator": deal.originator,
+                        "deal_type": deal.deal_type,
+                        "closing_date": deal.closing_date.isoformat() if deal.closing_date else None,
+                        "total_principal": float(deal.total_principal),
+                        "credit_rating": deal.credit_rating,
+                        "yield_rate": float(deal.yield_rate) if deal.yield_rate else None,
+                        "duration": float(deal.duration) if deal.duration else None,
+                        "cycle_code": deal.cycle_code,
+                        # Aggregated tranche data
+                        "tranche_count": tranche_count,
+                        "total_tranche_principal": total_tranche_principal,
+                        "avg_tranche_interest_rate": avg_interest_rate,
+                    }
+                    
+                    # Apply column selection and ordering
+                    if report.selected_columns:
+                        # Create ordered result dict based on selected_columns order
+                        ordered_result = {}
+                        for column_name in report.selected_columns:
+                            if column_name in complete_data:
+                                ordered_result[column_name] = complete_data[column_name]
+                        results.append(ordered_result)
+                    else:
+                        # If no column selection, return all columns
+                        results.append(complete_data)
 
         else:  # TRANCHE level
             # Tranche-level report: one row per selected tranche
@@ -334,12 +247,40 @@ class ReportService:
                         continue
                     
                     # Get selected tranches
-                    tranches = await self.tranche_dao.get_by_ids(tranche_ids)
+                    tranches = await self.tranche_dao.get_by_ids(tranche_ids, cycle_code)
                     
                     for tranche in tranches:
-                        # Build row using selected columns (one tranche per row)
-                        row = self.build_report_row(deal, [tranche], selected_columns, "TRANCHE")
-                        results.append(row)
+                        # Build complete data dict with all possible columns
+                        complete_data = {
+                            "deal_id": deal.id,
+                            "deal_name": deal.name,
+                            "deal_originator": deal.originator,
+                            "deal_type": deal.deal_type,
+                            "deal_credit_rating": deal.credit_rating,
+                            "deal_yield_rate": float(deal.yield_rate) if deal.yield_rate else None,
+                            "tranche_id": tranche.id,
+                            "tranche_name": tranche.name,
+                            "class_name": tranche.class_name,
+                            "subordination_level": tranche.subordination_level,
+                            "principal_amount": float(tranche.principal_amount),
+                            "interest_rate": float(tranche.interest_rate),
+                            "credit_rating": tranche.credit_rating,
+                            "payment_priority": tranche.payment_priority,
+                            "maturity_date": tranche.maturity_date.isoformat() if tranche.maturity_date else None,
+                            "cycle_code": tranche.cycle_code,
+                        }
+                        
+                        # Apply column selection and ordering
+                        if report.selected_columns:
+                            # Create ordered result dict based on selected_columns order
+                            ordered_result = {}
+                            for column_name in report.selected_columns:
+                                if column_name in complete_data:
+                                    ordered_result[column_name] = complete_data[column_name]
+                            results.append(ordered_result)
+                        else:
+                            # If no column selection, return all columns
+                            results.append(complete_data)
 
         return results
 

@@ -122,7 +122,8 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
           {savedReports.map(report => (
             <option key={report.id} value={report.id.toString()}>
               {report.name} ({report.scope} Level • {report.deal_count} deals
-              {report.scope === 'TRANCHE' && ` • ${report.tranche_count} tranches`})
+              {report.scope === 'TRANCHE' && ` • ${report.tranche_count} tranches`}
+              {report.column_count > 0 && ` • ${report.column_count} columns`})
             </option>
           ))}
         </select>
@@ -152,6 +153,9 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
                           <strong>Tranches:</strong> {selectedReport.tranche_count}
                         </div>
                       )}
+                      <div className="col-sm-6">
+                        <strong>Columns:</strong> {selectedReport.column_count > 0 ? selectedReport.column_count : 'All available'}
+                      </div>
                     </div>
                   </div>
                 </div>

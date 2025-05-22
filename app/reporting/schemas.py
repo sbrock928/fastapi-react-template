@@ -20,7 +20,7 @@ class ReportBase(BaseModel):
     created_by: str
     selected_deals: List[int] = []
     selected_tranches: Dict[str, List[int]] = {}  # Keys are deal_id as strings
-    selected_columns: List[str] = []  # NEW FIELD
+    selected_columns: List[str] = []  # Column names in desired display order
     is_active: bool = True
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
@@ -41,6 +41,15 @@ class ReportBase(BaseModel):
             raise ValueError("At least one deal must be selected")
         if len(set(v)) != len(v):
             raise ValueError("Duplicate deal IDs are not allowed")
+        return v
+
+    @field_validator("selected_columns")
+    @classmethod
+    def validate_selected_columns(cls, v: List[str]) -> List[str]:
+        if not v:
+            raise ValueError("At least one column must be selected")
+        if len(set(v)) != len(v):
+            raise ValueError("Duplicate column names are not allowed")
         return v
 
     @field_validator("selected_tranches")
@@ -65,25 +74,7 @@ class ReportBase(BaseModel):
         
         return v
 
-    @field_validator("selected_columns")
-    @classmethod
-    def validate_selected_columns(cls, v: List[str], info) -> List[str]:
-        if not v:
-            # If no columns specified, use defaults
-            from app.reporting.column_registry import get_default_columns, ColumnScope
-            scope = info.data.get('scope') if hasattr(info, 'data') and info.data else None
-            if scope:
-                return get_default_columns(ColumnScope(scope))
-            return []
-        
-        # Validate that all specified columns exist
-        from app.reporting.column_registry import COLUMN_REGISTRY
-        invalid_columns = [col for col in v if col not in COLUMN_REGISTRY]
-        if invalid_columns:
-            raise ValueError(f"Invalid columns: {', '.join(invalid_columns)}")
-        
-        return v
-    
+
 class ReportCreate(ReportBase):
     pass
 
@@ -100,7 +91,7 @@ class ReportUpdate(BaseModel):
     scope: Optional[ReportScope] = None
     selected_deals: Optional[List[int]] = None
     selected_tranches: Optional[Dict[str, List[int]]] = None
-    selected_columns: Optional[List[str]] = None  # <-- ADD THIS LINE
+    selected_columns: Optional[List[str]] = None
     is_active: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
@@ -116,6 +107,16 @@ class ReportUpdate(BaseModel):
             return v.strip()
         return v
 
+    @field_validator("selected_columns")
+    @classmethod
+    def validate_selected_columns(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is not None:
+            if not v:
+                raise ValueError("At least one column must be selected")
+            if len(set(v)) != len(v):
+                raise ValueError("Duplicate column names are not allowed")
+        return v
+
 
 class ReportSummary(BaseModel):
     """Summary schema for report listings."""
@@ -126,6 +127,7 @@ class ReportSummary(BaseModel):
     created_date: datetime
     deal_count: int
     tranche_count: int
+    column_count: int
     is_active: bool
 
     model_config = ConfigDict(from_attributes=True)
@@ -144,5 +146,3 @@ class RunReportRequest(BaseModel):
         if not v or not v.strip():
             raise ValueError("Cycle code cannot be empty")
         return v.strip()
-    
-

@@ -99,9 +99,14 @@ export interface Note {
 // Deal & Tranche Data Types
 export interface Deal {
   id: number;
-  deal_number: string;
-  deal_name: string;
-  cycle_code?: string; // Optional since not used during configuration
+  name: string;
+  originator: string;
+  deal_type: string;
+  total_principal: number;
+  credit_rating: string;
+  yield_rate: number;
+  closing_date: string;
+  cycle_code: string;
 }
 
 export interface Tranche {
@@ -126,7 +131,7 @@ export interface ReportConfig {
   updated_date?: string;
   selected_deals: number[];
   selected_tranches: Record<number, number[]>; // dealId -> trancheIds[]
-  selected_columns: string[]; // New field for column selection
+  selected_columns: string[]; // Column names in desired display order
 }
 
 export interface ReportSummary {
@@ -136,6 +141,7 @@ export interface ReportSummary {
   created_date: string;
   deal_count: number;
   tranche_count: number;
+  column_count: number;
 }
 
 // Report Execution Types
@@ -184,26 +190,7 @@ export interface ReportBuilderState {
   reportScope: 'DEAL' | 'TRANCHE' | '';
   selectedDeals: number[];
   selectedTranches: Record<number, number[]>;
-  selectedColumns: string[]; // New field
-}
-
-// Column Definition Types
-export interface ColumnDefinition {
-  key: string;
-  label: string;
-  description: string;
-  column_type: 'basic' | 'calculated' | 'aggregated';
-  scope: 'DEAL' | 'TRANCHE' | 'BOTH';
-  data_type: 'string' | 'number' | 'currency' | 'percentage' | 'date';
-  formatter?: string;
-  is_default: boolean;
-  category: string;
-  sort_order: number;
-}
-
-export interface ColumnCategory {
-  name: string;
-  columns: ColumnDefinition[];
+  selectedColumns: string[];
 }
 
 // API Response Types for better type safety

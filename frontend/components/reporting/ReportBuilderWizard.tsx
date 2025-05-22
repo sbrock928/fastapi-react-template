@@ -3,7 +3,6 @@ import { reportsApi } from '@/services/api';
 import { useToast } from '@/context/ToastContext';
 import DealSelector from './DealSelector';
 import TrancheSelector from './TrancheSelector';
-import ColumnSelector from './ColumnSelector';
 import type { Deal, Tranche, ReportConfig } from '@/types';
 
 interface ReportBuilderWizardProps {
@@ -39,6 +38,9 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
   const [dealsLoading, setDealsLoading] = useState<boolean>(false);
   const [tranchesLoading, setTranchesLoading] = useState<boolean>(false);
 
+  // Available columns based on report scope
+  const [availableColumns, setAvailableColumns] = useState<{[key: string]: string}>({});
+
   // Load deals when wizard opens
   useEffect(() => {
     loadDeals();
@@ -54,6 +56,48 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       setSelectedColumns(editingReport.selected_columns || []);
     }
   }, [isEditMode, editingReport]);
+
+  // Update available columns when scope changes
+  useEffect(() => {
+    if (reportScope === 'DEAL') {
+      setAvailableColumns({
+        'deal_name': 'Deal Name',
+        'originator': 'Originator',
+        'deal_type': 'Deal Type',
+        'total_principal': 'Total Principal',
+        'credit_rating': 'Credit Rating',
+        'yield_rate': 'Yield Rate',
+        'tranche_count': 'Tranche Count',
+        'closing_date': 'Closing Date',
+        'duration': 'Duration',
+        'cycle_code': 'Cycle Code',
+        'total_tranche_principal': 'Total Tranche Principal',
+        'avg_tranche_interest_rate': 'Average Tranche Interest Rate'
+      });
+    } else if (reportScope === 'TRANCHE') {
+      setAvailableColumns({
+        'deal_name': 'Deal Name',
+        'tranche_name': 'Tranche Name',
+        'class_name': 'Class Name',
+        'principal_amount': 'Principal Amount',
+        'interest_rate': 'Interest Rate',
+        'credit_rating': 'Credit Rating',
+        'payment_priority': 'Payment Priority',
+        'deal_originator': 'Deal Originator',
+        'deal_type': 'Deal Type',
+        'subordination_level': 'Subordination Level',
+        'cycle_code': 'Cycle Code',
+        'maturity_date': 'Maturity Date',
+        'deal_credit_rating': 'Deal Credit Rating',
+        'deal_yield_rate': 'Deal Yield Rate'
+      });
+    }
+    
+    // Reset selected columns when scope changes (unless editing)
+    if (!isEditMode) {
+      setSelectedColumns([]);
+    }
+  }, [reportScope, isEditMode]);
 
   // Load tranches when deals are selected
   useEffect(() => {
@@ -74,28 +118,6 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
 
     loadTranches();
   }, [selectedDeals, reportScope]);
-
-  // Load default columns when scope changes
-  useEffect(() => {
-    const loadDefaultColumns = async () => {
-      if (reportScope && !isEditMode) {
-        try {
-          const response = await fetch(`/api/reports/columns/${reportScope.toLowerCase()}/defaults`);
-          const defaultColumns = await response.json();
-          setSelectedColumns(defaultColumns);
-        } catch (error) {
-          console.error('Error loading default columns:', error);
-          // Use fallback defaults
-          const fallbackColumns = reportScope === 'DEAL' 
-            ? ['deal_name', 'originator', 'deal_type', 'total_principal', 'credit_rating']
-            : ['deal_name', 'tranche_name', 'class_name', 'principal_amount', 'interest_rate'];
-          setSelectedColumns(fallbackColumns);
-        }
-      }
-    };
-
-    loadDefaultColumns();
-  }, [reportScope, isEditMode]);
 
   // Load available deals (no cycle filtering during configuration)
   const loadDeals = async () => {
@@ -153,46 +175,39 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     }));
   };
 
-  // Handle column selection
+  // Column management functions
   const handleColumnToggle = (columnKey: string) => {
     setSelectedColumns(prev => {
       if (prev.includes(columnKey)) {
-        return prev.filter(key => key !== columnKey);
+        return prev.filter(col => col !== columnKey);
       } else {
         return [...prev, columnKey];
       }
     });
   };
 
-  const handleSelectDefaultColumns = async () => {
-    if (!reportScope) return;
-    
-    try {
-      const response = await fetch(`/api/reports/columns/${reportScope.toLowerCase()}/defaults`);
-      const defaultColumns = await response.json();
-      setSelectedColumns(defaultColumns);
-    } catch (error) {
-      console.error('Error loading default columns:', error);
-      showToast('Error loading default columns', 'error');
-    }
+  const moveColumnUp = (columnKey: string) => {
+    setSelectedColumns(prev => {
+      const index = prev.indexOf(columnKey);
+      if (index > 0) {
+        const newOrder = [...prev];
+        [newOrder[index], newOrder[index - 1]] = [newOrder[index - 1], newOrder[index]];
+        return newOrder;
+      }
+      return prev;
+    });
   };
 
-  const handleSelectAllColumns = async () => {
-    if (!reportScope) return;
-    
-    try {
-      const response = await fetch(`/api/reports/columns/${reportScope.toLowerCase()}`);
-      const categories = await response.json();
-      const allColumns = Object.values(categories).flat().map((col: any) => col.key);
-      setSelectedColumns(allColumns);
-    } catch (error) {
-      console.error('Error loading all columns:', error);
-      showToast('Error loading columns', 'error');
-    }
-  };
-
-  const handleSelectNoColumns = () => {
-    setSelectedColumns([]);
+  const moveColumnDown = (columnKey: string) => {
+    setSelectedColumns(prev => {
+      const index = prev.indexOf(columnKey);
+      if (index < prev.length - 1) {
+        const newOrder = [...prev];
+        [newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]];
+        return newOrder;
+      }
+      return prev;
+    });
   };
 
   // Wizard navigation
@@ -254,6 +269,16 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     } finally {
       setLoading(false);
     }
+  };
+
+  // Format currency
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      notation: 'compact',
+      maximumFractionDigits: 1
+    }).format(amount);
   };
 
   // Render wizard step content
@@ -336,8 +361,12 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
                     return (
                       <div key={dealId} className="d-flex justify-content-between align-items-center py-2 border-bottom">
                         <div>
-                          <strong>{deal.name}: {deal.deal_name}</strong>
-                          <div className="small text-muted">{deal.deal_number}</div>
+                          <strong>{deal.name}</strong>
+                          <div className="small text-muted">{deal.deal_type} • {deal.originator}</div>
+                        </div>
+                        <div className="text-end">
+                          <div>{formatCurrency(deal.total_principal)}</div>
+                          <div className="small text-muted">{deal.credit_rating}</div>
                         </div>
                       </div>
                     );
@@ -362,20 +391,97 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
 
       case 4:
         return (
-          <ColumnSelector
-            reportScope={reportScope as 'DEAL' | 'TRANCHE'}
-            selectedColumns={selectedColumns}
-            onColumnToggle={handleColumnToggle}
-            onSelectDefaults={handleSelectDefaultColumns}
-            onSelectAll={handleSelectAllColumns}
-            onSelectNone={handleSelectNoColumns}
-          />
+          <div>
+            <h5 className="mb-3">Step 4: Select & Order Columns</h5>
+            <p className="text-muted">Choose which columns to include in your report and arrange them in your preferred order.</p>
+            
+            <div className="row">
+              <div className="col-md-6">
+                <h6>Available Columns</h6>
+                <div className="border rounded p-3" style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                  {Object.entries(availableColumns).map(([key, label]) => (
+                    <div key={key} className="form-check mb-2">
+                      <input
+                        className="form-check-input"
+                        type="checkbox"
+                        id={`col-${key}`}
+                        checked={selectedColumns.includes(key)}
+                        onChange={() => handleColumnToggle(key)}
+                      />
+                      <label className="form-check-label" htmlFor={`col-${key}`}>
+                        {label}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              <div className="col-md-6">
+                <h6>Selected Columns (Report Order)</h6>
+                <div className="border rounded p-3" style={{ minHeight: '400px' }}>
+                  {selectedColumns.length === 0 ? (
+                    <div className="text-muted text-center py-4">
+                      <i className="bi bi-arrow-left me-2"></i>
+                      Select columns from the left to build your report
+                    </div>
+                  ) : (
+                    selectedColumns.map((columnKey, index) => (
+                      <div
+                        key={columnKey}
+                        className="d-flex justify-content-between align-items-center p-2 mb-2 bg-light rounded"
+                      >
+                        <div>
+                          <span className="badge bg-primary me-2">{index + 1}</span>
+                          {availableColumns[columnKey]}
+                        </div>
+                        <div className="btn-group btn-group-sm">
+                          <button
+                            type="button"
+                            className="btn btn-outline-secondary"
+                            onClick={() => moveColumnUp(columnKey)}
+                            disabled={index === 0}
+                            title="Move up"
+                          >
+                            <i className="bi bi-arrow-up"></i>
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-outline-secondary"
+                            onClick={() => moveColumnDown(columnKey)}
+                            disabled={index === selectedColumns.length - 1}
+                            title="Move down"
+                          >
+                            <i className="bi bi-arrow-down"></i>
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-outline-danger"
+                            onClick={() => handleColumnToggle(columnKey)}
+                            title="Remove"
+                          >
+                            <i className="bi bi-x"></i>
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                
+                {selectedColumns.length > 0 && (
+                  <div className="alert alert-info mt-3">
+                    <i className="bi bi-info-circle me-2"></i>
+                    Columns will appear in your report in this exact order.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         );
 
       case 5:
         return (
           <div>
-            <h5 className="mb-3">Step 4: Review & Save</h5>
+            <h5 className="mb-3">Step 5: Review & Save</h5>
             <div className="card">
               <div className="card-header">
                 <h6 className="mb-0">Report Configuration Summary</h6>
@@ -403,7 +509,19 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
                   )}
                   
                   <dt className="col-sm-3">Selected Columns:</dt>
-                  <dd className="col-sm-9">{selectedColumns.length} column{selectedColumns.length !== 1 ? 's' : ''}</dd>
+                  <dd className="col-sm-9">
+                    {selectedColumns.length > 0 ? (
+                      <div>
+                        {selectedColumns.map((col, index) => (
+                          <span key={col} className="badge bg-light text-dark me-1">
+                            {index + 1}. {availableColumns[col]}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-muted">All available columns</span>
+                    )}
+                  </dd>
                   
                   <dt className="col-sm-3">Expected Output:</dt>
                   <dd className="col-sm-9">
@@ -411,6 +529,9 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
                       ? `${selectedDeals.length} row${selectedDeals.length !== 1 ? 's' : ''} (one per deal)`
                       : `${Object.values(selectedTranches).flat().length} row${Object.values(selectedTranches).flat().length !== 1 ? 's' : ''} (one per tranche)`
                     }
+                    {selectedColumns.length > 0 && (
+                      <> with {selectedColumns.length} column{selectedColumns.length !== 1 ? 's' : ''}</>
+                    )}
                   </dd>
                 </dl>
               </div>
@@ -467,7 +588,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
             <div className="small mt-1">
               {step === 1 && 'Setup'}
               {step === 2 && 'Deals'}
-              {step === 3 && (reportScope === 'TRANCHE' ? 'Tranches' : 'Skip')}
+              {step === 3 && (reportScope === 'TRANCHE' ? 'Tranches' : 'Review')}
               {step === 4 && 'Columns'}
               {step === 5 && 'Save'}
             </div>

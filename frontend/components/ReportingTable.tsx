@@ -36,12 +36,14 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
       return;
     }
     
+    const orderedColumns = getOrderedColumns();
+    
     // Create CSV header
-    let csvContent = reportConfig.columns.map(col => `"${col.header}"`).join(',') + '\n';
+    let csvContent = orderedColumns.map(col => `"${col.header}"`).join(',') + '\n';
     
     // Add data rows
     reportData.forEach(row => {
-      const csvRow = reportConfig.columns.map(col => {
+      const csvRow = orderedColumns.map(col => {
         let value = row[col.field];
         
         // Format based on column type
@@ -109,6 +111,52 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
     }
   };
   
+  // Get ordered columns based on actual data structure
+  const getOrderedColumns = () => {
+    if (reportData.length > 0) {
+      const firstRow = reportData[0];
+      // The keys are already in the correct order from the backend
+      return Object.keys(firstRow).map(key => ({
+        field: key,
+        header: formatColumnHeader(key),
+        type: determineColumnType(key, firstRow[key])
+      }));
+    }
+    return reportConfig.columns;
+  };
+
+  // Format column header from field name
+  const formatColumnHeader = (fieldName: string): string => {
+    return fieldName
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, l => l.toUpperCase());
+  };
+
+  // Determine column type based on field name and value
+  const determineColumnType = (fieldName: string, value: any): string => {
+    // Check for percentage fields
+    if (fieldName.includes('rate') || fieldName.includes('percentage')) {
+      return 'percentage';
+    }
+    
+    // Check for date fields
+    if (fieldName.includes('date') || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value))) {
+      return 'date';
+    }
+    
+    // Check for number fields
+    if (typeof value === 'number' || 
+        fieldName.includes('amount') || 
+        fieldName.includes('principal') || 
+        fieldName.includes('count') ||
+        fieldName.includes('priority') ||
+        fieldName.includes('level')) {
+      return 'number';
+    }
+    
+    return 'string';
+  };
+  
   // Filter report data based on search input
   const filterReportData = (e: React.ChangeEvent<HTMLInputElement>) => {
     const filterValue = e.target.value.toLowerCase();
@@ -121,8 +169,9 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
     
     // Only filter if we have an active report and data
     if (reportType && reportData.length > 0) {
+      const orderedColumns = getOrderedColumns();
       const filtered = reportData.filter(item => 
-        reportConfig.columns.some(column => {
+        orderedColumns.some(column => {
           const value = item[column.field];
           return value != null && String(value).toLowerCase().includes(filterValue);
         })
@@ -138,6 +187,8 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
   };
   
   if (!reportType || !reportConfig) return null;
+  
+  const orderedColumns = getOrderedColumns();
   
   return (
     <div id="reportResultsCard" className="card">
@@ -245,14 +296,14 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
         <table className="table table-striped" id="reportTable">
           <thead>
             <tr>
-              {reportConfig.columns.map(column => (
+              {orderedColumns.map(column => (
                 <th key={column.field}>{column.header}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td colSpan={reportConfig.columns.length} className="text-center py-4">
+              <td colSpan={orderedColumns.length} className="text-center py-4">
                 No matching data found. Try changing your filter or report parameters.
               </td>
             </tr>
@@ -266,7 +317,7 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
         <table className="table table-striped" id="reportTable">
           <thead>
             <tr>
-              {reportConfig.columns.map(column => (
+              {orderedColumns.map(column => (
                 <th key={column.field}>{column.header}</th>
               ))}
             </tr>
@@ -274,7 +325,7 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
           <tbody>
             {pagination.pageItems.map((row, idx) => (
               <tr key={idx}>
-                {reportConfig.columns.map(column => {
+                {orderedColumns.map(column => {
                   let cellValue = row[column.field];
                   let className = '';
                   
