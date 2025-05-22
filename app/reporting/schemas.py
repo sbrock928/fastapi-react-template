@@ -100,6 +100,7 @@ class ReportUpdate(BaseModel):
     scope: Optional[ReportScope] = None
     selected_deals: Optional[List[int]] = None
     selected_tranches: Optional[Dict[str, List[int]]] = None
+    selected_columns: Optional[List[str]] = None  # <-- ADD THIS LINE
     is_active: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")

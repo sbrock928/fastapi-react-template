@@ -336,7 +336,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
                     return (
                       <div key={dealId} className="d-flex justify-content-between align-items-center py-2 border-bottom">
                         <div>
-                          <strong>{deal.deal_number}: {deal.deal_name}</strong>
+                          <strong>{deal.name}: {deal.deal_name}</strong>
                           <div className="small text-muted">{deal.deal_number}</div>
                         </div>
                       </div>

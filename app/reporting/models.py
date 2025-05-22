@@ -23,3 +23,4 @@ class Report(Base):
     # selected_tranches: {"1": [1, 2], "2": [3, 4, 5]}
     selected_deals = Column(JSON)
     selected_tranches = Column(JSON)
+    selected_columns = Column(JSON) 
