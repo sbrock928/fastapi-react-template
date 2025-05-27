@@ -3,7 +3,7 @@
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from app.reporting.service import ReportService
-from app.reporting.dao import ReportDAO, ReportingDAO
+from app.reporting.dao import ReportDAO
 from app.reporting.schemas import (
     ReportRead,
     ReportCreate,
@@ -21,10 +21,6 @@ router = APIRouter(prefix="/reports", tags=["reporting"])
 # Dependency functions
 async def get_report_dao(db: SessionDep) -> ReportDAO:
     return ReportDAO(db)
-
-
-async def get_reporting_dao(db: DWSessionDep) -> ReportingDAO:
-    return ReportingDAO(db)
 
 
 async def get_deal_dao(db: DWSessionDep) -> DealDAO:
@@ -152,15 +148,7 @@ async def get_available_tranches(
 
 @router.get("/data/cycles", response_model=List[Dict[str, str]])
 async def get_available_cycles(
-    reporting_dao: ReportingDAO = Depends(get_reporting_dao),
+    service: ReportService = Depends(get_report_service)
 ) -> List[Dict[str, str]]:
     """Get available cycle codes from the data warehouse."""
-    # Return dummy cycle data for now
-    dummy_cycles = [
-        {"code": "2024Q1", "label": "2024Q1 (Quarter 1 2024)"},
-        {"code": "2024Q2", "label": "2024Q2 (Quarter 2 2024)"},
-        {"code": "2024Q3", "label": "2024Q3 (Quarter 3 2024)"},
-        {"code": "2024Q4", "label": "2024Q4 (Quarter 4 2024)"},
-        {"code": "2025Q1", "label": "2025Q1 (Quarter 1 2025)"},
-    ]
-    return dummy_cycles
+    return await service.get_available_cycles()

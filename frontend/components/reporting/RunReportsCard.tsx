@@ -1,5 +1,6 @@
 import React from 'react';
 import { useReportContext } from '@/context/ReportContext';
+import { useCycleContext } from '@/context/CycleContext';
 import { ReportDropdown, CycleDropdown } from '@/components/reporting';
 
 interface RunReportsCardProps {
@@ -16,6 +17,10 @@ const RunReportsCard: React.FC<RunReportsCardProps> = ({
   onRunReport
 }) => {
   const { savedReports } = useReportContext();
+  const { selectedCycle } = useCycleContext();
+
+  // Check if both report and cycle are selected
+  const canRunReport = selectedSavedReport && selectedCycle && selectedCycle.value !== '';
 
   return (
     <div className="card mb-4">
@@ -41,7 +46,7 @@ const RunReportsCard: React.FC<RunReportsCardProps> = ({
               className="btn"
               style={{ backgroundColor: '#28a745', color: 'white' }}
               onClick={onRunReport}
-              disabled={loading || !selectedSavedReport}
+              disabled={loading || !canRunReport}
             >
               {loading ? (
                 <>
@@ -67,10 +72,25 @@ const RunReportsCard: React.FC<RunReportsCardProps> = ({
           </div>
         </div>
 
-        {selectedSavedReport && (
+        {/* Validation messages */}
+        {!selectedSavedReport && (
+          <div className="alert alert-warning mt-3">
+            <i className="bi bi-exclamation-triangle me-2"></i>
+            Please select a saved report to run.
+          </div>
+        )}
+        
+        {selectedSavedReport && (!selectedCycle || selectedCycle.value === '') && (
+          <div className="alert alert-warning mt-3">
+            <i className="bi bi-exclamation-triangle me-2"></i>
+            Please select a cycle to run the report.
+          </div>
+        )}
+
+        {selectedSavedReport && selectedCycle && selectedCycle.value !== '' && (
           <div className="alert alert-info mt-3">
             <i className="bi bi-info-circle me-2"></i>
-            Selected saved report: {savedReports.find(r => r.id.toString() === selectedSavedReport)?.name}
+            Ready to run: <strong>{savedReports.find(r => r.id.toString() === selectedSavedReport)?.name}</strong> for cycle <strong>{selectedCycle.label}</strong>
           </div>
         )}
       </div>

@@ -281,3 +281,11 @@ class ReportService:
             result[deal_id] = [TrancheRead.model_validate(tranche) for tranche in tranches]
 
         return result
+
+    async def get_available_cycles(self) -> List[Dict[str, str]]:
+        """Get available cycle codes from the data warehouse.
+
+        This method coordinates between the report DAO and potentially
+        the data warehouse DAOs to get all available cycles.
+        """
+        return await self.report_dao.get_available_cycles()
