@@ -1,5 +1,5 @@
 import apiClient from './apiClient';
-import type { ResourceItem } from '@/types';
+import type { ResourceItem } from '@/types/resources';
 
 // Resources API service
 const resourcesApi = {

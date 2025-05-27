@@ -141,7 +141,7 @@ export interface TrancheReportRow {
 
 // Cycle Selection Types
 export interface CycleOption {
-  code: string;
+  value: string; // Changed from 'code' to 'value' to match usage in components
   label: string;
 }
 

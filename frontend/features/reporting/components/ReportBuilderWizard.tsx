@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { reportsApi } from '@/services/api';
+import { reportingApi } from '@/services/api';
+import { DealSelector, TrancheSelector } from './';
 import { useToast } from '@/context/ToastContext';
-import DealSelector from './DealSelector';
-import TrancheSelector from './TrancheSelector';
-import type { Deal, TrancheReportSummary, ReportConfig } from '@/types';
+import type { Deal, TrancheReportSummary, ReportConfig } from '@/types/reporting';
 
 interface ReportBuilderWizardProps {
   onReportSaved: () => void;
@@ -56,7 +55,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       if (selectedDeals.length > 0 && reportScope === 'TRANCHE') {
         setTranchesLoading(true);
         try {
-          const response = await reportsApi.getTranches(selectedDeals);
+          const response = await reportingApi.getTranches(selectedDeals);
           setTranches(response.data);
         } catch (error) {
           console.error('Error loading tranches:', error);
@@ -74,7 +73,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
   const loadDeals = async () => {
     setDealsLoading(true);
     try {
-      const response = await reportsApi.getDeals(); // No cycle parameter
+      const response = await reportingApi.getDeals(); // No cycle parameter
       setDeals(response.data);
     } catch (error) {
       console.error('Error loading deals:', error);
@@ -149,7 +148,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
           selected_tranches: selectedTranches
         };
 
-        await reportsApi.updateReport(editingReport.id, updateData);
+        await reportingApi.updateReport(editingReport.id, updateData);
         showToast('Report configuration updated successfully!', 'success');
       } else {
         // Create new report
@@ -161,7 +160,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
           selected_tranches: selectedTranches
         };
 
-        await reportsApi.createReport(reportConfig);
+        await reportingApi.createReport(reportConfig);
         showToast('Report configuration saved successfully!', 'success');
       }
       

@@ -8,7 +8,7 @@ import type {
   RunReportRequest,
   DealReportRow,
   TrancheReportRow 
-} from '@/types';
+} from '@/types/reporting';
 
 // Reporting API service
 const reportingApi = {

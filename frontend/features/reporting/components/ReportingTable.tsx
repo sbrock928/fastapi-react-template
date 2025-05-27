@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { formatDate, formatNumber, formatPercentage } from '@/utils/formatters';
 import usePagination from '@/hooks/usePagination';
 import type { ReportRow, DynamicReportConfig } from '@/types';
-import { reportsApi } from '@/services/api';
+import { reportingApi } from '@/services/api';
 import styles from '@/styles/components/ReportingTable.module.css';
 
 interface ReportingTableProps {
@@ -89,7 +89,7 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
         fileName: fileName
       };
       
-      const response = await reportsApi.exportXlsx(exportData);
+      const response = await reportingApi.exportXlsx(exportData);
       
       // Create and download the file
       const blob = new Blob([response.data], { 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { reportsApi } from '@/services/api';
+import { reportingApi } from '@/services/api';
 import { useCycleContext, useReportContext } from '@/context';
 import { 
   ReportManagementCard,
@@ -78,7 +78,7 @@ const ReportingContent = () => {
 
     try {
       const reportId = parseInt(selectedSavedReport);
-      const response = await reportsApi.runReportById(reportId, selectedCycle.value);
+      const response = await reportingApi.runReportById(reportId, selectedCycle.value);
       
       setReportData(response.data as ReportRow[]);
       setIsSkeletonMode(false);

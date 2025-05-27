@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { reportsApi } from '@/services/api';
+import { reportingApi } from '@/services/api';
 import type { ReportSummary } from '@/types';
 
 interface ReportContextType {
@@ -27,7 +27,7 @@ export const ReportProvider: React.FC<ReportProviderProps> = ({ children }) => {
     setError(null);
     
     try {
-      const response = await reportsApi.getReportsSummary();
+      const response = await reportingApi.getReportsSummary();
       setSavedReports(response.data);
     } catch (err) {
       console.error('Error loading saved reports:', err);

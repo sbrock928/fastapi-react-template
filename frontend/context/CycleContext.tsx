@@ -1,10 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { reportsApi } from '@/services/api';
-
-interface CycleOption {
-  value: string;
-  label: string;
-}
+import { createContext, useState, useContext, useEffect, ReactNode } from 'react';
+import { reportingApi } from '@/services/api';
+import type { CycleOption } from '@/types/reporting';
 
 interface CycleContextType {
   cycleCodes: CycleOption[];
@@ -43,7 +39,7 @@ export const CycleProvider: React.FC<CycleProviderProps> = ({ children }) => {
       setError(null);
 
       try {
-        const response = await reportsApi.getAvailableCycles();
+        const response = await reportingApi.getAvailableCycles();
 
         const options = [
           { value: '', label: 'Select a Cycle' },

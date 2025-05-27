@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { reportsApi } from '@/services/api';
+import { reportingApi } from '@/services/api';
 import { useToast } from '@/context/ToastContext';
 import { useReportContext } from '@/context/ReportContext';
 import type { ReportConfig } from '@/types';
@@ -28,7 +28,7 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
   const handleEditReport = async (reportId: number) => {
     setEditLoading(reportId.toString());
     try {
-      const response = await reportsApi.getReport(reportId);
+      const response = await reportingApi.getReport(reportId);
       const reportConfig = response.data;
       
       // Call the parent's edit handler with the full report configuration
@@ -50,7 +50,7 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
 
     setDeleteLoading(reportId.toString());
     try {
-      await reportsApi.deleteReport(reportId);
+      await reportingApi.deleteReport(reportId);
       showToast(`Successfully deleted report "${reportName}"`, 'success');
       
       // Refresh reports using context

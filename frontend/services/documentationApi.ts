@@ -1,5 +1,5 @@
 import apiClient from './apiClient';
-import type { Note } from '@/types';
+import type { Note } from '@/types/documentation';
 
 // Documentation API service
 const documentationApi = {

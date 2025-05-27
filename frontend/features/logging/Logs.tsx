@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { logsApi } from '@/services/api';
+import { loggingApi } from '@/services/api';
 import { LogDetailsModal, StatusDistributionChart } from './components';
 import { usePagination } from '@/hooks';
 import { formatDateTime, getUrlParamAsInt } from '@/utils';
-import type { Log, StatusDistribution } from '@/types';
+import type { Log, StatusDistribution } from '@/types/logging';
 
 const Logs = () => {
   // State
@@ -116,7 +116,7 @@ const Logs = () => {
         setServerFilterActive(false);
       }
       
-      const response = await logsApi.getLogs(params);
+      const response = await loggingApi.getLogs(params);
       
       // Get total count from headers or response data
       const totalCount = getUrlParamAsInt('x-total-count', 0) || parseInt(response.headers['x-total-count'] || '0');
@@ -149,7 +149,7 @@ const Logs = () => {
   const loadStatusDistribution = async () => {
     setLoadingDistribution(true);
     try {
-      const response = await logsApi.getStatusDistribution(timeRange);
+      const response = await loggingApi.getStatusDistribution(timeRange);
       if (response.data && response.data.status_distribution) {
         setStatusDistribution(response.data.status_distribution);
       } else {
@@ -211,7 +211,7 @@ const Logs = () => {
 
   const showLogDetails = async (logId: number) => {
     try {
-      const response = await logsApi.getLogDetail(logId);
+      const response = await loggingApi.getLogDetail(logId);
       if (response.data.length > 0) {
         setSelectedLog(response.data[0]);
         setShowModal(true);
