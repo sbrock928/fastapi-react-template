@@ -1,5 +1,5 @@
 import React from 'react';
-import { ReportBuilderWizard, SavedReportsManager } from '@/components/reporting';
+import { ReportBuilderWizard, SavedReportsManager } from './';
 import type { ReportConfig } from '@/types';
 
 interface ReportManagementCardProps {

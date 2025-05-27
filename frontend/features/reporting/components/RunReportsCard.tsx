@@ -1,7 +1,7 @@
 import React from 'react';
 import { useReportContext } from '@/context/ReportContext';
 import { useCycleContext } from '@/context/CycleContext';
-import { ReportDropdown, CycleDropdown } from '@/components/reporting';
+import { ReportDropdown, CycleDropdown } from './';
 import styles from '@/styles/components/RunReportsCard.module.css';
 
 interface RunReportsCardProps {
