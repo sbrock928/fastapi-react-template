@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { resourcesApi } from '@/services/api';
-import resourceConfig from '@/config/resources';
-import usePagination from '@/hooks/usePagination';
-import type { ResourceItem } from '@/types';
-import ResourceModal from '@/components/ResourceModal';
-import { useToast } from '@/context/ToastContext';
+import { useToast } from '@/context';
+import { resourceConfig } from '@/config';
+import { ResourceModal } from '@/components/resources';
+import { usePagination } from '@/hooks';
+import type { ResourceItem, ResourceConfig } from '@/types';
 
 const Resources = () => {
   // State variables
@@ -351,7 +351,7 @@ const Resources = () => {
                 onChange={handleResourceTypeChange}
               >
                 <option value="">Select a resource type...</option>
-                {Object.entries(resourceConfig).map(([key, config]) => (
+                {Object.entries(resourceConfig).map(([key, config]: [string, ResourceConfig]) => (
                   <option key={key} value={key}>
                     {config.displayName}s
                   </option>

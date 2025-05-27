@@ -467,7 +467,7 @@ const ResourceModal = ({
     >
       <div className="modal-dialog">
         <div className="modal-content">
-          <div className="modal-header text-white" style={{ backgroundColor: '#93186C' }}>
+          <div className="modal-header text-white" style={{ backgroundColor: '#28a745' }}>
             <h5 className="modal-title" id="resourceModalLabel">
               {editingResource ? `Edit ${resourceConfig.displayName}` : `Add ${resourceConfig.displayName}`}
             </h5>

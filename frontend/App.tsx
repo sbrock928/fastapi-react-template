@@ -1,15 +1,8 @@
 import { useEffect } from 'react'
 import { Routes, Route } from 'react-router-dom'
-import Sidebar from './components/Sidebar'
-import TopNavigation from './components/TopNavigation'
-import Toast from './components/Toast'
-import Dashboard from './pages/Dashboard'
-import Resources from './pages/Resources'
-import Reporting from './pages/Reporting'
-import NewReportingUX from './pages/new-reporting-ux'
-import Logs from './pages/Logs'
-import Documentation from './pages/Documentation'
-import { ToastProvider } from './context/ToastContext'
+import { ToastProvider, ReportProvider, CycleProvider } from './context'
+import { Sidebar, TopNavigation, Toast } from './components/ui'
+import { Dashboard, Resources, Reporting, Logs, Documentation } from './pages'
 import './index.css'  // Import the new layout styles
 
 
@@ -45,36 +38,39 @@ function App() {
 
   return (
     <ToastProvider>
-      <div className="app-container">
-        {/* Fixed top navigation */}
-        <TopNavigation />
-        
-        {/* Main content area with sidebar and page content */}
-        <div className="content-container">
-          <Sidebar />
-          
-          <div id="page-content-wrapper">
-            <div className="container-fluid p-4">
-              <Routes>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/resources" element={<Resources />} />
-                <Route path="/reporting" element={<Reporting />} />
-                <Route path="/logs" element={<Logs />} />
-                <Route path="/documentation" element={<Documentation />} />
-                <Route path="/test" element={<NewReportingUX />} />
-              </Routes>
+      <ReportProvider>
+        <CycleProvider>
+          <div className="app-container">
+            {/* Fixed top navigation */}
+            <TopNavigation />
+            
+            {/* Main content area with sidebar and page content */}
+            <div className="content-container">
+              <Sidebar />
+              
+              <div id="page-content-wrapper">
+                <div className="container-fluid p-4">
+                  <Routes>
+                    <Route path="/" element={<Dashboard />} />
+                    <Route path="/resources" element={<Resources />} />
+                    <Route path="/reporting" element={<Reporting />} />
+                    <Route path="/logs" element={<Logs />} />
+                    <Route path="/documentation" element={<Documentation />} />
+                  </Routes>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-        
-        {/* Sidebar toggle button at bottom of screen */}
-        <div className="sidebar-toggle-btn d-none d-md-flex" onClick={toggleSidebar}>
-          <i className="bi bi-arrows-angle-expand"></i>
-        </div>
+            
+            {/* Sidebar toggle button at bottom of screen */}
+            <div className="sidebar-toggle-btn d-none d-md-flex" onClick={toggleSidebar}>
+              <i className="bi bi-arrows-angle-expand"></i>
+            </div>
 
-        {/* Toast notifications */}
-        <Toast />
-      </div>
+            {/* Toast notifications */}
+            <Toast />
+          </div>
+        </CycleProvider>
+      </ReportProvider>
     </ToastProvider>
   )
 }

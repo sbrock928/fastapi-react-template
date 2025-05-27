@@ -100,23 +100,22 @@ class ReportingDAO:
         # Import needed models/schemas
         from app.resources.models import Employee, Department
         from sqlalchemy import select
-        
+
         try:
             # Query to get employee details with department name
-            query = (
-                select(Employee, Department.name.label("department_name"))
-                .join(Department, Employee.department_id == Department.id)
+            query = select(Employee, Department.name.label("department_name")).join(
+                Department, Employee.department_id == Department.id
             )
-            
+
             # Execute query without awaiting
             result = self.session.execute(query)
-            
+
             # Process results into dictionary format
             employee_data = []
             for row in result.all():
                 employee = row[0]
                 department_name = row[1]
-                
+
                 employee_dict = {
                     "id": employee.id,
                     "first_name": employee.first_name,
@@ -129,22 +128,22 @@ class ReportingDAO:
                     "is_active": employee.is_active,
                 }
                 employee_data.append(employee_dict)
-                
+
             return employee_data
         except Exception as e:
             logging.error(f"Error in get_employee_details: {str(e)}")
             raise
 
     async def get_user_details(
-        self, 
-        username: Optional[str] = None, 
+        self,
+        username: Optional[str] = None,
         email: Optional[str] = None,
         is_active: Optional[bool] = None,
         is_superuser: Optional[bool] = None,
-        days: Optional[int] = None
+        days: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Get detailed user information for reporting with filtering options
-        
+
         Args:
             username: Optional filter by username (partial match)
             email: Optional filter by email (partial match)
@@ -155,41 +154,42 @@ class ReportingDAO:
         # Import needed models
         from app.resources.models import User
         from sqlalchemy import select
-        
+
         try:
             # Start building the query
             query = select(User)
-            
+
             # Apply filters if they are provided
             filters = []
-            
+
             if username:
                 filters.append(User.username.ilike(f"%{username}%"))
-                
+
             if email:
                 filters.append(User.email.ilike(f"%{email}%"))
-            
+
             # Apply filters to query if any exist
             if filters:
                 from sqlalchemy import and_
+
                 query = query.where(and_(*filters))
-                
+
             # Execute query - don't await the execution result
             result = self.session.execute(query)
-            
+
             # Process results into dictionary format
             user_data = []
             for row in result.all():
                 user = row[0]
-                
+
                 user_dict = {
                     "id": user.id,
                     "username": user.username,
                     "email": user.email,
-                    "full_name": user.full_name
+                    "full_name": user.full_name,
                 }
                 user_data.append(user_dict)
-                
+
             return user_data
         except Exception as e:
             logging.error(f"Error in get_user_details: {str(e)}")
@@ -200,27 +200,31 @@ class ReportingDAO:
         # Import needed models
         from app.resources.models import Subscriber
         from sqlalchemy import select
-        
+
         try:
             # Query to get all subscribers
             query = select(Subscriber)
             result = self.session.execute(query)
-            
+
             # Process results into dictionary format
             subscriber_data = []
             for row in result.all():
                 subscriber = row[0]
-                
+
                 subscriber_dict = {
                     "id": subscriber.id,
                     "email": subscriber.email,
                     "name": subscriber.name,
-                    "subscription_date": subscriber.subscription_date.isoformat() if subscriber.subscription_date else None,
+                    "subscription_date": (
+                        subscriber.subscription_date.isoformat()
+                        if subscriber.subscription_date
+                        else None
+                    ),
                     "subscription_tier": subscriber.subscription_tier,
-                    "is_active": subscriber.is_active
+                    "is_active": subscriber.is_active,
                 }
                 subscriber_data.append(subscriber_dict)
-                
+
             return subscriber_data
         except Exception as e:
             logging.error(f"Error in get_subscriber_details: {str(e)}")
@@ -231,17 +235,17 @@ class ReportingDAO:
         # Import needed models
         from app.logging.models import Log
         from sqlalchemy import select, desc
-        
+
         try:
             # Query to get all logs, ordered by most recent first
             query = select(Log).order_by(desc(Log.timestamp))
             result = self.session.execute(query)
-            
+
             # Process results into dictionary format
             log_data = []
             for row in result.all():
                 log = row[0]
-                
+
                 log_dict = {
                     "id": log.id,
                     "level": log.level,
@@ -255,10 +259,10 @@ class ReportingDAO:
                     "path": log.path,
                     "status_code": log.status_code,
                     "host": log.host,
-                    "app_id": log.app_id
+                    "app_id": log.app_id,
                 }
                 log_data.append(log_dict)
-                
+
             return log_data
         except Exception as e:
             logging.error(f"Error in get_log_details: {str(e)}")
@@ -285,19 +289,18 @@ class ReportDAO:
 
     async def get_by_created_by(self, created_by: str) -> List[Report]:
         """Get reports by creator"""
-        stmt = select(Report).where(
-            Report.created_by == created_by,
-            Report.is_active == True
-        ).order_by(Report.created_date.desc())
+        stmt = (
+            select(Report)
+            .where(Report.created_by == created_by, Report.is_active == True)
+            .order_by(Report.created_date.desc())
+        )
         result = self.db.execute(stmt)
         return list(result.scalars().all())
 
     async def get_by_name_and_creator(self, name: str, created_by: str) -> Optional[Report]:
         """Get a report by name and creator (for duplicate checking)"""
         stmt = select(Report).where(
-            Report.name == name,
-            Report.created_by == created_by,
-            Report.is_active == True
+            Report.name == name, Report.created_by == created_by, Report.is_active == True
         )
         result = self.db.execute(stmt)
         return result.scalars().first()
@@ -336,14 +339,17 @@ class ReportDAO:
 
     async def get_report_count(self) -> int:
         """Get total count of active reports"""
-        result = self.db.execute(select(func.count()).select_from(Report).where(Report.is_active == True))
+        result = self.db.execute(
+            select(func.count()).select_from(Report).where(Report.is_active == True)
+        )
         return int(result.scalar_one() or 0)
 
     async def get_reports_by_scope(self, scope: str) -> List[Report]:
         """Get reports by scope (DEAL or TRANCHE)"""
-        stmt = select(Report).where(
-            Report.scope == scope,
-            Report.is_active == True
-        ).order_by(Report.created_date.desc())
+        stmt = (
+            select(Report)
+            .where(Report.scope == scope, Report.is_active == True)
+            .order_by(Report.created_date.desc())
+        )
         result = self.db.execute(stmt)
         return list(result.scalars().all())

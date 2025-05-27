@@ -140,17 +140,32 @@ async def get_positions_by_department(department: str) -> List[dict]:
     # This is where you would implement your actual database query
     # For now using a static mapping, but could be replaced with database queries
     positions_map = {
-        "Engineering": ["Software Engineer", "DevOps Engineer", "QA Engineer", "Engineering Manager"],
-        "Marketing": ["Marketing Specialist", "Content Writer", "SEO Analyst", "Marketing Director"],
-        "Sales": ["Account Executive", "Sales Representative", "Sales Manager", "Business Development"],
+        "Engineering": [
+            "Software Engineer",
+            "DevOps Engineer",
+            "QA Engineer",
+            "Engineering Manager",
+        ],
+        "Marketing": [
+            "Marketing Specialist",
+            "Content Writer",
+            "SEO Analyst",
+            "Marketing Director",
+        ],
+        "Sales": [
+            "Account Executive",
+            "Sales Representative",
+            "Sales Manager",
+            "Business Development",
+        ],
         "HR": ["HR Specialist", "Recruiter", "People Operations", "HR Manager"],
         "Finance": ["Accountant", "Financial Analyst", "Controller", "CFO"],
-        "Product": ["Product Manager", "Product Owner", "UX Designer", "UI Designer"]
+        "Product": ["Product Manager", "Product Owner", "UX Designer", "UI Designer"],
     }
-    
+
     if department not in positions_map:
         raise HTTPException(status_code=404, detail=f"Department '{department}' not found")
-    
+
     return [{"value": pos, "label": pos} for pos in positions_map[department]]
 
 

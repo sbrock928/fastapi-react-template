@@ -141,7 +141,7 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
   
   return (
     <div id="reportResultsCard" className="card">
-      <div className="card-header text-white d-flex justify-content-between align-items-center" style={{ backgroundColor: '#93186C' }}>
+      <div className="card-header text-white d-flex justify-content-between align-items-center" style={{ backgroundColor: '#28a745' }}>
         <h5 className="card-title mb-0" id="reportTitle">
           {reportConfig.title}
         </h5>

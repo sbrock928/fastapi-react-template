@@ -31,69 +31,66 @@ class DealDAO:
     async def get_by_id_and_cycle(self, deal_id: int, cycle_code: str) -> Optional[Deal]:
         """Get a deal by ID and cycle code"""
         stmt = select(Deal).where(
-            Deal.id == deal_id,
-            Deal.cycle_code == cycle_code,
-            Deal.is_active == True
+            Deal.id == deal_id, Deal.cycle_code == cycle_code, Deal.is_active == True
         )
         result = self.db.execute(stmt)
         return result.scalars().first()
 
     async def get_by_ids(self, deal_ids: List[int], cycle_code: Optional[str] = None) -> List[Deal]:
         """Get deals by list of IDs"""
-        stmt = select(Deal).where(
-            Deal.id.in_(deal_ids),
-            Deal.is_active == True
-        )
+        stmt = select(Deal).where(Deal.id.in_(deal_ids), Deal.is_active == True)
         if cycle_code:
             stmt = stmt.where(Deal.cycle_code == cycle_code)
         stmt = stmt.order_by(Deal.name)
         result = self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_with_tranches(self, deal_id: int, cycle_code: Optional[str] = None) -> Optional[Deal]:
+    async def get_with_tranches(
+        self, deal_id: int, cycle_code: Optional[str] = None
+    ) -> Optional[Deal]:
         """Get a deal with its tranches"""
-        stmt = select(Deal).options(selectinload(Deal.tranches)).where(
-            Deal.id == deal_id,
-            Deal.is_active == True
+        stmt = (
+            select(Deal)
+            .options(selectinload(Deal.tranches))
+            .where(Deal.id == deal_id, Deal.is_active == True)
         )
         if cycle_code:
             stmt = stmt.where(Deal.cycle_code == cycle_code)
         result = self.db.execute(stmt)
         deal = result.scalars().first()
-        
+
         # Filter tranches by cycle if needed
         if deal and cycle_code:
             deal.tranches = [t for t in deal.tranches if t.cycle_code == cycle_code and t.is_active]
-        
+
         return deal
 
     async def get_by_cycle_code(self, cycle_code: str) -> List[Deal]:
         """Get all active deals for a specific cycle"""
-        stmt = select(Deal).where(
-            Deal.cycle_code == cycle_code,
-            Deal.is_active == True
-        ).order_by(Deal.name)
+        stmt = (
+            select(Deal)
+            .where(Deal.cycle_code == cycle_code, Deal.is_active == True)
+            .order_by(Deal.name)
+        )
         result = self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_by_deal_type(self, deal_type: str, cycle_code: Optional[str] = None) -> List[Deal]:
+    async def get_by_deal_type(
+        self, deal_type: str, cycle_code: Optional[str] = None
+    ) -> List[Deal]:
         """Get deals by type (RMBS, CMBS, etc.)"""
-        stmt = select(Deal).where(
-            Deal.deal_type == deal_type,
-            Deal.is_active == True
-        )
+        stmt = select(Deal).where(Deal.deal_type == deal_type, Deal.is_active == True)
         if cycle_code:
             stmt = stmt.where(Deal.cycle_code == cycle_code)
         stmt = stmt.order_by(Deal.name)
         result = self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_by_originator(self, originator: str, cycle_code: Optional[str] = None) -> List[Deal]:
+    async def get_by_originator(
+        self, originator: str, cycle_code: Optional[str] = None
+    ) -> List[Deal]:
         """Get deals by originator"""
-        stmt = select(Deal).where(
-            Deal.originator == originator,
-            Deal.is_active == True
-        )
+        stmt = select(Deal).where(Deal.originator == originator, Deal.is_active == True)
         if cycle_code:
             stmt = stmt.where(Deal.cycle_code == cycle_code)
         stmt = stmt.order_by(Deal.name)
@@ -156,19 +153,16 @@ class TrancheDAO:
     async def get_by_id_and_cycle(self, tranche_id: int, cycle_code: str) -> Optional[Tranche]:
         """Get a tranche by ID and cycle code"""
         stmt = select(Tranche).where(
-            Tranche.id == tranche_id,
-            Tranche.cycle_code == cycle_code,
-            Tranche.is_active == True
+            Tranche.id == tranche_id, Tranche.cycle_code == cycle_code, Tranche.is_active == True
         )
         result = self.db.execute(stmt)
         return result.scalars().first()
 
-    async def get_by_ids(self, tranche_ids: List[int], cycle_code: Optional[str] = None) -> List[Tranche]:
+    async def get_by_ids(
+        self, tranche_ids: List[int], cycle_code: Optional[str] = None
+    ) -> List[Tranche]:
         """Get tranches by list of IDs"""
-        stmt = select(Tranche).where(
-            Tranche.id.in_(tranche_ids),
-            Tranche.is_active == True
-        )
+        stmt = select(Tranche).where(Tranche.id.in_(tranche_ids), Tranche.is_active == True)
         if cycle_code:
             stmt = stmt.where(Tranche.cycle_code == cycle_code)
         stmt = stmt.order_by(Tranche.deal_id, Tranche.payment_priority)
@@ -177,34 +171,29 @@ class TrancheDAO:
 
     async def get_by_deal_id(self, deal_id: int, cycle_code: Optional[str] = None) -> List[Tranche]:
         """Get tranches by deal ID"""
-        stmt = select(Tranche).where(
-            Tranche.deal_id == deal_id,
-            Tranche.is_active == True
-        )
+        stmt = select(Tranche).where(Tranche.deal_id == deal_id, Tranche.is_active == True)
         if cycle_code:
             stmt = stmt.where(Tranche.cycle_code == cycle_code)
         stmt = stmt.order_by(Tranche.payment_priority)
         result = self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_by_deal_ids(self, deal_ids: List[int], cycle_code: Optional[str] = None) -> List[Tranche]:
+    async def get_by_deal_ids(
+        self, deal_ids: List[int], cycle_code: Optional[str] = None
+    ) -> List[Tranche]:
         """Get tranches for multiple deals"""
-        stmt = select(Tranche).where(
-            Tranche.deal_id.in_(deal_ids),
-            Tranche.is_active == True
-        )
+        stmt = select(Tranche).where(Tranche.deal_id.in_(deal_ids), Tranche.is_active == True)
         if cycle_code:
             stmt = stmt.where(Tranche.cycle_code == cycle_code)
         stmt = stmt.order_by(Tranche.deal_id, Tranche.payment_priority)
         result = self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_by_class_name(self, class_name: str, cycle_code: Optional[str] = None) -> List[Tranche]:
+    async def get_by_class_name(
+        self, class_name: str, cycle_code: Optional[str] = None
+    ) -> List[Tranche]:
         """Get tranches by class name (A, B, C, etc.)"""
-        stmt = select(Tranche).where(
-            Tranche.class_name == class_name,
-            Tranche.is_active == True
-        )
+        stmt = select(Tranche).where(Tranche.class_name == class_name, Tranche.is_active == True)
         if cycle_code:
             stmt = stmt.where(Tranche.cycle_code == cycle_code)
         stmt = stmt.order_by(Tranche.deal_id, Tranche.payment_priority)

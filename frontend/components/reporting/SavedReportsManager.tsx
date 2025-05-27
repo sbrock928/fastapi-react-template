@@ -1,14 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { reportsApi } from '@/services/api';
 import { useToast } from '@/context/ToastContext';
-import type { ReportSummary, ReportConfig } from '@/types';
+import { useReportContext } from '@/context/ReportContext';
+import type { ReportConfig } from '@/types';
 
 interface SavedReportsManagerProps {
   selectedReportId: string;
   onReportSelect: (reportId: string) => void;
   onCreateNew: () => void;
   onReportsUpdated: () => void;
-  onEditReport: (report: ReportConfig) => void; // New prop for edit callback
+  onEditReport: (report: ReportConfig) => void;
 }
 
 const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
@@ -19,30 +20,9 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
   onEditReport
 }) => {
   const { showToast } = useToast();
-  const [savedReports, setSavedReports] = useState<ReportSummary[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
+  const { savedReports, loading, refreshReports } = useReportContext();
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
   const [editLoading, setEditLoading] = useState<string | null>(null);
-
-  // Load saved reports on mount
-  useEffect(() => {
-    loadSavedReports();
-  }, []);
-
-  // Load user's saved reports
-  const loadSavedReports = async () => {
-    setLoading(true);
-    try {
-      // TODO: Get actual user ID from auth context
-      const response = await reportsApi.getUserReports('current_user');
-      setSavedReports(response.data);
-    } catch (error) {
-      console.error('Error loading saved reports:', error);
-      showToast('Error loading saved reports', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // Handle edit report (fetch full details and trigger edit mode)
   const handleEditReport = async (reportId: number) => {
@@ -73,8 +53,8 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
       await reportsApi.deleteReport(reportId);
       showToast(`Successfully deleted report "${reportName}"`, 'success');
       
-      // Reload reports
-      await loadSavedReports();
+      // Refresh reports using context
+      await refreshReports();
       
       // Clear selection if the deleted report was selected
       if (selectedReportId === reportId.toString()) {

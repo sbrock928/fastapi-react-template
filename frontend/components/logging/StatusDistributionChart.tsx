@@ -42,7 +42,7 @@ const StatusDistributionChart: React.FC<StatusDistributionChartProps> = ({
       case 'Redirection': return '#fd7e14';
       case 'Client Error': return '#dc3545';
       case 'Server Error': return '#6f42c1';
-      default: return '#93186C'; // Changed from #6c757d to match our new theme
+      default: return '#28a745'; // Changed from #6c757d to match our new theme
     }
   };
 

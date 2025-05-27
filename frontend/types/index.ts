@@ -38,26 +38,6 @@ export interface DynamicReportConfig {
   columns: ReportColumn[];
 }
 
-export interface ReportConfigurationResponse {
-  [key: string]: DynamicReportConfig;
-}
-
-// Report parameter types preserved for historical purposes/future flexibility
-export interface ReportParameter {
-  field: string;
-  label: string;
-  type: string;
-  options?: {value: string, label: string}[];
-  dynamicOptions?: string;
-}
-
-// Legacy ReportConfig maintained for backward compatibility
-export interface ReportConfig {
-  apiEndpoint: string;
-  title: string;
-  columns: ReportColumn[];
-}
-
 export type ReportRow = Record<string, any>;
 
 // Logs Types

@@ -8,16 +8,17 @@ from pydantic import BaseModel, field_validator, ConfigDict
 
 class ReportScope(str, Enum):
     """Enumeration of report scope options."""
+
     DEAL = "DEAL"
     TRANCHE = "TRANCHE"
 
 
 class ReportBase(BaseModel):
     """Base schema for report configuration objects."""
-    
+
     name: str
-    scope: ReportScope  
-    created_by: str
+    scope: ReportScope
+    created_by: Optional[str] = "system"  # Made optional with default
     selected_deals: List[int] = []
     selected_tranches: Dict[str, List[int]] = {}  # Keys are deal_id as strings
     is_active: bool = True
@@ -46,22 +47,22 @@ class ReportBase(BaseModel):
     @classmethod
     def validate_selected_tranches(cls, v: Dict[str, List[int]], info) -> Dict[str, List[int]]:
         # Get scope from the data being validated
-        if hasattr(info, 'data') and info.data and info.data.get('scope') == ReportScope.TRANCHE:
+        if hasattr(info, "data") and info.data and info.data.get("scope") == ReportScope.TRANCHE:
             if not v or not any(v.values()):
                 raise ValueError("At least one tranche must be selected for tranche-level reports")
-            
+
             # Validate that deal IDs in tranches match selected deals
-            if hasattr(info, 'data') and info.data:
-                selected_deals = info.data.get('selected_deals', [])
+            if hasattr(info, "data") and info.data:
+                selected_deals = info.data.get("selected_deals", [])
                 tranche_deal_ids = set(int(deal_id) for deal_id in v.keys())
                 if not tranche_deal_ids.issubset(set(selected_deals)):
                     raise ValueError("Tranche selections contain deal IDs not in selected deals")
-                    
+
             # Check for duplicate tranche IDs within each deal
             for deal_id, tranche_ids in v.items():
                 if len(set(tranche_ids)) != len(tranche_ids):
                     raise ValueError(f"Duplicate tranche IDs found for deal {deal_id}")
-        
+
         return v
 
 
@@ -77,6 +78,7 @@ class ReportRead(ReportBase):
 
 class ReportUpdate(BaseModel):
     """Update schema - allows partial updates."""
+
     name: Optional[str] = None
     scope: Optional[ReportScope] = None
     selected_deals: Optional[List[int]] = None
@@ -99,6 +101,7 @@ class ReportUpdate(BaseModel):
 
 class ReportSummary(BaseModel):
     """Summary schema for report listings."""
+
     id: int
     name: str
     scope: ReportScope
@@ -113,6 +116,7 @@ class ReportSummary(BaseModel):
 
 class RunReportRequest(BaseModel):
     """Request schema for running a saved report."""
+
     report_id: int
     cycle_code: str
 

@@ -8,7 +8,7 @@ from app.core.database import DWBase
 
 class Deal(DWBase):
     """Deal model for Mortgage-Backed Securities stored in data warehouse."""
-    
+
     __tablename__ = "deal"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -31,7 +31,7 @@ class Deal(DWBase):
 
 class Tranche(DWBase):
     """Tranche model - child securities of a Deal stored in data warehouse."""
-    
+
     __tablename__ = "tranche"
 
     id = Column(Integer, primary_key=True, index=True)

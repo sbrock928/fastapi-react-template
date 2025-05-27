@@ -6,9 +6,7 @@ const CycleDropdown: React.FC = () => {
 
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selected = cycleCodes.find(c => c.value === e.target.value);
-    if (selected) {
-      setSelectedCycle(selected);
-    }
+    setSelectedCycle(selected || null);
   };
 
   if (error) {
@@ -27,7 +25,7 @@ const CycleDropdown: React.FC = () => {
         id="cycleCode"
         name="cycle_code"
         className="form-select"
-        value={selectedCycle.value}
+        value={selectedCycle?.value || ''}
         onChange={handleChange}
         disabled={loading}
       >

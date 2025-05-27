@@ -9,7 +9,7 @@ from pydantic import BaseModel, field_validator, ConfigDict
 # Deal Schemas
 class DealBase(BaseModel):
     """Base schema for deal objects with common fields."""
-    
+
     name: str
     originator: str
     deal_type: str
@@ -65,6 +65,7 @@ class DealRead(DealBase):
 
 class DealUpdate(BaseModel):
     """Update schema - allows partial updates."""
+
     name: Optional[str] = None
     originator: Optional[str] = None
     deal_type: Optional[str] = None
@@ -82,7 +83,7 @@ class DealUpdate(BaseModel):
 # Tranche Schemas
 class TrancheBase(BaseModel):
     """Base schema for tranche objects with common fields."""
-    
+
     deal_id: int
     name: str
     class_name: str
@@ -145,6 +146,7 @@ class TrancheRead(TrancheBase):
 
 class TrancheUpdate(BaseModel):
     """Update schema - allows partial updates."""
+
     deal_id: Optional[int] = None
     name: Optional[str] = None
     class_name: Optional[str] = None
@@ -163,17 +165,20 @@ class TrancheUpdate(BaseModel):
 # Combined schemas
 class DealWithTranches(DealRead):
     """Deal schema that includes its tranches."""
+
     tranches: List[TrancheRead] = []
 
 
 class TrancheWithDeal(TrancheRead):
     """Tranche schema that includes its parent deal."""
+
     deal: DealRead
 
 
 # Summary schemas for API responses
 class DealSummary(BaseModel):
     """Summary schema for deal listings."""
+
     id: int
     name: str
     originator: str
@@ -189,6 +194,7 @@ class DealSummary(BaseModel):
 
 class TrancheSummary(BaseModel):
     """Summary schema for tranche listings."""
+
     id: int
     deal_id: int
     deal_name: str

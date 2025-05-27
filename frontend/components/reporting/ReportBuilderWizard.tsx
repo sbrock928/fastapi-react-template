@@ -7,14 +7,12 @@ import type { Deal, Tranche, ReportConfig } from '@/types';
 
 interface ReportBuilderWizardProps {
   onReportSaved: () => void;
-  onCancel: () => void;
   editingReport?: ReportConfig | null; // New prop for editing mode
   mode?: 'create' | 'edit'; // New prop to track mode
 }
 
 const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
   onReportSaved,
-  onCancel,
   editingReport = null,
   mode = 'create'
 }) => {

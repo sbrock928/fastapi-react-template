@@ -96,14 +96,6 @@ export const documentationApi = {
 // ===== ENHANCED REPORTS API =====
 
 export const reportsApi = {
-  // ===== LEGACY ENDPOINTS (backward compatibility) =====
-  getReportConfigurations: () => api.get('/reports/configurations'),
-  runReport: (endpoint: string, params: Record<string, string>) => 
-    api.post(endpoint, params),
-  exportXlsx: (data: { reportType: string, data: ReportRow[], fileName: string }) => 
-    api.post('/reports/export-xlsx', data, { responseType: 'blob' }),
-  getCycleCodes: () => api.get('/reports/cycle-codes'),
-
   // ===== NEW DEAL & TRANCHE DATA ENDPOINTS =====
   
   // Get available deals for report building
@@ -133,9 +125,9 @@ export const reportsApi = {
     return api.get('/reports/');
   },
 
-  // Get user's saved reports with summary info
-  getUserReports: (userId: string): Promise<{ data: ReportSummary[] }> => {
-    return api.get(`/reports/user/${userId}`);
+  // Get all reports with summary info (replaces user-specific endpoint)
+  getReportsSummary: (): Promise<{ data: ReportSummary[] }> => {
+    return api.get('/reports/summary');
   },
 
   // Get specific report configuration
@@ -143,7 +135,7 @@ export const reportsApi = {
     return api.get(`/reports/${reportId}`);
   },
 
-  // Create new report configuration
+  // Create new report configuration (created_by is now optional)
   createReport: (reportData: Omit<ReportConfig, 'id' | 'created_date' | 'updated_date'>): Promise<{ data: ReportConfig }> => {
     return api.post('/reports/', reportData);
   },
@@ -180,7 +172,11 @@ export const reportsApi = {
   // Get available cycles from data warehouse
   getAvailableCycles: (): Promise<{ data: Array<{ code: string; label: string }> }> => {
     return api.get('/reports/data/cycles');
-  }
+  },
+
+  // Export to Excel (keep existing functionality)
+  exportXlsx: (data: { reportType: string, data: ReportRow[], fileName: string }) => 
+    api.post('/reports/export-xlsx', data, { responseType: 'blob' })
 };
 
 export default api;

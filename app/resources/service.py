@@ -169,7 +169,7 @@ class UserService:
         for field, value in update_data.items():
             setattr(user, field, value)
         updated_user = await self.dao.update(user)
-        
+
         return UserRead.model_validate(updated_user)
 
     async def delete(self, user_id: int) -> bool:

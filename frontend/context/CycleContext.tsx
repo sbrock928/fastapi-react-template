@@ -1,38 +1,36 @@
-import { createContext, useState, useContext, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { reportsApi } from '@/services/api';
 
-type CycleOption = {
+interface CycleOption {
   value: string;
   label: string;
-};
+}
 
 interface CycleContextType {
   cycleCodes: CycleOption[];
-  selectedCycle: CycleOption;
-  setSelectedCycle: (cycle: CycleOption) => void;
+  selectedCycle: CycleOption | null;
+  setSelectedCycle: (cycle: CycleOption | null) => void;
   loading: boolean;
   error: string | null;
 }
 
-const defaultContextValue: CycleContextType = {
-  cycleCodes: [{ value: '', label: 'All Cycles' }],
-  selectedCycle: { value: '', label: 'All Cycles' },
-  setSelectedCycle: () => {},
-  loading: false,
-  error: null
+const CycleContext = createContext<CycleContextType | undefined>(undefined);
+
+export const useCycleContext = (): CycleContextType => {
+  const context = useContext(CycleContext);
+  if (!context) {
+    throw new Error('useCycleContext must be used within a CycleProvider');
+  }
+  return context;
 };
-
-const CycleContext = createContext<CycleContextType>(defaultContextValue);
-
-export const useCycleContext = () => useContext(CycleContext);
 
 interface CycleProviderProps {
   children: ReactNode;
 }
 
-export const CycleProvider = ({ children }: CycleProviderProps) => {
-  const [cycleCodes, setCycleCodes] = useState<CycleOption[]>([{ value: '', label: 'All Cycles' }]);
-  const [selectedCycle, setSelectedCycle] = useState<CycleOption>({ value: '', label: 'All Cycles' });
+export const CycleProvider: React.FC<CycleProviderProps> = ({ children }) => {
+  const [cycleCodes, setCycleCodes] = useState<CycleOption[]>([]);
+  const [selectedCycle, setSelectedCycle] = useState<CycleOption | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState<boolean>(false);
@@ -45,13 +43,13 @@ export const CycleProvider = ({ children }: CycleProviderProps) => {
       setError(null);
 
       try {
-        const response = await reportsApi.getCycleCodes();
+        const response = await reportsApi.getAvailableCycles();
 
         const options = [
-          { value: '', label: 'All Cycles' },
-          ...response.data.map((item: { code: string }) => ({
+          { value: '', label: 'Select a Cycle' },
+          ...response.data.map((item: { code: string; label: string }) => ({
             value: item.code,
-            label: item.code
+            label: item.label
           }))
         ];
 

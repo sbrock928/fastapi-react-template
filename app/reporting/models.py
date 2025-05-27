@@ -7,7 +7,7 @@ from app.core.database import Base
 
 class Report(Base):
     """Report configuration model stored in config database."""
-    
+
     __tablename__ = "report"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -17,7 +17,7 @@ class Report(Base):
     created_date = Column(DateTime, default=datetime.now)
     updated_date = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     is_active = Column(Boolean, default=True)
-    
+
     # JSON fields storing IDs that reference data warehouse
     # selected_deals: [1, 2, 3]
     # selected_tranches: {"1": [1, 2], "2": [3, 4, 5]}

@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { logsApi } from '@/services/api';
-import LogDetailsModal from '@/components/LogDetailsModal';
-import StatusDistributionChart from '@/components/StatusDistributionChart';
-import usePagination from '@/hooks/usePagination';
+import { LogDetailsModal, StatusDistributionChart } from '@/components/logging';
+import { usePagination } from '@/hooks';
+import { formatDateTime, getUrlParamAsInt } from '@/utils';
 import type { Log, StatusDistribution } from '@/types';
 
 const Logs = () => {
@@ -119,7 +119,7 @@ const Logs = () => {
       const response = await logsApi.getLogs(params);
       
       // Get total count from headers or response data
-      const totalCount = parseInt(response.headers['x-total-count'] || '0');
+      const totalCount = getUrlParamAsInt('x-total-count', 0) || parseInt(response.headers['x-total-count'] || '0');
       if (totalCount > 0) {
         setTotalCount(totalCount); // Store the total count
       }
@@ -226,7 +226,7 @@ const Logs = () => {
   };
 
   const handleRefreshIntervalChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setRefreshInterval(parseInt(e.target.value));
+    setRefreshInterval(getUrlParamAsInt(e.target.value, 30));
   };
 
   // Handle modal close
@@ -318,7 +318,7 @@ const Logs = () => {
           <button 
             id="refreshLogs" 
             className="btn"
-            style={{ backgroundColor: '#93186C', color: 'white' }}
+            style={{ backgroundColor: '#28a745', color: 'white' }}
             onClick={handleRefresh}
           >
             <i className="bi bi-arrow-clockwise"></i> Refresh
@@ -461,7 +461,7 @@ const Logs = () => {
               ) : (
                 filteredLogs.map((log) => (
                   <tr key={log.id}>
-                    <td>{new Date(log.timestamp).toLocaleString()}</td>
+                    <td>{formatDateTime(log.timestamp)}</td>
                     <td>{log.application_id || 'N/A'}</td>
                     <td>
                       {log.username ? (

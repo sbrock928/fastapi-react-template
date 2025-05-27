@@ -6,9 +6,7 @@ from decimal import Decimal
 
 from app.reporting.dao import ReportDAO
 from app.reporting.models import Report
-from app.reporting.schemas import (
-    ReportRead, ReportCreate, ReportUpdate, ReportSummary, ReportScope
-)
+from app.reporting.schemas import ReportRead, ReportCreate, ReportUpdate, ReportSummary, ReportScope
 from app.datawarehouse.dao import DealDAO, TrancheDAO
 from app.datawarehouse.schemas import DealRead, TrancheRead
 
@@ -54,40 +52,38 @@ class ReportService:
             return None
         return ReportRead.model_validate(report)
 
-    async def get_by_created_by(self, created_by: str) -> List[ReportSummary]:
-        """Get reports by creator with summary information."""
-        reports = await self.report_dao.get_by_created_by(created_by)
+    async def get_all_summaries(self) -> List[ReportSummary]:
+        """Get all reports with summary information."""
+        reports = await self.report_dao.get_all()
         summaries = []
-        
+
         for report in reports:
             deal_count = len(report.selected_deals) if report.selected_deals else 0
             tranche_count = 0
             if report.selected_tranches:
                 tranche_count = sum(len(tranches) for tranches in report.selected_tranches.values())
-            
+
             summary = ReportSummary(
                 id=report.id,
                 name=report.name,
                 scope=ReportScope(report.scope),
-                created_by=report.created_by,
+                created_by=report.created_by or "system",
                 created_date=report.created_date,
                 deal_count=deal_count,
                 tranche_count=tranche_count,
-                is_active=report.is_active
+                is_active=report.is_active,
             )
             summaries.append(summary)
-        
+
         return summaries
 
     async def before_create(self, report_data: ReportCreate) -> ReportCreate:
         """Custom validation before report creation."""
         errors = collect_validation_errors()
 
-        # Check if report name already exists for this creator
-        existing_report = await self.report_dao.get_by_name_and_creator(
-            report_data.name, report_data.created_by
-        )
-        if existing_report:
+        # Check if report name already exists (across all users)
+        existing_reports = await self.report_dao.get_all()
+        if any(r.name == report_data.name for r in existing_reports):
             errors["add"]("name", "Report name already exists", "value_error.already_exists")
 
         # Validate that selected deals exist in data warehouse
@@ -99,13 +95,20 @@ class ReportService:
         # For tranche-level reports, validate tranche selections
         if report_data.scope == ReportScope.TRANCHE:
             if not report_data.selected_tranches or not any(report_data.selected_tranches.values()):
-                errors["add"]("selected_tranches", "Tranche-level reports must have tranche selections")
-            
+                errors["add"](
+                    "selected_tranches", "Tranche-level reports must have tranche selections"
+                )
+
             # Validate that tranche deal IDs match selected deals
             if report_data.selected_tranches:
-                tranche_deal_ids = set(int(deal_id) for deal_id in report_data.selected_tranches.keys())
+                tranche_deal_ids = set(
+                    int(deal_id) for deal_id in report_data.selected_tranches.keys()
+                )
                 if not tranche_deal_ids.issubset(set(report_data.selected_deals)):
-                    errors["add"]("selected_tranches", "Tranche selections contain deals not in selected deals")
+                    errors["add"](
+                        "selected_tranches",
+                        "Tranche selections contain deals not in selected deals",
+                    )
 
         errors["raise_if_errors"]()
         return report_data
@@ -173,7 +176,7 @@ class ReportService:
 
     async def run_saved_report(self, report_id: int, cycle_code: str) -> List[Dict[str, Any]]:
         """Run a saved report by fetching config and querying data warehouse."""
-        
+
         # 1. Get report configuration from config DB
         report = await self.report_dao.get_by_id(report_id)
         if not report:
@@ -189,25 +192,28 @@ class ReportService:
             # Deal-level report: one row per deal with aggregated data
             if report.selected_deals:
                 deals = await self.deal_dao.get_by_ids(report.selected_deals, cycle_code)
-                
+
                 for deal in deals:
                     # Get tranches for aggregation
                     tranches = await self.tranche_dao.get_by_deal_id(deal.id, cycle_code)
-                    
+
                     # Calculate aggregated metrics
                     total_tranche_principal = sum(float(t.principal_amount) for t in tranches)
                     avg_interest_rate = (
-                        sum(float(t.interest_rate) for t in tranches) / len(tranches) 
-                        if tranches else 0
+                        sum(float(t.interest_rate) for t in tranches) / len(tranches)
+                        if tranches
+                        else 0
                     )
                     tranche_count = len(tranches)
-                    
+
                     result_row = {
                         "deal_id": deal.id,
                         "deal_name": deal.name,
                         "originator": deal.originator,
                         "deal_type": deal.deal_type,
-                        "closing_date": deal.closing_date.isoformat() if deal.closing_date else None,
+                        "closing_date": (
+                            deal.closing_date.isoformat() if deal.closing_date else None
+                        ),
                         "total_principal": float(deal.total_principal),
                         "credit_rating": deal.credit_rating,
                         "yield_rate": float(deal.yield_rate) if deal.yield_rate else None,
@@ -225,15 +231,15 @@ class ReportService:
             if report.selected_tranches:
                 for deal_id_str, tranche_ids in report.selected_tranches.items():
                     deal_id = int(deal_id_str)
-                    
+
                     # Get deal info for context
                     deal = await self.deal_dao.get_by_id(deal_id)
                     if not deal:
                         continue
-                    
+
                     # Get selected tranches
                     tranches = await self.tranche_dao.get_by_ids(tranche_ids)
-                    
+
                     for tranche in tranches:
                         result_row = {
                             "deal_id": deal.id,
@@ -250,7 +256,9 @@ class ReportService:
                             "interest_rate": float(tranche.interest_rate),
                             "credit_rating": tranche.credit_rating,
                             "payment_priority": tranche.payment_priority,
-                            "maturity_date": tranche.maturity_date.isoformat() if tranche.maturity_date else None,
+                            "maturity_date": (
+                                tranche.maturity_date.isoformat() if tranche.maturity_date else None
+                            ),
                             "cycle_code": tranche.cycle_code,
                         }
                         results.append(result_row)
@@ -267,9 +275,9 @@ class ReportService:
     ) -> Dict[int, List[TrancheRead]]:
         """Get available tranches for specific deals."""
         result = {}
-        
+
         for deal_id in deal_ids:
             tranches = await self.tranche_dao.get_by_deal_id(deal_id, cycle_code)
             result[deal_id] = [TrancheRead.model_validate(tranche) for tranche in tranches]
-        
+
         return result

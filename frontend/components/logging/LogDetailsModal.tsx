@@ -49,7 +49,7 @@ const LogDetailsModal = ({ log, show, onHide }: LogDetailsModalProps) => {
     >
       <div className="modal-dialog modal-lg">
         <div className="modal-content">
-          <div className="modal-header text-white" style={{ backgroundColor: '#93186C' }}>
+          <div className="modal-header text-white" style={{ backgroundColor: '#28a745' }}>
             <h5 className="modal-title">Log Details</h5>
             <button type="button" className="btn-close btn-close-white" onClick={handleClose} aria-label="Close"></button>
           </div>

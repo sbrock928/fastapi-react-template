@@ -1,8 +1,8 @@
-import viteLogo from '../assets/vite.svg';
+import viteLogo from '../../assets/vite.svg';
 
 const TopNavigation = () => {
   return (
-    <nav className="navbar navbar-expand-lg navbar-dark border-bottom top-navbar" style={{ backgroundColor: '#93186C' }}>
+    <nav className="navbar navbar-expand-lg navbar-dark border-bottom top-navbar" style={{ backgroundColor: '#28a745' }}>
       <div className="container-fluid">
         <a className="navbar-brand d-flex align-items-center" href="/">
           <img src={viteLogo} alt="Vibez Logo" className="me-2" style={{ height: "24px" }} />
