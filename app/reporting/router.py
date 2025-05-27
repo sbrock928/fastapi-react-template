@@ -164,21 +164,3 @@ async def get_available_cycles(
         {"code": "2025Q1", "label": "2025Q1 (Quarter 1 2025)"},
     ]
     return dummy_cycles
-
-
-# ===== STATISTICS ENDPOINTS =====
-
-
-@router.get("/stats/summary", response_model=Dict[str, Any])
-async def get_summary_stats(
-    reporting_dao: ReportingDAO = Depends(get_reporting_dao),
-    report_dao: ReportDAO = Depends(get_report_dao),
-) -> Dict[str, Any]:
-    """Get summary statistics for the dashboard."""
-    return {
-        "total_users": await reporting_dao.get_user_count(),
-        "total_employees": await reporting_dao.get_employee_count(),
-        "total_subscribers": await reporting_dao.get_subscriber_count(),
-        "total_reports": await report_dao.get_report_count(),
-        "timestamp": "2024-01-01T00:00:00Z",  # You could add actual timestamp
-    }

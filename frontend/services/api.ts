@@ -164,11 +164,6 @@ export const reportsApi = {
 
   // ===== STATISTICS AND METADATA =====
 
-  // Get summary statistics
-  getStats: (): Promise<{ data: { total_deals: number; total_tranches: number; total_reports: number; timestamp: string } }> => {
-    return api.get('/reports/stats/summary');
-  },
-
   // Get available cycles from data warehouse
   getAvailableCycles: (): Promise<{ data: Array<{ code: string; label: string }> }> => {
     return api.get('/reports/data/cycles');

@@ -420,7 +420,6 @@ def main():
         print("\n🔗 You can now test the APIs:")
         print("   curl http://localhost:8000/api/reports/data/deals")
         print("   curl http://localhost:8000/api/reports/data/deals/1/tranches")
-        print("   curl http://localhost:8000/api/reports/stats/summary")
     else:
         print("\n❌ Sample data creation failed!")
         return 1
