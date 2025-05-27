@@ -51,3 +51,16 @@ class Tranche(DWBase):
 
     # Relationship back to deal (works because both models are in same DB)
     deal = relationship("Deal", back_populates="tranches")
+
+
+class Cycle(DWBase):
+    """Cycle model for reporting cycles stored in data warehouse."""
+
+    __tablename__ = "cycles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String, nullable=False, unique=True, index=True)
+    description = Column(String, nullable=True)
+    start_date = Column(String, nullable=True)  # Using String to match SQL schema
+    end_date = Column(String, nullable=True)    # Using String to match SQL schema
+    created_at = Column(String, nullable=True)  # Using String to match SQL schema

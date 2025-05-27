@@ -162,6 +162,32 @@ class TrancheUpdate(BaseModel):
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
+# Cycle Schemas
+class CycleBase(BaseModel):
+    """Base schema for cycle objects with common fields."""
+
+    code: str
+    description: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Cycle code cannot be empty")
+        return v.strip()
+
+
+class CycleRead(CycleBase):
+    """Read schema for cycle objects."""
+    
+    id: int
+    created_at: Optional[str] = None
+
+
 # Combined schemas
 class DealWithTranches(DealRead):
     """Deal schema that includes its tranches."""

@@ -61,7 +61,7 @@ def create_all_tables():
     """Create tables in both databases."""
     # Import models to ensure they're registered with Base classes
     from app.reporting.models import Report  # noqa: F401
-    from app.datawarehouse.models import Deal, Tranche  # noqa: F401
+    from app.datawarehouse.models import Deal, Tranche, Cycle  # noqa: F401
 
     print("Creating config database tables...")
     Base.metadata.create_all(bind=engine)
@@ -92,7 +92,7 @@ def drop_all_tables():
 
 def create_sample_data():
     """Create comprehensive sample data for development and testing."""
-    from app.datawarehouse.models import Deal, Tranche
+    from app.datawarehouse.models import Deal, Tranche, Cycle
     from datetime import date
     from decimal import Decimal
 
@@ -108,7 +108,62 @@ def create_sample_data():
 
         print("Creating comprehensive sample data...")
 
-        # Sample deals with realistic MBS data
+        # ===== SEED CYCLES TABLE FIRST =====
+        print("Seeding cycles table...")
+        cycles_data = [
+            {
+                "code": "12501",
+                "description": "January 2023 Cycle",
+                "start_date": "2023-01-01",
+                "end_date": "2023-01-31",
+            },
+            {
+                "code": "12502",
+                "description": "February 2023 Cycle", 
+                "start_date": "2023-02-01",
+                "end_date": "2023-02-28",
+            },
+            {
+                "code": "12503",
+                "description": "March 2023 Cycle",
+                "start_date": "2023-03-01", 
+                "end_date": "2023-03-31",
+            },
+            {
+                "code": "12504",
+                "description": "April 2023 Cycle",
+                "start_date": "2023-04-01",
+                "end_date": "2023-04-30",
+            },
+            {
+                "code": "12505",
+                "description": "May 2023 Cycle",
+                "start_date": "2023-05-01",
+                "end_date": "2023-05-31",
+            },
+            {
+                "code": "12506",
+                "description": "June 2023 Cycle",
+                "start_date": "2023-06-01",
+                "end_date": "2023-06-30",
+            },
+        ]
+
+        # Create cycles
+        created_cycles = []
+        for cycle_data in cycles_data:
+            # Check if cycle already exists to avoid duplicates
+            existing_cycle = dw_db.query(Cycle).filter(Cycle.code == cycle_data["code"]).first()
+            if not existing_cycle:
+                cycle = Cycle(**cycle_data)
+                dw_db.add(cycle)
+                created_cycles.append(cycle)
+            else:
+                created_cycles.append(existing_cycle)
+
+        dw_db.flush()  # Flush to ensure cycles are saved before creating deals
+
+        # Sample deals with realistic MBS data - using cycle codes from cycles table
         deals_data = [
             {
                 "name": "GSAMP Trust 2024-1",
@@ -119,7 +174,7 @@ def create_sample_data():
                 "credit_rating": "AAA",
                 "yield_rate": Decimal("0.0485"),
                 "duration": Decimal("5.5"),
-                "cycle_code": "2024-01",
+                "cycle_code": "12501",  # January 2023 Cycle
             },
             {
                 "name": "Wells Fargo Commercial 2024-A",
@@ -130,7 +185,7 @@ def create_sample_data():
                 "credit_rating": "AA+",
                 "yield_rate": Decimal("0.0520"),
                 "duration": Decimal("7.0"),
-                "cycle_code": "2024-02",
+                "cycle_code": "12502",  # February 2023 Cycle
             },
             {
                 "name": "Chase Auto Receivables 2024-1",
@@ -141,7 +196,7 @@ def create_sample_data():
                 "credit_rating": "AAA",
                 "yield_rate": Decimal("0.0395"),
                 "duration": Decimal("3.5"),
-                "cycle_code": "2024-03",
+                "cycle_code": "12503",  # March 2023 Cycle
             },
             {
                 "name": "Bank of America RMBS 2024-2",
@@ -152,7 +207,7 @@ def create_sample_data():
                 "credit_rating": "AA",
                 "yield_rate": Decimal("0.0510"),
                 "duration": Decimal("6.2"),
-                "cycle_code": "2024-01",
+                "cycle_code": "12501",  # January 2023 Cycle
             },
             {
                 "name": "Citi Student Loan Trust 2024-A",
@@ -163,7 +218,7 @@ def create_sample_data():
                 "credit_rating": "AA-",
                 "yield_rate": Decimal("0.0465"),
                 "duration": Decimal("8.1"),
-                "cycle_code": "2024-02",
+                "cycle_code": "12502",  # February 2023 Cycle
             },
             {
                 "name": "Morgan Stanley CMBS 2024-B",
@@ -174,7 +229,7 @@ def create_sample_data():
                 "credit_rating": "AAA",
                 "yield_rate": Decimal("0.0535"),
                 "duration": Decimal("6.8"),
-                "cycle_code": "2024-03",
+                "cycle_code": "12503",  # March 2023 Cycle
             },
         ]
 
@@ -202,7 +257,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.0450"),
                     "credit_rating": "AAA",
                     "payment_priority": 1,
-                    "cycle_code": "2024-01",
+                    "cycle_code": "12501",
                 },
                 {
                     "deal_id": created_deals[0].id,
@@ -213,7 +268,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.0485"),
                     "credit_rating": "AAA",
                     "payment_priority": 2,
-                    "cycle_code": "2024-01",
+                    "cycle_code": "12501",
                 },
                 {
                     "deal_id": created_deals[0].id,
@@ -224,7 +279,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.0650"),
                     "credit_rating": "AA",
                     "payment_priority": 3,
-                    "cycle_code": "2024-01",
+                    "cycle_code": "12501",
                 },
                 {
                     "deal_id": created_deals[0].id,
@@ -235,7 +290,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.0950"),
                     "credit_rating": "A",
                     "payment_priority": 4,
-                    "cycle_code": "2024-01",
+                    "cycle_code": "12501",
                 },
             ]
         )
@@ -252,7 +307,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.0500"),
                     "credit_rating": "AA+",
                     "payment_priority": 1,
-                    "cycle_code": "2024-02",
+                    "cycle_code": "12502",
                 },
                 {
                     "deal_id": created_deals[1].id,
@@ -263,7 +318,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.0720"),
                     "credit_rating": "A",
                     "payment_priority": 2,
-                    "cycle_code": "2024-02",
+                    "cycle_code": "12502",
                 },
                 {
                     "deal_id": created_deals[1].id,
@@ -274,7 +329,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.1050"),
                     "credit_rating": "BBB",
                     "payment_priority": 3,
-                    "cycle_code": "2024-02",
+                    "cycle_code": "12502",
                 },
             ]
         )
@@ -291,7 +346,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.0375"),
                     "credit_rating": "AAA",
                     "payment_priority": 1,
-                    "cycle_code": "2024-03",
+                    "cycle_code": "12503",
                 },
                 {
                     "deal_id": created_deals[2].id,
@@ -302,7 +357,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.0480"),
                     "credit_rating": "AA",
                     "payment_priority": 2,
-                    "cycle_code": "2024-03",
+                    "cycle_code": "12503",
                 },
                 {
                     "deal_id": created_deals[2].id,
@@ -313,7 +368,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.0750"),
                     "credit_rating": "A",
                     "payment_priority": 3,
-                    "cycle_code": "2024-03",
+                    "cycle_code": "12503",
                 },
             ]
         )
@@ -330,7 +385,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.0490"),
                     "credit_rating": "AA",
                     "payment_priority": 1,
-                    "cycle_code": "2024-01",
+                    "cycle_code": "12501",
                 },
                 {
                     "deal_id": created_deals[3].id,
@@ -341,7 +396,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.0520"),
                     "credit_rating": "AA",
                     "payment_priority": 2,
-                    "cycle_code": "2024-01",
+                    "cycle_code": "12501",
                 },
                 {
                     "deal_id": created_deals[3].id,
@@ -352,7 +407,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.0680"),
                     "credit_rating": "A",
                     "payment_priority": 3,
-                    "cycle_code": "2024-01",
+                    "cycle_code": "12501",
                 },
                 {
                     "deal_id": created_deals[3].id,
@@ -363,7 +418,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.0920"),
                     "credit_rating": "BBB",
                     "payment_priority": 4,
-                    "cycle_code": "2024-01",
+                    "cycle_code": "12501",
                 },
             ]
         )
@@ -380,7 +435,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.0445"),
                     "credit_rating": "AA-",
                     "payment_priority": 1,
-                    "cycle_code": "2024-02",
+                    "cycle_code": "12502",
                 },
                 {
                     "deal_id": created_deals[4].id,
@@ -391,7 +446,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.0580"),
                     "credit_rating": "A",
                     "payment_priority": 2,
-                    "cycle_code": "2024-02",
+                    "cycle_code": "12502",
                 },
                 {
                     "deal_id": created_deals[4].id,
@@ -402,7 +457,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.0820"),
                     "credit_rating": "BBB",
                     "payment_priority": 3,
-                    "cycle_code": "2024-02",
+                    "cycle_code": "12502",
                 },
             ]
         )
@@ -419,7 +474,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.0515"),
                     "credit_rating": "AAA",
                     "payment_priority": 1,
-                    "cycle_code": "2024-03",
+                    "cycle_code": "12503",
                 },
                 {
                     "deal_id": created_deals[5].id,
@@ -430,7 +485,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.0550"),
                     "credit_rating": "AAA",
                     "payment_priority": 2,
-                    "cycle_code": "2024-03",
+                    "cycle_code": "12503",
                 },
                 {
                     "deal_id": created_deals[5].id,
@@ -441,7 +496,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.0750"),
                     "credit_rating": "AA",
                     "payment_priority": 3,
-                    "cycle_code": "2024-03",
+                    "cycle_code": "12503",
                 },
                 {
                     "deal_id": created_deals[5].id,
@@ -452,7 +507,7 @@ def create_sample_data():
                     "interest_rate": Decimal("0.0980"),
                     "credit_rating": "A",
                     "payment_priority": 4,
-                    "cycle_code": "2024-03",
+                    "cycle_code": "12503",
                 },
             ]
         )
@@ -462,8 +517,8 @@ def create_sample_data():
             tranche = Tranche(**tranche_data)
             dw_db.add(tranche)
 
-            # Replicate each tranche across additional cycles to simulate monthly updates
-        additional_cycles = ["2024-04", "2024-05", "2024-06"]
+        # Replicate each tranche across additional cycles to simulate monthly updates
+        additional_cycles = ["12504", "12505", "12506"]  # Additional cycles from our cycles table
         expanded_tranches = []
 
         for tranche_data in tranches_data:
@@ -475,22 +530,26 @@ def create_sample_data():
                 new_tranche["interest_rate"] = new_tranche["interest_rate"] + Decimal("0.0005")
                 expanded_tranches.append(new_tranche)
 
-        # Combine all tranches
-        tranches_data.extend(expanded_tranches)
+        # Add expanded tranches to database
+        for tranche_data in expanded_tranches:
+            tranche = Tranche(**tranche_data)
+            dw_db.add(tranche)
 
         # Commit everything
         dw_db.commit()
 
         print(f"✅ Successfully created:")
+        print(f"   🗓️  {len(created_cycles)} cycles")
         print(f"   📊 {len(created_deals)} deals")
-        print(f"   📈 {len(tranches_data)} tranches")
-        print(f"   🗓️  Across 3 cycles (2024-01, 2024-02, 2024-03)")
+        print(f"   📈 {len(tranches_data) + len(expanded_tranches)} tranches")
+        print(f"   Across cycles: {', '.join([c.code for c in created_cycles])}")
 
         # Print summary by cycle
         print(f"\n📋 Summary by cycle:")
-        for cycle in ["2024-01", "2024-02", "2024-03"]:
+        all_cycle_codes = [c.code for c in created_cycles]
+        for cycle in all_cycle_codes:
             cycle_deals = [d for d in created_deals if d.cycle_code == cycle]
-            cycle_tranches = [t for t in tranches_data if t["cycle_code"] == cycle]
+            cycle_tranches = [t for t in tranches_data + expanded_tranches if t["cycle_code"] == cycle]
             print(f"   {cycle}: {len(cycle_deals)} deals, {len(cycle_tranches)} tranches")
 
     except Exception as e:

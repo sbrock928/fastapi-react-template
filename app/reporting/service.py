@@ -1,4 +1,4 @@
-"""Service layer for the reporting module that coordinates between config DB and data warehouse."""
+"""Service layer for the reporting module."""
 
 from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
@@ -86,11 +86,18 @@ class ReportService:
         if any(r.name == report_data.name for r in existing_reports):
             errors["add"]("name", "Report name already exists", "value_error.already_exists")
 
-        # Validate that selected deals exist in data warehouse
+        # Validate that selected deals exist in data warehouse using DWDao methods
         if report_data.selected_deals:
-            # We'll do a basic validation - in a real implementation you might
-            # want to check specific cycles, but for now we'll just verify IDs exist
-            pass  # Could add deal existence validation here if needed
+            # Use the parent class get_by_ids method to validate deal existence
+            existing_deals = await self.deal_dao.get_by_ids(report_data.selected_deals)
+            existing_deal_ids = {deal.id for deal in existing_deals}
+            missing_deal_ids = set(report_data.selected_deals) - existing_deal_ids
+            
+            if missing_deal_ids:
+                errors["add"](
+                    "selected_deals", 
+                    f"Deal IDs not found: {sorted(missing_deal_ids)}"
+                )
 
         # For tranche-level reports, validate tranche selections
         if report_data.scope == ReportScope.TRANCHE:
@@ -109,6 +116,18 @@ class ReportService:
                         "selected_tranches",
                         "Tranche selections contain deals not in selected deals",
                     )
+
+                # Validate that selected tranches exist using DWDao methods
+                for deal_id_str, tranche_ids in report_data.selected_tranches.items():
+                    existing_tranches = await self.tranche_dao.get_by_ids(tranche_ids)
+                    existing_tranche_ids = {tranche.id for tranche in existing_tranches}
+                    missing_tranche_ids = set(tranche_ids) - existing_tranche_ids
+                    
+                    if missing_tranche_ids:
+                        errors["add"](
+                            "selected_tranches",
+                            f"Tranche IDs not found for deal {deal_id_str}: {sorted(missing_tranche_ids)}"
+                        )
 
         errors["raise_if_errors"]()
         return report_data
@@ -185,16 +204,17 @@ class ReportService:
         if not report.is_active:
             raise HTTPException(status_code=400, detail="Report is inactive")
 
-        # 2. Query data warehouse using stored IDs
+        # 2. Query data warehouse using stored IDs and DWDao parent class methods
         results = []
 
         if report.scope == "DEAL":
             # Deal-level report: one row per deal with aggregated data
             if report.selected_deals:
+                # Use DWDao parent class method with cycle filtering
                 deals = await self.deal_dao.get_by_ids(report.selected_deals, cycle_code)
 
                 for deal in deals:
-                    # Get tranches for aggregation
+                    # Get tranches for aggregation using DWDao method
                     tranches = await self.tranche_dao.get_by_deal_id(deal.id, cycle_code)
 
                     # Calculate aggregated metrics
@@ -232,13 +252,13 @@ class ReportService:
                 for deal_id_str, tranche_ids in report.selected_tranches.items():
                     deal_id = int(deal_id_str)
 
-                    # Get deal info for context
-                    deal = await self.deal_dao.get_by_id(deal_id)
+                    # Get deal info for context using DWDao method
+                    deal = await self.deal_dao.get_by_id_and_cycle(deal_id, cycle_code)
                     if not deal:
                         continue
 
-                    # Get selected tranches
-                    tranches = await self.tranche_dao.get_by_ids(tranche_ids)
+                    # Get selected tranches using DWDao method with cycle filtering
+                    tranches = await self.tranche_dao.get_by_ids(tranche_ids, cycle_code)
 
                     for tranche in tranches:
                         result_row = {
@@ -266,26 +286,35 @@ class ReportService:
         return results
 
     async def get_available_deals(self, cycle_code: Optional[str] = None) -> List[DealRead]:
-        """Get available deals for report building."""
+        """Get available deals for report building using DWDao method."""
+        # Use the parent class get_all method with optional cycle filtering
         deals = await self.deal_dao.get_all(cycle_code)
         return [DealRead.model_validate(deal) for deal in deals]
 
     async def get_available_tranches_for_deals(
         self, deal_ids: List[int], cycle_code: Optional[str] = None
     ) -> Dict[int, List[TrancheRead]]:
-        """Get available tranches for specific deals."""
+        """Get available tranches for specific deals using DWDao methods."""
         result = {}
 
         for deal_id in deal_ids:
+            # Use the TrancheDAO specific method (which is built on DWDao base)
             tranches = await self.tranche_dao.get_by_deal_id(deal_id, cycle_code)
             result[deal_id] = [TrancheRead.model_validate(tranche) for tranche in tranches]
 
         return result
 
     async def get_available_cycles(self) -> List[Dict[str, str]]:
-        """Get available cycle codes from the data warehouse.
+        """Get available cycle codes from the cycles table in the data warehouse.
 
-        This method coordinates between the report DAO and potentially
-        the data warehouse DAOs to get all available cycles.
+        Now uses the cycle methods available in the base DWDao class.
+        Can use either deal_dao or tranche_dao since both inherit the cycle methods.
         """
-        return await self.report_dao.get_available_cycles()
+        try:
+            # Use the cycle methods from the base DWDao class (available on any DAO instance)
+            return await self.deal_dao.get_available_cycles()
+            
+        except Exception as e:
+            # Fallback to dummy data if there's an issue with cycles table
+            print(f"Warning: Could not fetch cycle data from data warehouse: {e}")
+            return await self.report_dao.get_available_cycles()
