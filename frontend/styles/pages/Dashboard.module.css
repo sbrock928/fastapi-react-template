@@ -1,0 +1,124 @@
+/* Dashboard Page styles */
+.dashboardContainer {
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.dashboardTitle {
+  font-size: 2.5rem;
+  font-weight: 600;
+  color: #2a2a2a;
+  margin-bottom: 2rem;
+  position: relative;
+}
+
+.dashboardTitle::after {
+  content: '';
+  position: absolute;
+  bottom: -12px;
+  left: 0;
+  width: 60px;
+  height: 4px;
+  background-color: #28a745;
+  border-radius: 2px;
+}
+
+.dashboardGrid {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.dashboardCard {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+  padding: 1.5rem;
+  transition: all 0.3s ease;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  height: 100%;
+}
+
+.dashboardCard:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 10px;
+  margin-bottom: 1rem;
+  background: rgba(40, 167, 69, 0.1);
+}
+
+.icon.blue { 
+  color: #28a745;
+  background-color: rgba(40, 167, 69, 0.1);
+}
+
+.icon.green { 
+  color: #198754;
+  background-color: rgba(25, 135, 84, 0.1);
+}
+
+.icon.cyan { 
+  color: #0dcaf0;
+  background-color: rgba(13, 202, 240, 0.1);
+}
+
+.icon.yellow { 
+  color: #ffc107;
+  background-color: rgba(255, 193, 7, 0.1);
+}
+
+.dashboardButton {
+  display: inline-block;
+  margin-top: 1rem;
+  padding: 0.6rem 1.2rem;
+  color: #fff;
+  text-decoration: none;
+  border-radius: 6px;
+  font-weight: bold;
+  transition: background-color 0.2s ease;
+}
+
+.dashboardButton.blue { 
+  background-color: #28a745; 
+}
+
+.dashboardButton.blue:hover { 
+  background-color: #1e7e34;
+  color: #fff;
+}
+
+.dashboardButton.green { 
+  background-color: #198754; 
+}
+
+.dashboardButton.green:hover { 
+  background-color: #157347;
+  color: #fff;
+}
+
+.dashboardButton.cyan { 
+  background-color: #0dcaf0; 
+}
+
+.dashboardButton.cyan:hover { 
+  background-color: #0bbbe5;
+  color: #fff;
+}
+
+.dashboardButton.yellow { 
+  background-color: #ffc107; 
+  color: #212529; 
+}
+
+.dashboardButton.yellow:hover { 
+  background-color: #e0a800;
+  color: #212529;
+}

@@ -2,6 +2,7 @@ import React from 'react';
 import { useReportContext } from '@/context/ReportContext';
 import { useCycleContext } from '@/context/CycleContext';
 import { ReportDropdown, CycleDropdown } from '@/components/reporting';
+import styles from '@/styles/components/RunReportsCard.module.css';
 
 interface RunReportsCardProps {
   selectedSavedReport: string;
@@ -23,9 +24,12 @@ const RunReportsCard: React.FC<RunReportsCardProps> = ({
   const canRunReport = selectedSavedReport && selectedCycle && selectedCycle.value !== '';
 
   return (
-    <div className="card mb-4">
-      <div className="card-header bg-primary text-white">
-        <h5 className="card-title mb-0">Run Reports</h5>
+    <div className={`card ${styles.runReportsCard}`}>
+      <div className={`card-header text-white ${styles.cardHeader}`}>
+        <h5 className="card-title mb-0">
+          <i className="bi bi-play-circle me-2"></i>
+          Run Report
+        </h5>
       </div>
       <div className="card-body">
         <div className="row g-3">
@@ -43,19 +47,19 @@ const RunReportsCard: React.FC<RunReportsCardProps> = ({
           <div className="col-12 mt-3 d-flex gap-2">
             <button
               type="button"
-              className="btn"
-              style={{ backgroundColor: '#28a745', color: 'white' }}
+              className={`btn btn-primary ${styles.runButton}`}
               onClick={onRunReport}
               disabled={loading || !canRunReport}
             >
               {loading ? (
                 <>
-                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                  <span className="ms-2">Running...</span>
+                  <span className={`spinner-border spinner-border-sm ${styles.loadingSpinner}`} role="status" aria-hidden="true"></span>
+                  <span className={styles.loadingText}>Running Report...</span>
                 </>
               ) : (
                 <>
-                  <i className="bi bi-play-fill"></i> Run Report
+                  <i className="bi bi-play-fill me-2"></i>
+                  Run Report
                 </>
               )}
             </button>
@@ -73,26 +77,28 @@ const RunReportsCard: React.FC<RunReportsCardProps> = ({
         </div>
 
         {/* Validation messages */}
-        {!selectedSavedReport && (
-          <div className="alert alert-warning mt-3">
-            <i className="bi bi-exclamation-triangle me-2"></i>
-            Please select a saved report to run.
-          </div>
-        )}
-        
-        {selectedSavedReport && (!selectedCycle || selectedCycle.value === '') && (
-          <div className="alert alert-warning mt-3">
-            <i className="bi bi-exclamation-triangle me-2"></i>
-            Please select a cycle to run the report.
-          </div>
-        )}
+        <div className="mt-3">
+          {!selectedSavedReport && (
+            <div className={`alert alert-warning ${styles.warningAlert}`}>
+              <i className={`bi bi-exclamation-triangle ${styles.warningIcon}`}></i>
+              Please select a saved report to run.
+            </div>
+          )}
+          
+          {selectedSavedReport && (!selectedCycle || selectedCycle.value === '') && (
+            <div className={`alert alert-warning ${styles.warningAlert}`}>
+              <i className={`bi bi-exclamation-triangle ${styles.warningIcon}`}></i>
+              Please select a cycle to run the report.
+            </div>
+          )}
 
-        {selectedSavedReport && selectedCycle && selectedCycle.value !== '' && (
-          <div className="alert alert-info mt-3">
-            <i className="bi bi-info-circle me-2"></i>
-            Ready to run: <strong>{savedReports.find(r => r.id.toString() === selectedSavedReport)?.name}</strong> for cycle <strong>{selectedCycle.label}</strong>
-          </div>
-        )}
+          {selectedSavedReport && selectedCycle && selectedCycle.value !== '' && (
+            <div className={`alert alert-info ${styles.infoAlert}`}>
+              <i className={`bi bi-info-circle ${styles.infoIcon}`}></i>
+              Ready to run: <strong>{savedReports.find(r => r.id.toString() === selectedSavedReport)?.name}</strong> for cycle <strong>{selectedCycle.label}</strong>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

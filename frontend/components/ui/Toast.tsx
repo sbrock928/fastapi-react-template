@@ -1,5 +1,6 @@
 import React, { useCallback } from 'react';
 import { Toast as ToastInterface, useToast } from '@/context/ToastContext';
+import styles from '@/styles/components/Toast.module.css';
 
 const Toast: React.FC = () => {
   const { toasts, removeToast } = useToast();
@@ -24,26 +25,25 @@ const Toast: React.FC = () => {
 
   return (
     <div 
-      className="toast-container position-fixed bottom-0 end-0 p-3" 
-      style={{ zIndex: 1100 }}
+      className={`toast-container position-fixed bottom-0 end-0 p-3 ${styles.toastContainer}`}
       onClick={handleToastWrapperClick}
     >
       {toasts.map((toast: ToastInterface) => (
         <div 
           key={toast.id}
-          className={`toast show align-items-center text-white bg-${getToastClass(toast.type)} border-0`} 
+          className={`toast show align-items-center text-white bg-${getToastClass(toast.type)} border-0 ${styles.toast}`} 
           role="alert" 
           aria-live="assertive" 
           aria-atomic="true"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="d-flex">
-            <div className="toast-body">
+            <div className={`toast-body ${styles.toastBody}`}>
               {toast.message}
             </div>
             <button 
               type="button" 
-              className="btn-close btn-close-white me-2 m-auto" 
+              className={`btn-close btn-close-white me-2 m-auto ${styles.closeButton}`}
               aria-label="Close"
               onClick={(e) => handleToastClose(e, toast.id)}
               onMouseDown={(e) => e.stopPropagation()}
@@ -65,8 +65,9 @@ const getToastClass = (type: string): string => {
     case 'warning':
       return 'warning';
     case 'info':
-    default:
       return 'info';
+    default:
+      return 'primary';
   }
 };
 

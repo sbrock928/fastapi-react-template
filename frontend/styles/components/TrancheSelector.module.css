@@ -1,0 +1,91 @@
+/* Tranche Selector Table styles */
+.tableContainer {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.tableHeader {
+  position: sticky;
+  top: 0;
+  background-color: #f8f9fa;
+  z-index: 10;
+}
+
+.sortableHeader {
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s ease;
+}
+
+.sortableHeader:hover {
+  background-color: #e9ecef;
+}
+
+.headerMinWidth40 {
+  width: 40px;
+  min-width: 40px;
+}
+
+.headerMinWidth80 {
+  min-width: 80px;
+}
+
+.headerMinWidth100 {
+  min-width: 100px;
+}
+
+.headerMinWidth120 {
+  min-width: 120px;
+}
+
+.headerMinWidth150 {
+  min-width: 150px;
+}
+
+.headerMinWidth200 {
+  min-width: 200px;
+}
+
+.clickableRow {
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.clickableRow:hover {
+  background-color: #f8f9fa;
+}
+
+.selectedRow {
+  background-color: #e3f2fd !important;
+}
+
+.sortIcon {
+  margin-left: 0.25rem;
+  font-size: 0.875rem;
+}
+
+.dealInfo {
+  font-weight: bold;
+}
+
+.dealSubInfo {
+  font-size: 0.875rem;
+  color: #6c757d;
+}
+
+.trancheName {
+  font-weight: bold;
+}
+
+.selectionSummary {
+  background-color: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 0.375rem;
+  padding: 1rem;
+  margin-top: 1rem;
+}
+
+.summaryIcon {
+  color: #856404;
+  margin-right: 0.5rem;
+}

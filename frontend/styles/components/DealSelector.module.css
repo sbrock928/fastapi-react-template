@@ -1,0 +1,89 @@
+/* Deal Selector Table styles */
+.tableContainer {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.tableHeader {
+  position: sticky;
+  top: 0;
+  background-color: #f8f9fa;
+  z-index: 10;
+}
+
+.sortableHeader {
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s ease;
+}
+
+.sortableHeader:hover {
+  background-color: #e9ecef;
+}
+
+.headerMinWidth50 {
+  width: 50px;
+  min-width: 50px;
+}
+
+.headerMinWidth100 {
+  min-width: 100px;
+}
+
+.headerMinWidth120 {
+  min-width: 120px;
+}
+
+.headerMinWidth150 {
+  min-width: 150px;
+}
+
+.headerMinWidth200 {
+  min-width: 200px;
+}
+
+.headerMinWidth250 {
+  min-width: 250px;
+}
+
+.clickableRow {
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.clickableRow:hover {
+  background-color: #f8f9fa;
+}
+
+.selectedRow {
+  background-color: #e3f2fd !important;
+}
+
+.sortIcon {
+  margin-left: 0.25rem;
+  font-size: 0.875rem;
+}
+
+.selectionSummary {
+  background-color: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 0.375rem;
+  padding: 1rem;
+  margin-top: 1rem;
+}
+
+.summaryIcon {
+  color: #856404;
+  margin-right: 0.5rem;
+}
+
+.filterControls {
+  background-color: #f8f9fa;
+  border-radius: 0.375rem;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.clearFiltersBtn {
+  height: calc(2.25rem + 2px);
+}

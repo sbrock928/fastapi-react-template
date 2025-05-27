@@ -1,0 +1,45 @@
+/* Status Distribution Chart styles */
+.statusGroup {
+  margin-bottom: 0.5rem;
+  width: 100%;
+}
+
+.statusLabel {
+  min-width: 120px;
+}
+
+.progressBar {
+  height: 24px;
+  cursor: pointer;
+  flex-grow: 1;
+}
+
+.progressBarInner {
+  transition: all 0.3s ease;
+}
+
+.progressPercentage {
+  color: transparent;
+}
+
+.statusCount {
+  min-width: 80px;
+}
+
+.statusBadge {
+  padding: 0.5rem 1rem;
+  border-radius: 1rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.statusBadge:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.clickHint {
+  font-size: 0.875rem;
+  color: #6c757d;
+  margin-top: 1rem;
+}

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import type { Deal, TrancheReportSummary } from '@/types';
+import styles from '@/styles/components/TrancheSelector.module.css';
 
 interface TrancheSelectorProps {
   deals: Deal[];
@@ -21,7 +22,7 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
   loading = false
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortField, setSortField] = useState<'deal_name' | 'tranche_name' | 'principal_amount' | 'interest_rate' | 'payment_priority'>('deal_name');
+  const [sortField, setSortField] = useState<'deal_name' | 'tranche_name' | 'principal_amount' | 'interest_rate' | 'payment_priority' | 'class_name' | 'credit_rating'>('deal_name');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [selectedDealFilter, setSelectedDealFilter] = useState<number | 'all'>('all');
   const masterCheckboxRef = useRef<HTMLInputElement>(null);
@@ -39,6 +40,14 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
   // Format percentage
   const formatPercent = (rate: number) => {
     return (rate * 100).toFixed(2) + '%';
+  };
+
+  // Get sort icon for table headers
+  const getSortIcon = (field: string) => {
+    if (sortField !== field) {
+      return <i className="bi bi-chevron-expand ms-1"></i>;
+    }
+    return <i className={`bi bi-chevron-${sortDirection === 'asc' ? 'up' : 'down'} ms-1`}></i>;
   };
 
   // Create flat list of all tranches with deal info
@@ -266,11 +275,11 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
           </div>
         </div>
         <div className="card-body p-0">
-          <div className="table-responsive" style={{ maxHeight: '600px' }}>
+          <div className={styles.tableContainer}>
             <table className="table table-sm table-hover mb-0">
-              <thead className="sticky-top bg-light">
+              <thead className={styles.tableHeader}>
                 <tr>
-                  <th style={{ width: '40px' }}>
+                  <th className={styles.headerMinWidth40}>
                     <input
                       ref={masterCheckboxRef}
                       type="checkbox"
@@ -280,7 +289,7 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
                     />
                   </th>
                   <th 
-                    style={{ cursor: 'pointer', minWidth: '200px' }}
+                    className={`${styles.sortableHeader} ${styles.headerMinWidth200}`} 
                     onClick={() => handleSort('deal_name')}
                   >
                     Deal
@@ -289,7 +298,7 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
                     )}
                   </th>
                   <th 
-                    style={{ cursor: 'pointer', minWidth: '150px' }}
+                    className={`${styles.sortableHeader} ${styles.headerMinWidth150}`} 
                     onClick={() => handleSort('tranche_name')}
                   >
                     Tranche
@@ -297,11 +306,12 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
                       <i className={`bi bi-chevron-${sortDirection === 'asc' ? 'up' : 'down'} ms-1`}></i>
                     )}
                   </th>
-                  <th style={{ minWidth: '80px' }}>Class</th>
+                  <th className={`${styles.headerMinWidth80}`} onClick={() => handleSort('class_name')}>
+                    Class {getSortIcon('class_name')}
+                  </th>
                   <th 
-                    style={{ cursor: 'pointer', minWidth: '120px' }}
+                    className={`${styles.sortableHeader} ${styles.headerMinWidth120} text-end`} 
                     onClick={() => handleSort('principal_amount')}
-                    className="text-end"
                   >
                     Principal
                     {sortField === 'principal_amount' && (
@@ -309,20 +319,20 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
                     )}
                   </th>
                   <th 
-                    style={{ cursor: 'pointer', minWidth: '100px' }}
+                    className={`${styles.sortableHeader} ${styles.headerMinWidth100} text-end`} 
                     onClick={() => handleSort('interest_rate')}
-                    className="text-end"
                   >
                     Rate
                     {sortField === 'interest_rate' && (
                       <i className={`bi bi-chevron-${sortDirection === 'asc' ? 'up' : 'down'} ms-1`}></i>
                     )}
                   </th>
-                  <th style={{ minWidth: '80px' }}>Rating</th>
+                  <th className={`${styles.headerMinWidth80}`} onClick={() => handleSort('credit_rating')}>
+                    Rating {getSortIcon('credit_rating')}
+                  </th>
                   <th 
-                    style={{ cursor: 'pointer', minWidth: '80px' }}
+                    className={`${styles.sortableHeader} ${styles.headerMinWidth80} text-center`} 
                     onClick={() => handleSort('payment_priority')}
-                    className="text-center"
                   >
                     Priority
                     {sortField === 'payment_priority' && (

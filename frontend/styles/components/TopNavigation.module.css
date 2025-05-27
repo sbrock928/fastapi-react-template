@@ -1,0 +1,17 @@
+.topNavbar {
+  background-color: #28a745 !important;
+}
+
+.navbarBrand {
+  display: flex;
+  align-items: center;
+}
+
+.logo {
+  height: 24px;
+  margin-right: 0.5rem;
+}
+
+.navbarText {
+  color: white;
+}

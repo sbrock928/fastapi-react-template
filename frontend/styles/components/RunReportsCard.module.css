@@ -1,0 +1,29 @@
+/* Run Reports Card styles */
+.cardHeader {
+  background-color: #28a745 !important;
+  color: white;
+}
+
+.runButton {
+  background-color: #28a745;
+  color: white;
+  border: none;
+}
+
+.runButton:hover {
+  background-color: #1e7e34;
+  color: white;
+}
+
+.runButton:disabled {
+  background-color: #6c757d;
+  border-color: #6c757d;
+}
+
+.loadingSpinner {
+  margin-right: 0.5rem;
+}
+
+.scheduleButton {
+  margin-left: 0.5rem;
+}

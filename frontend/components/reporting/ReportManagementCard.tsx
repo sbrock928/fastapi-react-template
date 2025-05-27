@@ -29,7 +29,7 @@ const ReportManagementCard: React.FC<ReportManagementCardProps> = ({
 }) => {
   return (
     <div className="card mb-4">
-      <div className="card-header bg-success text-white d-flex justify-content-between align-items-center">
+      <div className="card-header bg-primary text-white d-flex justify-content-between align-items-center">
         <h5 className="card-title mb-0">
           {reportBuilderMode 
             ? (wizardMode === 'edit' ? 'Edit Report Configuration' : 'Create New Report') 

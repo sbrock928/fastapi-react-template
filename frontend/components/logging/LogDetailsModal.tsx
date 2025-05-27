@@ -2,6 +2,7 @@ import { useRef, useEffect, useCallback } from 'react';
 import useModal from '@/hooks/useModal';
 import { formatJsonString } from '@/utils/formatters';
 import type { Log } from '@/types';
+import styles from '@/styles/components/LogDetailsModal.module.css';
 
 interface LogDetailsModalProps {
   log: Log;
@@ -37,23 +38,33 @@ const LogDetailsModal = ({ log, show, onHide }: LogDetailsModalProps) => {
     closeModal();
   }, [closeModal]);
   
+  if (!log) return null;
+
   return (
     <div 
-      className="modal fade" 
-      id="logDetailsModal" 
-      tabIndex={-1} 
+      className={`modal fade ${styles.modal}`}
+      tabIndex={-1}
+      aria-labelledby="logDetailsModalLabel"
+      aria-hidden="true"
       ref={modalRef}
+      onClick={handleModalClick}
       data-bs-backdrop="static"
       data-bs-keyboard="false"
-      onClick={handleModalClick}
     >
-      <div className="modal-dialog modal-lg">
-        <div className="modal-content">
-          <div className="modal-header text-white" style={{ backgroundColor: '#28a745' }}>
-            <h5 className="modal-title">Log Details</h5>
-            <button type="button" className="btn-close btn-close-white" onClick={handleClose} aria-label="Close"></button>
+      <div className={`modal-dialog modal-lg ${styles.modalDialog}`}>
+        <div className={`modal-content ${styles.modalContent}`}>
+          <div className={`modal-header ${styles.modalHeader}`}>
+            <h5 className="modal-title" id="logDetailsModalLabel">
+              Request Details - {log.method} {log.path}
+            </h5>
+            <button 
+              type="button" 
+              className={`btn-close ${styles.closeButton}`}
+              onClick={handleClose}
+              aria-label="Close"
+            ></button>
           </div>
-          <div className="modal-body">
+          <div className={`modal-body ${styles.modalBody}`}>
             <div className="row mb-3">
               <div className="col-md-6">
                 <div className="mb-3">
@@ -135,15 +146,15 @@ const LogDetailsModal = ({ log, show, onHide }: LogDetailsModalProps) => {
               </li>
             </ul>
             
-            <div className="tab-content p-3 border border-top-0 rounded-bottom" id="logDetailsTabContent">
+            <div className={`tab-content ${styles.tabContent}`} id="requestTabsContent">
               <div className="tab-pane fade show active" id="headers-tab-pane" role="tabpanel" aria-labelledby="headers-tab" tabIndex={0}>
-                <pre className="bg-light p-3 rounded" id="detailHeaders">{formatJsonString(log.request_headers)}</pre>
+                <pre className={styles.preBlock} id="detailHeaders">{formatJsonString(log.request_headers)}</pre>
               </div>
               <div className="tab-pane fade" id="body-tab-pane" role="tabpanel" aria-labelledby="body-tab" tabIndex={0}>
-                <pre className="bg-light p-3 rounded" id="detailBody">{formatJsonString(log.request_body)}</pre>
+                <pre className={styles.preBlock} id="detailBody">{formatJsonString(log.request_body)}</pre>
               </div>
               <div className="tab-pane fade" id="response-tab-pane" role="tabpanel" aria-labelledby="response-tab" tabIndex={0}>
-                <pre className="bg-light p-3 rounded" id="detailResponseBody">{formatJsonString(log.response_body)}</pre>
+                <pre className={styles.preBlock} id="detailResponseBody">{formatJsonString(log.response_body)}</pre>
               </div>
             </div>
           </div>

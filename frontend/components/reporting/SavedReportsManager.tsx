@@ -152,7 +152,7 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
       <div className="col-md-4 d-flex align-items-end gap-2">
         <button
           type="button"
-          className="btn btn-success"
+          className="btn btn-primary"
           onClick={onCreateNew}
         >
           <i className="bi bi-plus-lg"></i> Create New Report

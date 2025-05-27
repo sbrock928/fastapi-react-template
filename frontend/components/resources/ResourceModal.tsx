@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import useModal from '@/hooks/useModal';
 import { useToast } from '@/context/ToastContext';
+import styles from '@/styles/components/ResourceModal.module.css';
 
 interface ResourceModalProps {
   resourceType: string;
@@ -456,7 +457,7 @@ const ResourceModal = ({
 
   return (
     <div 
-      className="modal fade" 
+      className={`modal fade ${styles.modal}`}
       tabIndex={-1}
       aria-labelledby="resourceModalLabel"
       aria-hidden="true"
@@ -465,20 +466,20 @@ const ResourceModal = ({
       data-bs-backdrop="static"
       data-bs-keyboard="false"
     >
-      <div className="modal-dialog">
-        <div className="modal-content">
-          <div className="modal-header text-white" style={{ backgroundColor: '#28a745' }}>
+      <div className={`modal-dialog ${styles.modalDialog}`}>
+        <div className={`modal-content ${styles.modalContent}`}>
+          <div className={`modal-header text-white ${styles.modalHeader}`}>
             <h5 className="modal-title" id="resourceModalLabel">
               {editingResource ? `Edit ${resourceConfig.displayName}` : `Add ${resourceConfig.displayName}`}
             </h5>
             <button 
               type="button" 
-              className="btn-close btn-close-white" 
+              className={`btn-close btn-close-white ${styles.closeButton}`}
               onClick={handleClose}
               aria-label="Close"
             ></button>
           </div>
-          <div className={`modal-body ${hasSubmitError ? 'modal-body-error' : ''}`}>
+          <div className={`modal-body ${hasSubmitError ? styles.modalBodyError : styles.modalBody}`}>
             {/* Validation Summary */}
             {showValidationSummary && (
               <div 
@@ -514,7 +515,7 @@ const ResourceModal = ({
             >
               {isSubmitting ? (
                 <>
-                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                  <span className={`spinner-border spinner-border-sm ${styles.loadingSpinner}`} role="status" aria-hidden="true"></span>
                   Saving...
                 </>
               ) : (

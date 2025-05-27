@@ -1,0 +1,48 @@
+/* Modal styles */
+.modal {
+  backdrop-filter: blur(4px);
+}
+
+.modalHeader {
+  background-color: #28a745 !important;
+  color: white;
+  border-bottom: none;
+}
+
+.modalDialog {
+  max-width: 600px;
+}
+
+.modalContent {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.modalBody {
+  padding: 1.5rem;
+}
+
+.closeButton {
+  color: white;
+  opacity: 0.8;
+}
+
+.closeButton:hover {
+  opacity: 1;
+}
+
+/* Tab styles */
+.tabContent {
+  border: 1px solid #dee2e6;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  padding: 1rem;
+}
+
+.preBlock {
+  background: #f8f9fa;
+  padding: 1rem;
+  border-radius: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}

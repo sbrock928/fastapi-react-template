@@ -1,0 +1,77 @@
+/* Override Cell styles */
+.overrideContainer {
+  position: relative;
+}
+
+.editingContainer {
+  display: flex;
+  align-items: center;
+}
+
+.editInput {
+  flex-grow: 1;
+}
+
+.valuePickerDropdown {
+  margin-left: 0.25rem;
+}
+
+.dropdownMenu {
+  z-index: 1050;
+}
+
+.actionButtons {
+  margin-left: 0.25rem;
+}
+
+.actionButton {
+  margin-left: 0.25rem;
+}
+
+.displayContainer {
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.displayContainerOverride {
+  background-color: rgba(255, 193, 7, 0.25);
+  border: 1px solid #ffc107;
+}
+
+.displayContainerHover:hover {
+  background-color: #f8f9fa;
+}
+
+.valueDisplay {
+  flex-grow: 1;
+}
+
+.valueDisplayOverride {
+  font-weight: bold;
+}
+
+.originalValue {
+  font-size: 0.875rem;
+  color: #6c757d;
+}
+
+.overrideBadge {
+  background-color: #ffc107;
+  color: #212529;
+  font-size: 0.6rem;
+  margin-right: 0.25rem;
+}
+
+.clearOverrideButton {
+  font-size: 0.7rem;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+}
+
+.editIcon {
+  font-size: 0.8rem;
+  color: #6c757d;
+}

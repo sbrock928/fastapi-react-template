@@ -3,6 +3,7 @@ import { formatDate, formatNumber, formatPercentage } from '@/utils/formatters';
 import usePagination from '@/hooks/usePagination';
 import type { ReportRow, DynamicReportConfig } from '@/types';
 import { reportsApi } from '@/services/api';
+import styles from '@/styles/components/ReportingTable.module.css';
 
 interface ReportingTableProps {
   reportType: string;
@@ -141,15 +142,15 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
   
   return (
     <div id="reportResultsCard" className="card">
-      <div className="card-header text-white d-flex justify-content-between align-items-center" style={{ backgroundColor: '#28a745' }}>
-        <h5 className="card-title mb-0" id="reportTitle">
+      <div className={`card-header text-white d-flex justify-content-between align-items-center ${styles.reportHeader}`}>
+        <h5 className={`card-title mb-0 ${styles.reportTitle}`} id="reportTitle">
           {reportConfig.title}
         </h5>
         <div className="btn-group">
           <button 
             type="button" 
             id="exportCsvBtn" 
-            className="btn btn-sm btn-light"
+            className={`btn btn-sm btn-light ${styles.exportButton}`}
             onClick={exportToCsv}
             disabled={reportData.length === 0 || isSkeletonMode}
           >
@@ -158,7 +159,7 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
           <button 
             type="button" 
             id="exportXlsxBtn" 
-            className="btn btn-sm btn-light ms-2"
+            className={`btn btn-sm btn-light ms-2 ${styles.exportButton}`}
             onClick={exportToXlsx}
             disabled={reportData.length === 0 || loading || isSkeletonMode}
           >
@@ -174,7 +175,7 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
             <input 
               type="text" 
               id="reportFilterInput" 
-              className="form-control" 
+              className={`form-control ${styles.filterInput}`} 
               placeholder="Filter results..."
               value={filterText}
               onChange={filterReportData}
@@ -195,9 +196,9 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
         
         {/* Add skeleton mode notice */}
         {isSkeletonMode && (
-          <div className="alert alert-info mb-3">
+          <div className={`alert alert-info mb-3 ${styles.skeletonNotice}`}>
             <div className="d-flex align-items-center">
-              <div className="me-3">
+              <div className={styles.skeletonIcon}>
                 <i className="bi bi-info-circle-fill"></i>
               </div>
               <div>
@@ -210,31 +211,95 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
         )}
         
         {/* Report Table */}
-        <div className="table-responsive">
+        <div className={`table-responsive ${styles.tableResponsive}`}>
           {renderReportTable()}
         </div>
         
-        {/* Add CSS for skeleton shimmer effect */}
-        <style>
-          {`
-          @keyframes shimmer {
-            0% {
-              background-position: -1000px 0;
-            }
-            100% {
-              background-position: 1000px 0;
-            }
-          }
-          
-          .skeleton-shimmer {
-            animation: shimmer 2s infinite linear;
-            background: linear-gradient(to right, #f6f7f8 8%, #edeef1 18%, #f6f7f8 33%);
-            background-size: 1000px 100%;
-            color: transparent !important;
-            border-radius: 4px;
-          }
-          `}
-        </style>
+        {/* Pagination controls */}
+        {pagination.totalPages > 1 && !isSkeletonMode && (
+          <nav aria-label="Report pagination" id="reportPagination" className="mt-3 pagination-actions-aligned">
+            <ul className="pagination justify-content-center">
+              <li className={`page-item ${pagination.currentPage === 1 ? 'disabled' : ''}`}>
+                <button 
+                  className="page-link" 
+                  onClick={pagination.goToFirstPage}
+                  disabled={pagination.currentPage === 1}
+                  title="First Page"
+                >
+                  <i className="bi bi-chevron-double-left"></i>
+                </button>
+              </li>
+              <li className={`page-item ${pagination.currentPage === 1 ? 'disabled' : ''}`}>
+                <button 
+                  className="page-link"
+                  onClick={pagination.goToPreviousPage}
+                  disabled={pagination.currentPage === 1}
+                  title="Previous Page"
+                >
+                  &laquo;
+                </button>
+              </li>
+              
+              {/* Page numbers */}
+              {Array.from({length: Math.min(5, pagination.totalPages)}, (_, i) => {
+                let startPage = Math.max(1, pagination.currentPage - 2);
+                let endPage = Math.min(pagination.totalPages, startPage + 4);
+                
+                if (endPage - startPage < 4) {
+                  startPage = Math.max(1, endPage - 4);
+                }
+                
+                const pageNum = i + startPage;
+                
+                if (pageNum <= endPage) {
+                  return (
+                    <li 
+                      key={pageNum} 
+                      className={`page-item ${pageNum === pagination.currentPage ? 'active' : ''}`}
+                    >
+                      <button 
+                        className="page-link"
+                        onClick={() => pagination.goToPage(pageNum)}
+                      >
+                        {pageNum}
+                      </button>
+                    </li>
+                  );
+                }
+                return null;
+              })}
+              
+              <li className={`page-item ${pagination.currentPage === pagination.totalPages ? 'disabled' : ''}`}>
+                <button 
+                  className="page-link"
+                  onClick={pagination.goToNextPage}
+                  disabled={pagination.currentPage === pagination.totalPages}
+                  title="Next Page"
+                >
+                  &raquo;
+                </button>
+              </li>
+              <li className={`page-item ${pagination.currentPage === pagination.totalPages ? 'disabled' : ''}`}>
+                <button 
+                  className="page-link"
+                  onClick={pagination.goToLastPage}
+                  disabled={pagination.currentPage === pagination.totalPages}
+                  title="Last Page"
+                >
+                  <i className="bi bi-chevron-double-right"></i>
+                </button>
+              </li>
+            </ul>
+          </nav>
+        )}
+        
+        {!isSkeletonMode && (
+          <div className="mt-2 pagination-info">
+            <small>
+              Showing {filteredReportData.length === 0 ? 0 : pagination.startIndex + 1} to {pagination.endIndex} of {filteredReportData.length} rows
+            </small>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -317,91 +382,7 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
           </tbody>
         </table>
         
-        {/* Pagination controls */}
-        {pagination.totalPages > 1 && !isSkeletonMode && (
-          <nav aria-label="Report pagination" id="reportPagination" className="mt-3 pagination-actions-aligned">
-            <ul className="pagination">
-              <li className={`page-item ${pagination.currentPage === 1 ? 'disabled' : ''}`}>
-                <button 
-                  className="page-link" 
-                  onClick={pagination.goToFirstPage}
-                  disabled={pagination.currentPage === 1}
-                  title="First Page"
-                >
-                  <i className="bi bi-chevron-double-left"></i>
-                </button>
-              </li>
-              <li className={`page-item ${pagination.currentPage === 1 ? 'disabled' : ''}`}>
-                <button 
-                  className="page-link"
-                  onClick={pagination.goToPreviousPage}
-                  disabled={pagination.currentPage === 1}
-                  title="Previous Page"
-                >
-                  &laquo;
-                </button>
-              </li>
-              
-              {/* Page numbers */}
-              {Array.from({length: Math.min(5, pagination.totalPages)}, (_, i) => {
-                let startPage = Math.max(1, pagination.currentPage - 2);
-                let endPage = Math.min(pagination.totalPages, startPage + 4);
-                
-                if (endPage - startPage < 4) {
-                  startPage = Math.max(1, endPage - 4);
-                }
-                
-                const pageNum = i + startPage;
-                
-                if (pageNum <= endPage) {
-                  return (
-                    <li 
-                      key={pageNum} 
-                      className={`page-item ${pageNum === pagination.currentPage ? 'active' : ''}`}
-                    >
-                      <button 
-                        className="page-link"
-                        onClick={() => pagination.goToPage(pageNum)}
-                      >
-                        {pageNum}
-                      </button>
-                    </li>
-                  );
-                }
-                return null;
-              })}
-              
-              <li className={`page-item ${pagination.currentPage === pagination.totalPages ? 'disabled' : ''}`}>
-                <button 
-                  className="page-link"
-                  onClick={pagination.goToNextPage}
-                  disabled={pagination.currentPage === pagination.totalPages}
-                  title="Next Page"
-                >
-                  &raquo;
-                </button>
-              </li>
-              <li className={`page-item ${pagination.currentPage === pagination.totalPages ? 'disabled' : ''}`}>
-                <button 
-                  className="page-link"
-                  onClick={pagination.goToLastPage}
-                  disabled={pagination.currentPage === pagination.totalPages}
-                  title="Last Page"
-                >
-                  <i className="bi bi-chevron-double-right"></i>
-                </button>
-              </li>
-            </ul>
-          </nav>
-        )}
-        
-        {!isSkeletonMode && (
-          <div className="mt-2 pagination-info">
-            <small>
-              Showing {filteredReportData.length === 0 ? 0 : pagination.startIndex + 1} to {pagination.endIndex} of {filteredReportData.length} rows
-            </small>
-          </div>
-        )}
+
       </>
     );
   }
