@@ -1,8 +1,11 @@
 import { useEffect } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import { ToastProvider, ReportProvider, CycleProvider } from './context'
-import { Sidebar, TopNavigation, Toast } from './components/ui'
-import { Dashboard, Resources, Reporting, Logs, Documentation } from './pages'
+import { Sidebar, TopNavigation, Toast, Dashboard } from './ui'
+import Logs from './features/logging/Logs'
+import Documentation from './features/documentation'
+import Reporting from './features/reporting'
+import Resources from './features/resources'
 import './index.css'  // Import the new layout styles
 
 

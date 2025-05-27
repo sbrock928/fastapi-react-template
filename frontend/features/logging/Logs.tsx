@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { logsApi } from '@/services/api';
-import { LogDetailsModal, StatusDistributionChart } from '@/components/logging';
+import { LogDetailsModal, StatusDistributionChart } from './components';
 import { usePagination } from '@/hooks';
 import { formatDateTime, getUrlParamAsInt } from '@/utils';
 import type { Log, StatusDistribution } from '@/types';
