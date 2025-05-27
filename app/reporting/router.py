@@ -2,6 +2,9 @@
 
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
+import pandas as pd
+import io
 from app.reporting.service import ReportService
 from app.reporting.dao import ReportDAO
 from app.reporting.schemas import (
@@ -12,7 +15,7 @@ from app.reporting.schemas import (
     RunReportRequest,
 )
 from app.core.dependencies import SessionDep, DWSessionDep
-from app.datawarehouse.dao import DealDAO, TrancheDAO
+from app.datawarehouse.dao import DealDAO, TrancheDAO, TrancheHistoricalDAO
 
 
 router = APIRouter(prefix="/reports", tags=["reporting"])
@@ -31,12 +34,17 @@ async def get_tranche_dao(db: DWSessionDep) -> TrancheDAO:
     return TrancheDAO(db)
 
 
+async def get_tranche_historical_dao(db: DWSessionDep) -> TrancheHistoricalDAO:
+    return TrancheHistoricalDAO(db)
+
+
 async def get_report_service(
     report_dao: ReportDAO = Depends(get_report_dao),
     deal_dao: DealDAO = Depends(get_deal_dao),
     tranche_dao: TrancheDAO = Depends(get_tranche_dao),
+    tranche_historical_dao: TrancheHistoricalDAO = Depends(get_tranche_historical_dao),
 ) -> ReportService:
-    return ReportService(report_dao, deal_dao, tranche_dao)
+    return ReportService(report_dao, deal_dao, tranche_dao, tranche_historical_dao)
 
 
 # ===== REPORT CONFIGURATION ENDPOINTS =====
@@ -148,7 +156,70 @@ async def get_available_tranches(
 
 @router.get("/data/cycles", response_model=List[Dict[str, str]])
 async def get_available_cycles(
-    service: ReportService = Depends(get_report_service)
+    service: ReportService = Depends(get_report_service),
 ) -> List[Dict[str, str]]:
     """Get available cycle codes from the data warehouse."""
     return await service.get_available_cycles()
+
+
+# ===== EXPORT ENDPOINTS =====
+
+
+@router.post("/export-xlsx")
+async def export_to_xlsx(request: Dict[str, Any]) -> Response:
+    """Export report data to Excel (XLSX) format."""
+    try:
+        report_type = request.get("reportType", "Unknown Report")
+        data = request.get("data", [])
+        file_name = request.get("fileName", "report.xlsx")
+
+        if not data:
+            raise HTTPException(status_code=400, detail="No data provided for export")
+
+        # Create DataFrame from the data
+        df = pd.DataFrame(data)
+
+        # Create Excel file in memory
+        excel_buffer = io.BytesIO()
+
+        with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+            # Write the data to the Excel file
+            df.to_excel(
+                writer, sheet_name=report_type[:31], index=False
+            )  # Excel sheet name limit is 31 chars
+
+            # Get the workbook and worksheet to format
+            workbook = writer.book
+            worksheet = writer.sheets[report_type[:31]]
+
+            # Auto-adjust column widths
+            for column in worksheet.columns:
+                max_length = 0
+                column_letter = column[0].column_letter
+
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+
+                # Set column width with some padding, max 50 characters
+                adjusted_width = min(max_length + 2, 50)
+                worksheet.column_dimensions[column_letter].width = adjusted_width
+
+        excel_buffer.seek(0)
+
+        # Ensure the filename has .xlsx extension
+        if not file_name.endswith(".xlsx"):
+            file_name += ".xlsx"
+
+        # Return the Excel file as a response
+        return Response(
+            content=excel_buffer.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={file_name}"},
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating Excel file: {str(e)}")

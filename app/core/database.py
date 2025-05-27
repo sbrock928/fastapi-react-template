@@ -92,7 +92,7 @@ def drop_all_tables():
 
 def create_sample_data():
     """Create comprehensive sample data for development and testing."""
-    from app.datawarehouse.models import Deal, Tranche, Cycle
+    from app.datawarehouse.models import Deal, Tranche, TrancheHistorical, Cycle
     from datetime import date
     from decimal import Decimal
 
@@ -119,14 +119,14 @@ def create_sample_data():
             },
             {
                 "code": "12502",
-                "description": "February 2023 Cycle", 
+                "description": "February 2023 Cycle",
                 "start_date": "2023-02-01",
                 "end_date": "2023-02-28",
             },
             {
                 "code": "12503",
                 "description": "March 2023 Cycle",
-                "start_date": "2023-03-01", 
+                "start_date": "2023-03-01",
                 "end_date": "2023-03-31",
             },
             {
@@ -163,7 +163,7 @@ def create_sample_data():
 
         dw_db.flush()  # Flush to ensure cycles are saved before creating deals
 
-        # Sample deals with realistic MBS data - using cycle codes from cycles table
+        # Sample deals with realistic MBS data - no cycle_code in new model
         deals_data = [
             {
                 "name": "GSAMP Trust 2024-1",
@@ -174,7 +174,6 @@ def create_sample_data():
                 "credit_rating": "AAA",
                 "yield_rate": Decimal("0.0485"),
                 "duration": Decimal("5.5"),
-                "cycle_code": "12501",  # January 2023 Cycle
             },
             {
                 "name": "Wells Fargo Commercial 2024-A",
@@ -185,7 +184,6 @@ def create_sample_data():
                 "credit_rating": "AA+",
                 "yield_rate": Decimal("0.0520"),
                 "duration": Decimal("7.0"),
-                "cycle_code": "12502",  # February 2023 Cycle
             },
             {
                 "name": "Chase Auto Receivables 2024-1",
@@ -196,7 +194,6 @@ def create_sample_data():
                 "credit_rating": "AAA",
                 "yield_rate": Decimal("0.0395"),
                 "duration": Decimal("3.5"),
-                "cycle_code": "12503",  # March 2023 Cycle
             },
             {
                 "name": "Bank of America RMBS 2024-2",
@@ -207,7 +204,6 @@ def create_sample_data():
                 "credit_rating": "AA",
                 "yield_rate": Decimal("0.0510"),
                 "duration": Decimal("6.2"),
-                "cycle_code": "12501",  # January 2023 Cycle
             },
             {
                 "name": "Citi Student Loan Trust 2024-A",
@@ -218,7 +214,6 @@ def create_sample_data():
                 "credit_rating": "AA-",
                 "yield_rate": Decimal("0.0465"),
                 "duration": Decimal("8.1"),
-                "cycle_code": "12502",  # February 2023 Cycle
             },
             {
                 "name": "Morgan Stanley CMBS 2024-B",
@@ -229,7 +224,6 @@ def create_sample_data():
                 "credit_rating": "AAA",
                 "yield_rate": Decimal("0.0535"),
                 "duration": Decimal("6.8"),
-                "cycle_code": "12503",  # March 2023 Cycle
             },
         ]
 
@@ -242,7 +236,7 @@ def create_sample_data():
 
         dw_db.flush()  # Flush to get IDs but don't commit yet
 
-        # Define tranches for each deal
+        # Define tranches for each deal - removing principal_amount, interest_rate, cycle_code from tranche data
         tranches_data = []
 
         # GSAMP Trust 2024-1 tranches (Deal 0)
@@ -253,44 +247,32 @@ def create_sample_data():
                     "name": "Class A-1",
                     "class_name": "A-1",
                     "subordination_level": 1,
-                    "principal_amount": Decimal("1500000000"),
-                    "interest_rate": Decimal("0.0450"),
                     "credit_rating": "AAA",
                     "payment_priority": 1,
-                    "cycle_code": "12501",
                 },
                 {
                     "deal_id": created_deals[0].id,
                     "name": "Class A-2",
                     "class_name": "A-2",
                     "subordination_level": 1,
-                    "principal_amount": Decimal("750000000"),
-                    "interest_rate": Decimal("0.0485"),
                     "credit_rating": "AAA",
                     "payment_priority": 2,
-                    "cycle_code": "12501",
                 },
                 {
                     "deal_id": created_deals[0].id,
                     "name": "Class B",
                     "class_name": "B",
                     "subordination_level": 2,
-                    "principal_amount": Decimal("200000000"),
-                    "interest_rate": Decimal("0.0650"),
                     "credit_rating": "AA",
                     "payment_priority": 3,
-                    "cycle_code": "12501",
                 },
                 {
                     "deal_id": created_deals[0].id,
                     "name": "Class C",
                     "class_name": "C",
                     "subordination_level": 3,
-                    "principal_amount": Decimal("50000000"),
-                    "interest_rate": Decimal("0.0950"),
                     "credit_rating": "A",
                     "payment_priority": 4,
-                    "cycle_code": "12501",
                 },
             ]
         )
@@ -303,33 +285,24 @@ def create_sample_data():
                     "name": "Senior A",
                     "class_name": "A",
                     "subordination_level": 1,
-                    "principal_amount": Decimal("1260000000"),
-                    "interest_rate": Decimal("0.0500"),
                     "credit_rating": "AA+",
                     "payment_priority": 1,
-                    "cycle_code": "12502",
                 },
                 {
                     "deal_id": created_deals[1].id,
                     "name": "Subordinate B",
                     "class_name": "B",
                     "subordination_level": 2,
-                    "principal_amount": Decimal("360000000"),
-                    "interest_rate": Decimal("0.0720"),
                     "credit_rating": "A",
                     "payment_priority": 2,
-                    "cycle_code": "12502",
                 },
                 {
                     "deal_id": created_deals[1].id,
                     "name": "Junior C",
                     "class_name": "C",
                     "subordination_level": 3,
-                    "principal_amount": Decimal("180000000"),
-                    "interest_rate": Decimal("0.1050"),
                     "credit_rating": "BBB",
                     "payment_priority": 3,
-                    "cycle_code": "12502",
                 },
             ]
         )
@@ -342,33 +315,24 @@ def create_sample_data():
                     "name": "Class A",
                     "class_name": "A",
                     "subordination_level": 1,
-                    "principal_amount": Decimal("960000000"),
-                    "interest_rate": Decimal("0.0375"),
                     "credit_rating": "AAA",
                     "payment_priority": 1,
-                    "cycle_code": "12503",
                 },
                 {
                     "deal_id": created_deals[2].id,
                     "name": "Class B",
                     "class_name": "B",
                     "subordination_level": 2,
-                    "principal_amount": Decimal("180000000"),
-                    "interest_rate": Decimal("0.0480"),
                     "credit_rating": "AA",
                     "payment_priority": 2,
-                    "cycle_code": "12503",
                 },
                 {
                     "deal_id": created_deals[2].id,
                     "name": "Class C",
                     "class_name": "C",
                     "subordination_level": 3,
-                    "principal_amount": Decimal("60000000"),
-                    "interest_rate": Decimal("0.0750"),
                     "credit_rating": "A",
                     "payment_priority": 3,
-                    "cycle_code": "12503",
                 },
             ]
         )
@@ -381,44 +345,32 @@ def create_sample_data():
                     "name": "Class A-1",
                     "class_name": "A-1",
                     "subordination_level": 1,
-                    "principal_amount": Decimal("2000000000"),
-                    "interest_rate": Decimal("0.0490"),
                     "credit_rating": "AA",
                     "payment_priority": 1,
-                    "cycle_code": "12501",
                 },
                 {
                     "deal_id": created_deals[3].id,
                     "name": "Class A-2",
                     "class_name": "A-2",
                     "subordination_level": 1,
-                    "principal_amount": Decimal("900000000"),
-                    "interest_rate": Decimal("0.0520"),
                     "credit_rating": "AA",
                     "payment_priority": 2,
-                    "cycle_code": "12501",
                 },
                 {
                     "deal_id": created_deals[3].id,
                     "name": "Class B",
                     "class_name": "B",
                     "subordination_level": 2,
-                    "principal_amount": Decimal("250000000"),
-                    "interest_rate": Decimal("0.0680"),
                     "credit_rating": "A",
                     "payment_priority": 3,
-                    "cycle_code": "12501",
                 },
                 {
                     "deal_id": created_deals[3].id,
                     "name": "Class C",
                     "class_name": "C",
                     "subordination_level": 3,
-                    "principal_amount": Decimal("50000000"),
-                    "interest_rate": Decimal("0.0920"),
                     "credit_rating": "BBB",
                     "payment_priority": 4,
-                    "cycle_code": "12501",
                 },
             ]
         )
@@ -431,33 +383,24 @@ def create_sample_data():
                     "name": "Class A",
                     "class_name": "A",
                     "subordination_level": 1,
-                    "principal_amount": Decimal("760000000"),
-                    "interest_rate": Decimal("0.0445"),
                     "credit_rating": "AA-",
                     "payment_priority": 1,
-                    "cycle_code": "12502",
                 },
                 {
                     "deal_id": created_deals[4].id,
                     "name": "Class B",
                     "class_name": "B",
                     "subordination_level": 2,
-                    "principal_amount": Decimal("142500000"),
-                    "interest_rate": Decimal("0.0580"),
                     "credit_rating": "A",
                     "payment_priority": 2,
-                    "cycle_code": "12502",
                 },
                 {
                     "deal_id": created_deals[4].id,
                     "name": "Class C",
                     "class_name": "C",
                     "subordination_level": 3,
-                    "principal_amount": Decimal("47500000"),
-                    "interest_rate": Decimal("0.0820"),
                     "credit_rating": "BBB",
                     "payment_priority": 3,
-                    "cycle_code": "12502",
                 },
             ]
         )
@@ -470,70 +413,128 @@ def create_sample_data():
                     "name": "Class A-1",
                     "class_name": "A-1",
                     "subordination_level": 1,
-                    "principal_amount": Decimal("1470000000"),
-                    "interest_rate": Decimal("0.0515"),
                     "credit_rating": "AAA",
                     "payment_priority": 1,
-                    "cycle_code": "12503",
                 },
                 {
                     "deal_id": created_deals[5].id,
                     "name": "Class A-2",
                     "class_name": "A-2",
                     "subordination_level": 1,
-                    "principal_amount": Decimal("420000000"),
-                    "interest_rate": Decimal("0.0550"),
                     "credit_rating": "AAA",
                     "payment_priority": 2,
-                    "cycle_code": "12503",
                 },
                 {
                     "deal_id": created_deals[5].id,
                     "name": "Class B",
                     "class_name": "B",
                     "subordination_level": 2,
-                    "principal_amount": Decimal("147000000"),
-                    "interest_rate": Decimal("0.0750"),
                     "credit_rating": "AA",
                     "payment_priority": 3,
-                    "cycle_code": "12503",
                 },
                 {
                     "deal_id": created_deals[5].id,
                     "name": "Class C",
                     "class_name": "C",
                     "subordination_level": 3,
-                    "principal_amount": Decimal("63000000"),
-                    "interest_rate": Decimal("0.0980"),
                     "credit_rating": "A",
                     "payment_priority": 4,
-                    "cycle_code": "12503",
                 },
             ]
         )
 
         # Create all tranches
+        created_tranches = []
         for tranche_data in tranches_data:
             tranche = Tranche(**tranche_data)
             dw_db.add(tranche)
+            dw_db.flush()  # Flush to get the ID
+            created_tranches.append(tranche)
 
-        # Replicate each tranche across additional cycles to simulate monthly updates
-        additional_cycles = ["12504", "12505", "12506"]  # Additional cycles from our cycles table
-        expanded_tranches = []
+        # Define historical data for tranches across cycles
+        tranche_historical_data = []
 
-        for tranche_data in tranches_data:
-            for cycle in additional_cycles:
-                new_tranche = tranche_data.copy()
-                new_tranche["cycle_code"] = cycle
-                # Simulate principal amortization and interest rate drift
-                new_tranche["principal_amount"] = new_tranche["principal_amount"] * Decimal("0.97")
-                new_tranche["interest_rate"] = new_tranche["interest_rate"] + Decimal("0.0005")
-                expanded_tranches.append(new_tranche)
+        # Historical data mapping - a dictionary of tranche position (in created_tranches) to principal/interest values
+        tranche_values = {
+            # GSAMP Trust tranches
+            0: {"principal": Decimal("1500000000"), "interest": Decimal("0.0450")},
+            1: {"principal": Decimal("750000000"), "interest": Decimal("0.0485")},
+            2: {"principal": Decimal("200000000"), "interest": Decimal("0.0650")},
+            3: {"principal": Decimal("50000000"), "interest": Decimal("0.0950")},
+            # Wells Fargo tranches
+            4: {"principal": Decimal("1260000000"), "interest": Decimal("0.0500")},
+            5: {"principal": Decimal("360000000"), "interest": Decimal("0.0720")},
+            6: {"principal": Decimal("180000000"), "interest": Decimal("0.1050")},
+            # Chase Auto tranches
+            7: {"principal": Decimal("960000000"), "interest": Decimal("0.0375")},
+            8: {"principal": Decimal("180000000"), "interest": Decimal("0.0480")},
+            9: {"principal": Decimal("60000000"), "interest": Decimal("0.0750")},
+            # Bank of America tranches
+            10: {"principal": Decimal("2000000000"), "interest": Decimal("0.0490")},
+            11: {"principal": Decimal("900000000"), "interest": Decimal("0.0520")},
+            12: {"principal": Decimal("250000000"), "interest": Decimal("0.0680")},
+            13: {"principal": Decimal("50000000"), "interest": Decimal("0.0920")},
+            # Citi Student Loan tranches
+            14: {"principal": Decimal("760000000"), "interest": Decimal("0.0445")},
+            15: {"principal": Decimal("142500000"), "interest": Decimal("0.0580")},
+            16: {"principal": Decimal("47500000"), "interest": Decimal("0.0820")},
+            # Morgan Stanley tranches
+            17: {"principal": Decimal("1470000000"), "interest": Decimal("0.0515")},
+            18: {"principal": Decimal("420000000"), "interest": Decimal("0.0550")},
+            19: {"principal": Decimal("147000000"), "interest": Decimal("0.0750")},
+            20: {"principal": Decimal("63000000"), "interest": Decimal("0.0980")},
+        }
 
-        # Add expanded tranches to database
-        for tranche_data in expanded_tranches:
-            tranche = Tranche(**tranche_data)
-            dw_db.add(tranche)
+        # Initial cycle allocation - which deal's tranches belong to which initial cycle
+        deal_cycles = {
+            0: "12501",  # GSAMP Trust - January 2023
+            1: "12502",  # Wells Fargo - February 2023
+            2: "12503",  # Chase Auto - March 2023
+            3: "12501",  # Bank of America - January 2023
+            4: "12502",  # Citi Student Loan - February 2023
+            5: "12503",  # Morgan Stanley - March 2023
+        }
+
+        # Create historical records for each tranche in its initial cycle
+        print("Creating initial historical records...")
+        for i, tranche in enumerate(created_tranches):
+            deal_idx = None
+            for deal_idx in range(len(created_deals)):
+                if tranche.deal_id == created_deals[deal_idx].id:
+                    break
+
+            if deal_idx is not None:
+                cycle_code = deal_cycles[deal_idx]
+                historical = TrancheHistorical(
+                    tranche_id=tranche.id,
+                    cycle_code=cycle_code,
+                    principal_amount=tranche_values[i]["principal"],
+                    interest_rate=tranche_values[i]["interest"],
+                )
+                dw_db.add(historical)
+                tranche_historical_data.append(historical)
+
+        # Create additional cycle data for all tranches
+        print("Creating historical data across additional cycles...")
+        additional_cycles = ["12504", "12505", "12506"]  # Additional cycles
+
+        for tranche_idx, tranche in enumerate(created_tranches):
+            base_principal = tranche_values[tranche_idx]["principal"]
+            base_interest = tranche_values[tranche_idx]["interest"]
+
+            for i, cycle in enumerate(additional_cycles):
+                # Simulate amortization and interest rate drift
+                amortization_factor = Decimal("0.97") ** (i + 1)  # Progressive reduction
+                interest_drift = Decimal("0.0005") * (i + 1)  # Progressive increase
+
+                historical = TrancheHistorical(
+                    tranche_id=tranche.id,
+                    cycle_code=cycle,
+                    principal_amount=base_principal * amortization_factor,
+                    interest_rate=base_interest + interest_drift,
+                )
+                dw_db.add(historical)
+                tranche_historical_data.append(historical)
 
         # Commit everything
         dw_db.commit()
@@ -541,16 +542,16 @@ def create_sample_data():
         print(f"✅ Successfully created:")
         print(f"   🗓️  {len(created_cycles)} cycles")
         print(f"   📊 {len(created_deals)} deals")
-        print(f"   📈 {len(tranches_data) + len(expanded_tranches)} tranches")
+        print(f"   📈 {len(created_tranches)} tranches")
+        print(f"   📊 {len(tranche_historical_data)} historical records")
         print(f"   Across cycles: {', '.join([c.code for c in created_cycles])}")
 
         # Print summary by cycle
         print(f"\n📋 Summary by cycle:")
         all_cycle_codes = [c.code for c in created_cycles]
         for cycle in all_cycle_codes:
-            cycle_deals = [d for d in created_deals if d.cycle_code == cycle]
-            cycle_tranches = [t for t in tranches_data + expanded_tranches if t["cycle_code"] == cycle]
-            print(f"   {cycle}: {len(cycle_deals)} deals, {len(cycle_tranches)} tranches")
+            cycle_historical = [h for h in tranche_historical_data if h.cycle_code == cycle]
+            print(f"   {cycle}: {len(cycle_historical)} historical tranche records")
 
     except Exception as e:
         dw_db.rollback()

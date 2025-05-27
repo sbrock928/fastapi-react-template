@@ -6,7 +6,7 @@ import type {
   Note, 
   ReportRow, 
   Deal, 
-  Tranche, 
+  TrancheReportSummary, 
   ReportConfig, 
   ReportSummary, 
   RunReportRequest,
@@ -105,7 +105,7 @@ export const reportsApi = {
   },
 
   // Get tranches for specific deals
-  getTranches: (dealIds: number[], cycleCode?: string): Promise<{ data: Record<number, Tranche[]> }> => {
+  getTranches: (dealIds: number[], cycleCode?: string): Promise<{ data: Record<number, TrancheReportSummary[]> }> => {
     return api.post('/reports/data/tranches', {
       deal_ids: dealIds,
       cycle_code: cycleCode
@@ -113,7 +113,7 @@ export const reportsApi = {
   },
 
   // Get tranches for a single deal
-  getDealTranches: (dealId: number, cycleCode?: string): Promise<{ data: Tranche[] }> => {
+  getDealTranches: (dealId: number, cycleCode?: string): Promise<{ data: TrancheReportSummary[] }> => {
     const params = cycleCode ? { cycle_code: cycleCode } : {};
     return api.get(`/reports/data/deals/${dealId}/tranches`, { params });
   },

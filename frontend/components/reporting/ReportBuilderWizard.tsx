@@ -3,7 +3,7 @@ import { reportsApi } from '@/services/api';
 import { useToast } from '@/context/ToastContext';
 import DealSelector from './DealSelector';
 import TrancheSelector from './TrancheSelector';
-import type { Deal, Tranche, ReportConfig } from '@/types';
+import type { Deal, TrancheReportSummary, ReportConfig } from '@/types';
 
 interface ReportBuilderWizardProps {
   onReportSaved: () => void;
@@ -31,7 +31,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
 
   // Data state
   const [deals, setDeals] = useState<Deal[]>([]);
-  const [tranches, setTranches] = useState<Record<number, Tranche[]>>({});
+  const [tranches, setTranches] = useState<Record<number, TrancheReportSummary[]>>({});
   const [dealsLoading, setDealsLoading] = useState<boolean>(false);
   const [tranchesLoading, setTranchesLoading] = useState<boolean>(false);
 

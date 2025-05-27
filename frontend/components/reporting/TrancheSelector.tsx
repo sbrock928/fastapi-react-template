@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import type { Deal, Tranche } from '@/types';
+import type { Deal, TrancheReportSummary } from '@/types';
 
 interface TrancheSelectorProps {
   deals: Deal[];
   selectedDeals: number[];
-  tranches: Record<number, Tranche[]>;
+  tranches: Record<number, TrancheReportSummary[]>;
   selectedTranches: Record<number, number[]>;
   onTrancheToggle: (dealId: number, trancheId: number) => void;
   onSelectAllTranches: (dealId: number) => void;
@@ -43,7 +43,7 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
 
   // Create flat list of all tranches with deal info
   const allTranches = useMemo(() => {
-    const trancheList: Array<Tranche & { deal: Deal; dealId: number }> = [];
+    const trancheList: Array<TrancheReportSummary & { deal: Deal; dealId: number }> = [];
     
     selectedDeals.forEach(dealId => {
       const deal = deals.find(d => d.id === dealId);
@@ -54,7 +54,7 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
           trancheList.push({
             ...tranche,
             deal,
-            dealId
+            dealId: tranche.deal_id // Use deal_id from TrancheReportSummary
           });
         });
       }
@@ -106,8 +106,8 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
           bValue = b.interest_rate;
           break;
         case 'payment_priority':
-          aValue = a.payment_priority;
-          bValue = b.payment_priority;
+          aValue = a.payment_priority || 1; // Default to 1 if not available
+          bValue = b.payment_priority || 1;
           break;
         default:
           aValue = a.name;
