@@ -2,10 +2,8 @@ import { useState } from 'react';
 import { reportsApi } from '@/services/api';
 import { useCycleContext, useReportContext } from '@/context';
 import { 
-  ReportBuilderWizard, 
-  SavedReportsManager,
-  CycleDropdown,
-  ReportDropdown,
+  ReportManagementCard,
+  RunReportsCard,
   ReportingTable
 } from '@/components/reporting';
 import type { 
@@ -24,7 +22,7 @@ const ReportingContent = () => {
   const [showResults, setShowResults] = useState<boolean>(false);
   const [isSkeletonMode, setIsSkeletonMode] = useState<boolean>(false);
 
-  // ===== NEW REPORT BUILDER STATE =====
+  // ===== REPORT BUILDER STATE =====
   const [reportBuilderMode, setReportBuilderMode] = useState<boolean>(false);
   const [selectedSavedReport, setSelectedSavedReport] = useState<string>('');
   
@@ -32,12 +30,12 @@ const ReportingContent = () => {
   const [editingReport, setEditingReport] = useState<ReportConfig | null>(null);
   const [wizardMode, setWizardMode] = useState<'create' | 'edit'>('create');
 
-  // ===== NEW REPORT MANAGEMENT =====
+  // ===== REPORT MANAGEMENT HANDLERS =====
   const handleReportSaved = () => {
     setReportBuilderMode(false);
     setEditingReport(null);
     setWizardMode('create');
-    refreshReports(); // Use context method instead of local function
+    refreshReports();
   };
 
   const handleCreateNewReport = () => {
@@ -64,7 +62,7 @@ const ReportingContent = () => {
     setReportData([]);
   };
 
-  // ===== SAVED REPORT EXECUTION =====
+  // ===== REPORT EXECUTION =====
   const runSavedReport = async () => {
     if (!selectedSavedReport) {
       alert('Please select a saved report to run');
@@ -122,102 +120,27 @@ const ReportingContent = () => {
         <h3>Reporting Dashboard</h3>
       </div>
 
-      {/* ===== REPORT MANAGEMENT CARD ===== */}
-      <div className="card mb-4">
-        <div className="card-header bg-success text-white d-flex justify-content-between align-items-center">
-          <h5 className="card-title mb-0">
-            {reportBuilderMode 
-              ? (wizardMode === 'edit' ? 'Edit Report Configuration' : 'Create New Report') 
-              : 'Manage Reports'
-            }
-          </h5>
-          {reportBuilderMode && (
-            <button 
-              type="button"
-              className="btn btn-outline-light btn-sm"
-              onClick={handleCancelWizard}
-            >
-              <i className="bi bi-x-lg"></i> Cancel
-            </button>
-          )}
-        </div>
-        <div className="card-body">
-          {reportBuilderMode ? (
-            <ReportBuilderWizard
-              onReportSaved={handleReportSaved}
-              editingReport={editingReport}
-              mode={wizardMode}
-            />
-          ) : (
-            <SavedReportsManager
-              selectedReportId={selectedSavedReport}
-              onReportSelect={handleSavedReportSelect}
-              onCreateNew={handleCreateNewReport}
-              onReportsUpdated={refreshReports}
-              onEditReport={handleEditReport}
-            />
-          )}
-        </div>
-      </div>
+      {/* ===== REPORT MANAGEMENT SECTION ===== */}
+      <ReportManagementCard
+        reportBuilderMode={reportBuilderMode}
+        wizardMode={wizardMode}
+        editingReport={editingReport}
+        selectedSavedReport={selectedSavedReport}
+        onReportSaved={handleReportSaved}
+        onCreateNewReport={handleCreateNewReport}
+        onEditReport={handleEditReport}
+        onCancelWizard={handleCancelWizard}
+        onSavedReportSelect={handleSavedReportSelect}
+        onReportsUpdated={refreshReports}
+      />
 
-      {/* ===== RUN REPORTS CARD ===== */}
-      <div className="card mb-4">
-        <div className="card-header bg-primary text-white">
-          <h5 className="card-title mb-0">Run Reports</h5>
-        </div>
-        <div className="card-body">
-          <div className="row g-3">
-            <div className="col-md-6">
-              <ReportDropdown
-                selectedReportId={selectedSavedReport}
-                onReportSelect={handleSavedReportSelect}
-              />
-            </div>
-
-            <div className="col-md-6">
-              <CycleDropdown />
-            </div>
-            
-            <div className="col-12 mt-3 d-flex gap-2">
-              <button
-                type="button"
-                className="btn"
-                style={{ backgroundColor: '#28a745', color: 'white' }}
-                onClick={runSavedReport}
-                disabled={loading || !selectedSavedReport || !selectedCycle || selectedCycle.value === ''}
-              >
-                {loading ? (
-                  <>
-                    <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                    <span className="ms-2">Running...</span>
-                  </>
-                ) : (
-                  <>
-                    <i className="bi bi-play-fill"></i> Run Report
-                  </>
-                )}
-              </button>
-              
-              <button
-                type="button"
-                className="btn btn-outline-secondary"
-                disabled={true}
-                title="Coming soon: Schedule reports to run automatically"
-              >
-                <i className="bi bi-calendar-event"></i> Schedule Report
-                <span className="badge bg-info ms-2" style={{ fontSize: '0.7rem' }}>Coming Soon</span>
-              </button>
-            </div>
-          </div>
-
-          {selectedSavedReport && (
-            <div className="alert alert-info mt-3">
-              <i className="bi bi-info-circle me-2"></i>
-              Selected saved report: {savedReports.find(r => r.id.toString() === selectedSavedReport)?.name}
-            </div>
-          )}
-        </div>
-      </div>
+      {/* ===== RUN REPORTS SECTION ===== */}
+      <RunReportsCard
+        selectedSavedReport={selectedSavedReport}
+        loading={loading}
+        onSavedReportSelect={handleSavedReportSelect}
+        onRunReport={runSavedReport}
+      />
 
       {/* ===== REPORT RESULTS ===== */}
       {showResults && (
