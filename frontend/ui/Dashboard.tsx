@@ -8,13 +8,13 @@ const Dashboard = () => {
       
       <div className={styles.dashboardGrid}>
         <div className={styles.dashboardCard}>
-          <div className="d-flex align-items-center">
+          <div className={styles.cardHeader}>
             <div className={`${styles.icon} ${styles.blue}`}>
               <i className="bi bi-people fs-1"></i>
             </div>
-            <div>
-              <h5>Resources</h5>
-              <p className="mb-0">Manage users, departments, and other resources</p>
+            <div className={styles.cardContent}>
+              <h5 className={styles.cardTitle}>Resources</h5>
+              <p className={styles.cardDescription}>Manage users, departments, and other resources</p>
             </div>
           </div>
           <Link to="/resources" className={`${styles.dashboardButton} ${styles.blue}`}>
@@ -23,13 +23,13 @@ const Dashboard = () => {
         </div>
 
         <div className={styles.dashboardCard}>
-          <div className="d-flex align-items-center">
+          <div className={styles.cardHeader}>
             <div className={`${styles.icon} ${styles.blue}`}>
               <i className="bi bi-bar-chart fs-1"></i>
             </div>
-            <div>
-              <h5>Reporting</h5>
-              <p className="mb-0">Generate and view reports</p>
+            <div className={styles.cardContent}>
+              <h5 className={styles.cardTitle}>Reporting</h5>
+              <p className={styles.cardDescription}>Generate and view reports</p>
             </div>
           </div>
           <Link to="/reporting" className={`${styles.dashboardButton} ${styles.blue}`}>
@@ -38,13 +38,13 @@ const Dashboard = () => {
         </div>
 
         <div className={styles.dashboardCard}>
-          <div className="d-flex align-items-center">
+          <div className={styles.cardHeader}>
             <div className={`${styles.icon} ${styles.cyan}`}>
               <i className="bi bi-list-ul fs-1"></i>
             </div>
-            <div>
-              <h5>Logs</h5>
-              <p className="mb-0">View application logs and activity</p>
+            <div className={styles.cardContent}>
+              <h5 className={styles.cardTitle}>Logs</h5>
+              <p className={styles.cardDescription}>View application logs and activity</p>
             </div>
           </div>
           <Link to="/logs" className={`${styles.dashboardButton} ${styles.cyan}`}>
@@ -53,13 +53,13 @@ const Dashboard = () => {
         </div>
 
         <div className={styles.dashboardCard}>
-          <div className="d-flex align-items-center">
+          <div className={styles.cardHeader}>
             <div className={`${styles.icon} ${styles.yellow}`}>
               <i className="bi bi-file-earmark-text fs-1"></i>
             </div>
-            <div>
-              <h5>Documentation</h5>
-              <p className="mb-0">API documentation and guides</p>
+            <div className={styles.cardContent}>
+              <h5 className={styles.cardTitle}>Documentation</h5>
+              <p className={styles.cardDescription}>API documentation and guides</p>
             </div>
           </div>
           <Link to="/documentation" className={`${styles.dashboardButton} ${styles.yellow}`}>
