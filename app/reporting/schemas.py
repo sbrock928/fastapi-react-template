@@ -1,6 +1,6 @@
 """Pydantic schemas for the reporting module."""
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel, field_validator, ConfigDict
@@ -13,14 +13,41 @@ class ReportScope(str, Enum):
     TRANCHE = "TRANCHE"
 
 
+class ReportTrancheBase(BaseModel):
+    """Base schema for report tranche associations."""
+    tranche_id: int
+
+class ReportTrancheCreate(ReportTrancheBase):
+    pass
+
+class ReportTranche(ReportTrancheBase):
+    id: int
+    report_deal_id: int
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ReportDealBase(BaseModel):
+    """Base schema for report deal associations."""
+    deal_id: int
+
+class ReportDealCreate(ReportDealBase):
+    selected_tranches: List[ReportTrancheCreate] = []
+
+class ReportDeal(ReportDealBase):
+    id: int
+    report_id: int
+    selected_tranches: List[ReportTranche] = []
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ReportBase(BaseModel):
     """Base schema for report configuration objects."""
 
     name: str
     scope: ReportScope
-    created_by: Optional[str] = "system"  # Made optional with default
-    selected_deals: List[int] = []
-    selected_tranches: Dict[str, List[int]] = {}  # Keys are deal_id as strings
+    created_by: Optional[str] = "system"
     is_active: bool = True
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
@@ -34,46 +61,49 @@ class ReportBase(BaseModel):
             raise ValueError("Report name cannot exceed 255 characters")
         return v.strip()
 
-    @field_validator("selected_deals")
-    @classmethod
-    def validate_selected_deals(cls, v: List[int]) -> List[int]:
-        if not v:
-            raise ValueError("At least one deal must be selected")
-        if len(set(v)) != len(v):
-            raise ValueError("Duplicate deal IDs are not allowed")
-        return v
-
-    @field_validator("selected_tranches")
-    @classmethod
-    def validate_selected_tranches(cls, v: Dict[str, List[int]], info) -> Dict[str, List[int]]:
-        # Get scope from the data being validated
-        if hasattr(info, "data") and info.data and info.data.get("scope") == ReportScope.TRANCHE:
-            if not v or not any(v.values()):
-                raise ValueError("At least one tranche must be selected for tranche-level reports")
-
-            # Validate that deal IDs in tranches match selected deals
-            if hasattr(info, "data") and info.data:
-                selected_deals = info.data.get("selected_deals", [])
-                tranche_deal_ids = set(int(deal_id) for deal_id in v.keys())
-                if not tranche_deal_ids.issubset(set(selected_deals)):
-                    raise ValueError("Tranche selections contain deal IDs not in selected deals")
-
-            # Check for duplicate tranche IDs within each deal
-            for deal_id, tranche_ids in v.items():
-                if len(set(tranche_ids)) != len(tranche_ids):
-                    raise ValueError(f"Duplicate tranche IDs found for deal {deal_id}")
-
-        return v
-
 
 class ReportCreate(ReportBase):
-    pass
+    """Create schema for reports with normalized structure."""
+    selected_deals: List[ReportDealCreate] = []
+
+    @field_validator("selected_deals")
+    @classmethod
+    def validate_selected_deals(cls, v: List[ReportDealCreate]) -> List[ReportDealCreate]:
+        if not v:
+            raise ValueError("At least one deal must be selected")
+        
+        # Check for duplicate deal IDs
+        deal_ids = [deal.deal_id for deal in v]
+        if len(set(deal_ids)) != len(deal_ids):
+            raise ValueError("Duplicate deal IDs are not allowed")
+        
+        return v
+
+    @field_validator("selected_deals")
+    @classmethod
+    def validate_tranche_selections(cls, v: List[ReportDealCreate], info) -> List[ReportDealCreate]:
+        # Get scope from the data being validated
+        if hasattr(info, "data") and info.data and info.data.get("scope") == ReportScope.TRANCHE:
+            # For tranche-level reports, ensure at least one deal has tranches selected
+            has_tranches = any(deal.selected_tranches for deal in v)
+            if not has_tranches:
+                raise ValueError("Tranche-level reports must have at least one tranche selected")
+            
+            # Check for duplicate tranche IDs within each deal
+            for deal in v:
+                tranche_ids = [tranche.tranche_id for tranche in deal.selected_tranches]
+                if len(set(tranche_ids)) != len(tranche_ids):
+                    raise ValueError(f"Duplicate tranche IDs found for deal {deal.deal_id}")
+
+        return v
 
 
 class ReportRead(ReportBase):
+    """Read schema for reports with normalized structure."""
     id: int
     created_date: datetime
     updated_date: datetime
+    selected_deals: List[ReportDeal] = []
 
 
 class ReportUpdate(BaseModel):
@@ -81,8 +111,7 @@ class ReportUpdate(BaseModel):
 
     name: Optional[str] = None
     scope: Optional[ReportScope] = None
-    selected_deals: Optional[List[int]] = None
-    selected_tranches: Optional[Dict[str, List[int]]] = None
+    selected_deals: Optional[List[ReportDealCreate]] = None
     is_active: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")

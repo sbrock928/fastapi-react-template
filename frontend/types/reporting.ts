@@ -72,7 +72,20 @@ export interface TrancheReportSummary {
   payment_priority?: number; // Add this for sorting compatibility
 }
 
-// Report Configuration Types
+// Report Configuration Types (Updated to match backend normalized schema)
+export interface ReportTranche {
+  id?: number;
+  report_deal_id?: number;
+  tranche_id: number;
+}
+
+export interface ReportDeal {
+  id?: number;
+  report_id?: number;
+  deal_id: number;
+  selected_tranches: ReportTranche[];
+}
+
 export interface ReportConfig {
   id?: number;
   name: string;
@@ -80,8 +93,8 @@ export interface ReportConfig {
   created_by: string;
   created_date?: string;
   updated_date?: string;
-  selected_deals: number[];
-  selected_tranches: Record<number, number[]>; // dealId -> trancheIds[]
+  selected_deals: ReportDeal[]; // Changed from number[] to ReportDeal[]
+  // Note: selected_tranches is now nested within each deal, not at root level
 }
 
 export interface ReportSummary {

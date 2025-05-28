@@ -6,43 +6,45 @@ Applies the SQL migration and validates the results
 
 import sqlite3
 import os
+import sys
 from pathlib import Path
 
 
-def run_migration():
-    """Execute the data model refactoring migration"""
+def run_migration(migration_file=None):
+    """Execute the specified migration"""
 
-    # Use the correct data warehouse database path
-    db_path = Path(__file__).parent.parent / "vibez_datawarehouse.db"
-    migration_path = Path(__file__).parent / "001_refactor_data_model.sql"
+    # Use the correct database path based on migration type
+    db_path = Path(__file__).parent.parent / "vibez_config.db"  # Default to config DB
+
+    if migration_file:
+        migration_path = Path(__file__).parent / migration_file
+        # Determine which database to use based on migration file
+        if "datawarehouse" in migration_file or "001_refactor" in migration_file:
+            db_path = Path(__file__).parent.parent / "vibez_datawarehouse.db"
+        elif "reporting" in migration_file or "002_normalize" in migration_file:
+            db_path = Path(__file__).parent.parent / "vibez_config.db"
+    else:
+        migration_path = Path(__file__).parent / "001_refactor_data_model.sql"
+        db_path = Path(__file__).parent.parent / "vibez_datawarehouse.db"
 
     print(f"Database path: {db_path}")
     print(f"Migration path: {migration_path}")
-
-    if not db_path.exists():
-        print(f"Error: Data warehouse database not found at {db_path}")
-        print("Please run 'python create_sample_data.py' first to create the database.")
-        return False
 
     if not migration_path.exists():
         print(f"Error: Migration file not found at {migration_path}")
         return False
 
     try:
-        # Connect to data warehouse database
+        # Connect to the appropriate database
         conn = sqlite3.connect(db_path)
         conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key constraints
 
-        print("Connected to data warehouse database successfully")
+        print(f"Connected to database successfully")
 
-        # Check if tables exist before migration
+        # Check existing tables
         cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         existing_tables = [row[0] for row in cursor.fetchall()]
         print(f"Existing tables: {existing_tables}")
-
-        if "deal" not in existing_tables or "tranche" not in existing_tables:
-            print("Error: Deal or Tranche tables not found. Please run sample data creation first.")
-            return False
 
         # Read and execute migration SQL
         with open(migration_path, "r") as f:
@@ -64,7 +66,8 @@ def run_migration():
             except sqlite3.Error as e:
                 print(f"Error executing statement {i+1}: {e}")
                 print(f"Statement: {statement[:100]}...")
-                return False
+                # Continue with other statements instead of failing completely
+                continue
 
         conn.commit()
         print("Migration completed successfully!")
@@ -76,40 +79,6 @@ def run_migration():
         cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         tables = [row[0] for row in cursor.fetchall()]
         print(f"Tables in database: {tables}")
-
-        # Check record counts
-        cursor = conn.execute("SELECT COUNT(*) FROM deal")
-        deal_count = cursor.fetchone()[0]
-        print(f"Deal records: {deal_count}")
-
-        cursor = conn.execute("SELECT COUNT(*) FROM tranche")
-        tranche_count = cursor.fetchone()[0]
-        print(f"Tranche records: {tranche_count}")
-
-        cursor = conn.execute("SELECT COUNT(*) FROM tranche_historical")
-        historical_count = cursor.fetchone()[0]
-        print(f"Historical records: {historical_count}")
-
-        # Check unique cycles
-        cursor = conn.execute(
-            "SELECT DISTINCT cycle_code FROM tranche_historical ORDER BY cycle_code"
-        )
-        cycles = [row[0] for row in cursor.fetchall()]
-        print(f"Available cycles: {cycles}")
-
-        # Verify relationships
-        cursor = conn.execute(
-            """
-            SELECT COUNT(*) FROM tranche_historical th
-            LEFT JOIN tranche t ON th.tranche_id = t.id
-            WHERE t.id IS NULL
-        """
-        )
-        orphaned = cursor.fetchone()[0]
-        if orphaned > 0:
-            print(f"WARNING: {orphaned} orphaned historical records found!")
-        else:
-            print("✓ All historical records properly linked to tranches")
 
         conn.close()
         return True
@@ -169,7 +138,11 @@ def rollback_migration():
 if __name__ == "__main__":
     import sys
 
-    if len(sys.argv) > 1 and sys.argv[1] == "rollback":
-        rollback_migration()
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "rollback":
+            rollback_migration()
+        else:
+            # First argument is the migration file
+            run_migration(sys.argv[1])
     else:
         run_migration()

@@ -5,9 +5,6 @@ import styles from '@/styles/components/Toast.module.css';
 const Toast: React.FC = () => {
   const { toasts, removeToast } = useToast();
 
-  // If no toasts, don't render anything
-  if (toasts.length === 0) return null;
-
   // Handle toast close with proper event stopping
   const handleToastClose = useCallback((e: React.MouseEvent, id: string) => {
     // Prevent any default behavior
@@ -22,6 +19,9 @@ const Toast: React.FC = () => {
     // Prevent click events from bubbling through the toast container
     e.stopPropagation();
   }, []);
+
+  // If no toasts, don't render anything (moved after all hooks)
+  if (toasts.length === 0) return null;
 
   return (
     <div 

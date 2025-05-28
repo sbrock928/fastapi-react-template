@@ -15,7 +15,7 @@ from app.reporting.schemas import (
     RunReportRequest,
 )
 from app.core.dependencies import SessionDep, DWSessionDep
-from app.datawarehouse.dao import DealDAO, TrancheDAO, TrancheHistoricalDAO
+from app.datawarehouse.dao import DWDao
 
 
 router = APIRouter(prefix="/reports", tags=["reporting"])
@@ -26,25 +26,15 @@ async def get_report_dao(db: SessionDep) -> ReportDAO:
     return ReportDAO(db)
 
 
-async def get_deal_dao(db: DWSessionDep) -> DealDAO:
-    return DealDAO(db)
-
-
-async def get_tranche_dao(db: DWSessionDep) -> TrancheDAO:
-    return TrancheDAO(db)
-
-
-async def get_tranche_historical_dao(db: DWSessionDep) -> TrancheHistoricalDAO:
-    return TrancheHistoricalDAO(db)
+async def get_dw_dao(db: DWSessionDep) -> DWDao:
+    return DWDao(db)
 
 
 async def get_report_service(
     report_dao: ReportDAO = Depends(get_report_dao),
-    deal_dao: DealDAO = Depends(get_deal_dao),
-    tranche_dao: TrancheDAO = Depends(get_tranche_dao),
-    tranche_historical_dao: TrancheHistoricalDAO = Depends(get_tranche_historical_dao),
+    dw_dao: DWDao = Depends(get_dw_dao),
 ) -> ReportService:
-    return ReportService(report_dao, deal_dao, tranche_dao, tranche_historical_dao)
+    return ReportService(report_dao, dw_dao)
 
 
 # ===== REPORT CONFIGURATION ENDPOINTS =====

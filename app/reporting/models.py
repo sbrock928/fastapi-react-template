@@ -1,14 +1,15 @@
 """Database models for the reporting module (config database)."""
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, JSON
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey
+from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 
 class Report(Base):
     """Report configuration model stored in config database."""
 
-    __tablename__ = "report"
+    __tablename__ = "reports"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False, index=True)
@@ -18,8 +19,32 @@ class Report(Base):
     updated_date = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     is_active = Column(Boolean, default=True)
 
-    # JSON fields storing IDs that reference data warehouse
-    # selected_deals: [1, 2, 3]
-    # selected_tranches: {"1": [1, 2], "2": [3, 4, 5]}
-    selected_deals = Column(JSON)
-    selected_tranches = Column(JSON)
+    # Relationships to selected deals and tranches
+    selected_deals = relationship("ReportDeal", back_populates="report", cascade="all, delete-orphan")
+
+
+class ReportDeal(Base):
+    """Report deal association model - stores which deals are selected for a report."""
+
+    __tablename__ = "report_deals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    report_id = Column(Integer, ForeignKey("reports.id"), nullable=False)
+    deal_id = Column(Integer, nullable=False)  # References data warehouse deal ID
+    
+    # Relationships
+    report = relationship("Report", back_populates="selected_deals")
+    selected_tranches = relationship("ReportTranche", back_populates="report_deal", cascade="all, delete-orphan")
+
+
+class ReportTranche(Base):
+    """Report tranche association model - stores which tranches are selected for a report."""
+
+    __tablename__ = "report_tranches"
+
+    id = Column(Integer, primary_key=True, index=True)
+    report_deal_id = Column(Integer, ForeignKey("report_deals.id"), nullable=False)
+    tranche_id = Column(Integer, nullable=False)  # References data warehouse tranche ID
+    
+    # Relationship
+    report_deal = relationship("ReportDeal", back_populates="selected_tranches")

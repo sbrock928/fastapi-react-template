@@ -44,8 +44,22 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     if (isEditMode && editingReport) {
       setReportName(editingReport.name);
       setReportScope(editingReport.scope);
-      setSelectedDeals(editingReport.selected_deals);
-      setSelectedTranches(editingReport.selected_tranches);
+      
+      // Convert from backend normalized format to frontend format
+      if (editingReport.selected_deals) {
+        // Extract deal IDs
+        const dealIds = editingReport.selected_deals.map(deal => deal.deal_id);
+        setSelectedDeals(dealIds);
+        
+        // Convert tranches back to frontend format: Record<dealId, trancheIds[]>
+        const tranchesFormat: Record<number, number[]> = {};
+        editingReport.selected_deals.forEach(deal => {
+          if (deal.selected_tranches && deal.selected_tranches.length > 0) {
+            tranchesFormat[deal.deal_id] = deal.selected_tranches.map(tranche => tranche.tranche_id);
+          }
+        });
+        setSelectedTranches(tranchesFormat);
+      }
     }
   }, [isEditMode, editingReport]);
 
@@ -139,25 +153,31 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     setLoading(true);
     
     try {
+      // Transform frontend format to backend normalized schema format
+      const transformedSelectedDeals = selectedDeals.map(dealId => ({
+        deal_id: dealId,
+        selected_tranches: (selectedTranches[dealId] || []).map(trancheId => ({
+          tranche_id: trancheId
+        }))
+      }));
+
       if (isEditMode && editingReport?.id) {
         // Update existing report
-        const updateData: Partial<ReportConfig> = {
+        const updateData = {
           name: reportName,
           scope: reportScope as 'DEAL' | 'TRANCHE',
-          selected_deals: selectedDeals,
-          selected_tranches: selectedTranches
+          selected_deals: transformedSelectedDeals
         };
 
         await reportingApi.updateReport(editingReport.id, updateData);
         showToast('Report configuration updated successfully!', 'success');
       } else {
         // Create new report
-        const reportConfig: Omit<ReportConfig, 'id' | 'created_date' | 'updated_date'> = {
+        const reportConfig = {
           name: reportName,
           scope: reportScope as 'DEAL' | 'TRANCHE',
           created_by: 'current_user', // TODO: Get from auth context
-          selected_deals: selectedDeals,
-          selected_tranches: selectedTranches
+          selected_deals: transformedSelectedDeals
         };
 
         await reportingApi.createReport(reportConfig);
