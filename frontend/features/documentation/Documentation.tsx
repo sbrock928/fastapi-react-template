@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
-import axios from 'axios';
+import documentationApi from '../../services/documentationApi';
 
 interface Note {
   id: number;
@@ -40,7 +40,7 @@ const Documentation = () => {
   const loadNotes = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('/api/user-guide/notes');
+      const response = await documentationApi.getNotes();
       setNotes(response.data);
     } catch (error) {
       console.error('Error loading notes:', error);
@@ -102,7 +102,7 @@ const Documentation = () => {
 
     try {
       setLoading(true);
-      await axios.delete(`/api/user-guide/notes/${selectedNote.id}`);
+      await documentationApi.deleteNote(selectedNote.id);
       await loadNotes();
       setSelectedNote(null);
     } catch (error) {
@@ -129,10 +129,10 @@ const Documentation = () => {
       
       if (selectedNote) {
         // Update existing note
-        await axios.put(`/api/user-guide/notes/${selectedNote.id}`, formData);
+        await documentationApi.updateNote(selectedNote.id, formData);
       } else {
         // Create new note
-        await axios.post('/api/user-guide/notes', formData);
+        await documentationApi.createNote(formData);
       }
       
       await loadNotes();
