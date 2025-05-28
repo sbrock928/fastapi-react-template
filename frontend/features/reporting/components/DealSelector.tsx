@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import type { Deal } from '@/types';
 
 interface DealSelectorProps {
@@ -19,6 +19,8 @@ const DealSelector: React.FC<DealSelectorProps> = ({
   const [originatorFilter, setOriginatorFilter] = useState('');
   const [sortField, setSortField] = useState<keyof Deal>('name');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(50); // Default to 50 items per page
 
   // Get unique values for filters
   const uniqueDealTypes = useMemo(() => {
@@ -64,6 +66,20 @@ const DealSelector: React.FC<DealSelectorProps> = ({
     return filtered;
   }, [deals, searchTerm, dealTypeFilter, originatorFilter, sortField, sortDirection]);
 
+  // Paginate the filtered results
+  const paginatedDeals = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filteredDeals.slice(startIndex, endIndex);
+  }, [filteredDeals, currentPage, itemsPerPage]);
+
+  const totalPages = Math.ceil(filteredDeals.length / itemsPerPage);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, dealTypeFilter, originatorFilter, sortField, sortDirection]);
+
   // Format currency
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -89,9 +105,9 @@ const DealSelector: React.FC<DealSelectorProps> = ({
     }
   };
 
-  // Handle select all visible deals
+  // Handle select all visible deals (now works with current page)
   const handleSelectAllVisible = () => {
-    const visibleDealIds = filteredDeals.map(deal => deal.id);
+    const visibleDealIds = paginatedDeals.map(deal => deal.id);
     const allVisibleSelected = visibleDealIds.every(id => selectedDeals.includes(id));
     
     if (allVisibleSelected) {
@@ -138,8 +154,8 @@ const DealSelector: React.FC<DealSelectorProps> = ({
     );
   }
 
-  const allVisibleSelected = filteredDeals.length > 0 && filteredDeals.every(deal => selectedDeals.includes(deal.id));
-  const someVisibleSelected = filteredDeals.some(deal => selectedDeals.includes(deal.id));
+  const allVisibleSelected = paginatedDeals.length > 0 && paginatedDeals.every(deal => selectedDeals.includes(deal.id));
+  const someVisibleSelected = paginatedDeals.some(deal => selectedDeals.includes(deal.id));
 
   return (
     <div>
@@ -150,7 +166,7 @@ const DealSelector: React.FC<DealSelectorProps> = ({
       <div className="card mb-3">
         <div className="card-body">
           <div className="row g-3">
-            <div className="col-md-4">
+            <div className="col-md-3">
               <label htmlFor="dealSearch" className="form-label">Search Deals</label>
               <div className="input-group">
                 <span className="input-group-text">
@@ -175,7 +191,7 @@ const DealSelector: React.FC<DealSelectorProps> = ({
                 )}
               </div>
             </div>
-            <div className="col-md-3">
+            <div className="col-md-2">
               <label htmlFor="dealTypeFilter" className="form-label">Deal Type</label>
               <select
                 id="dealTypeFilter"
@@ -189,7 +205,7 @@ const DealSelector: React.FC<DealSelectorProps> = ({
                 ))}
               </select>
             </div>
-            <div className="col-md-3">
+            <div className="col-md-2">
               <label htmlFor="originatorFilter" className="form-label">Originator</label>
               <select
                 id="originatorFilter"
@@ -203,45 +219,59 @@ const DealSelector: React.FC<DealSelectorProps> = ({
                 ))}
               </select>
             </div>
-            <div className="col-md-2 d-flex align-items-end">
+            <div className="col-md-2">
+              <label htmlFor="itemsPerPage" className="form-label">Per Page</label>
+              <select
+                id="itemsPerPage"
+                className="form-select"
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(parseInt(e.target.value));
+                  setCurrentPage(1);
+                }}
+              >
+                <option value={25}>25 per page</option>
+                <option value={50}>50 per page</option>
+                <option value={100}>100 per page</option>
+                <option value={250}>250 per page</option>
+              </select>
+            </div>
+            <div className="col-md-3 d-flex align-items-end gap-2">
               <button
                 type="button"
-                className="btn btn-outline-secondary w-100"
+                className="btn btn-outline-secondary"
                 onClick={clearFilters}
                 disabled={!searchTerm && !dealTypeFilter && !originatorFilter}
               >
                 Clear Filters
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline-primary"
+                onClick={handleSelectAllVisible}
+                disabled={paginatedDeals.length === 0}
+              >
+                {allVisibleSelected ? 'Unselect Page' : 'Select Page'} 
+                ({paginatedDeals.length})
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Results Summary */}
-      <div className="d-flex justify-content-between align-items-center mb-3">
-        <div className="text-muted">
-          Showing {filteredDeals.length} of {deals.length} deals
-          {(searchTerm || dealTypeFilter || originatorFilter) && (
-            <span className="text-info"> (filtered)</span>
-          )}
-        </div>
-        <div className="d-flex gap-2">
-          <button
-            type="button"
-            className="btn btn-sm btn-outline-primary"
-            onClick={handleSelectAllVisible}
-            disabled={filteredDeals.length === 0}
-          >
-            {allVisibleSelected ? 'Unselect All Visible' : 'Select All Visible'} 
-            ({filteredDeals.length})
-          </button>
-        </div>
-      </div>
-
       {/* Deals Table */}
       <div className="card">
+        <div className="card-header">
+          <div className="d-flex justify-content-between align-items-center">
+            <h6 className="mb-0">Available Deals</h6>
+            <div className="text-muted">
+              Showing {Math.min((currentPage - 1) * itemsPerPage + 1, filteredDeals.length)}-{Math.min(currentPage * itemsPerPage, filteredDeals.length)} of {filteredDeals.length} deals
+              {deals.length !== filteredDeals.length && ` (${deals.length} total)`}
+            </div>
+          </div>
+        </div>
         <div className="card-body p-0">
-          <div className="table-responsive" style={{ maxHeight: '500px' }}>
+          <div className="table-responsive">
             <table className="table table-hover mb-0">
               <thead className="sticky-top bg-light">
                 <tr>
@@ -254,7 +284,7 @@ const DealSelector: React.FC<DealSelectorProps> = ({
                         if (input) input.indeterminate = someVisibleSelected && !allVisibleSelected;
                       }}
                       onChange={handleSelectAllVisible}
-                      disabled={filteredDeals.length === 0}
+                      disabled={paginatedDeals.length === 0}
                     />
                   </th>
                   <th 
@@ -317,7 +347,7 @@ const DealSelector: React.FC<DealSelectorProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {filteredDeals.length === 0 ? (
+                {paginatedDeals.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="text-center py-4 text-muted">
                       <i className="bi bi-search me-2"></i>
@@ -325,7 +355,7 @@ const DealSelector: React.FC<DealSelectorProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  filteredDeals.map(deal => (
+                  paginatedDeals.map(deal => (
                     <tr 
                       key={deal.id} 
                       className={selectedDeals.includes(deal.id) ? 'table-primary' : ''}
@@ -360,6 +390,81 @@ const DealSelector: React.FC<DealSelectorProps> = ({
               </tbody>
             </table>
           </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="d-flex justify-content-between align-items-center p-3 border-top">
+              <div className="text-muted">
+                Page {currentPage} of {totalPages}
+              </div>
+              <nav>
+                <ul className="pagination pagination-sm mb-0">
+                  <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
+                    <button
+                      className="page-link"
+                      onClick={() => setCurrentPage(1)}
+                      disabled={currentPage === 1}
+                    >
+                      <i className="bi bi-chevron-double-left"></i>
+                    </button>
+                  </li>
+                  <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
+                    <button
+                      className="page-link"
+                      onClick={() => setCurrentPage(currentPage - 1)}
+                      disabled={currentPage === 1}
+                    >
+                      <i className="bi bi-chevron-left"></i>
+                    </button>
+                  </li>
+                  
+                  {/* Show page numbers around current page */}
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    
+                    return (
+                      <li key={pageNum} className={`page-item ${currentPage === pageNum ? 'active' : ''}`}>
+                        <button
+                          className="page-link"
+                          onClick={() => setCurrentPage(pageNum)}
+                        >
+                          {pageNum}
+                        </button>
+                      </li>
+                    );
+                  })}
+                  
+                  <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
+                    <button
+                      className="page-link"
+                      onClick={() => setCurrentPage(currentPage + 1)}
+                      disabled={currentPage === totalPages}
+                    >
+                      <i className="bi bi-chevron-right"></i>
+                    </button>
+                  </li>
+                  <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
+                    <button
+                      className="page-link"
+                      onClick={() => setCurrentPage(totalPages)}
+                      disabled={currentPage === totalPages}
+                    >
+                      <i className="bi bi-chevron-double-right"></i>
+                    </button>
+                  </li>
+                </ul>
+              </nav>
+            </div>
+          )}
         </div>
       </div>
 

@@ -25,6 +25,8 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
   const [sortField, setSortField] = useState<'deal_name' | 'tranche_name' | 'principal_amount' | 'interest_rate' | 'payment_priority' | 'class_name' | 'credit_rating'>('deal_name');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [selectedDealFilter, setSelectedDealFilter] = useState<number | 'all'>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(50); // Default to 50 items per page
   const masterCheckboxRef = useRef<HTMLInputElement>(null);
 
   // Format currency
@@ -135,6 +137,15 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
     return filtered;
   }, [allTranches, searchTerm, selectedDealFilter, sortField, sortDirection]);
 
+  // Paginate the filtered results
+  const paginatedTranches = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filteredAndSortedTranches.slice(startIndex, endIndex);
+  }, [filteredAndSortedTranches, currentPage, itemsPerPage]);
+
+  const totalPages = Math.ceil(filteredAndSortedTranches.length / itemsPerPage);
+
   const handleSort = (field: typeof sortField) => {
     if (sortField === field) {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
@@ -144,9 +155,14 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
     }
   };
 
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedDealFilter, sortField, sortDirection]);
+
   // Bulk selection handlers
   const handleSelectAll = () => {
-    filteredAndSortedTranches.forEach(tranche => {
+    paginatedTranches.forEach(tranche => {
       const selectedDealTranches = selectedTranches[tranche.dealId] || [];
       if (!selectedDealTranches.includes(tranche.id)) {
         onTrancheToggle(tranche.dealId, tranche.id);
@@ -155,7 +171,7 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
   };
 
   const handleDeselectAll = () => {
-    filteredAndSortedTranches.forEach(tranche => {
+    paginatedTranches.forEach(tranche => {
       const selectedDealTranches = selectedTranches[tranche.dealId] || [];
       if (selectedDealTranches.includes(tranche.id)) {
         onTrancheToggle(tranche.dealId, tranche.id);
@@ -189,19 +205,62 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
 
   const totalSelected = Object.values(selectedTranches).flat().length;
   const totalVisible = filteredAndSortedTranches.length;
-  const allVisibleSelected = totalVisible > 0 && filteredAndSortedTranches.every(tranche => 
-    (selectedTranches[tranche.dealId] || []).includes(tranche.id)
-  );
-  const someVisibleSelected = filteredAndSortedTranches.some(tranche => 
-    (selectedTranches[tranche.dealId] || []).includes(tranche.id)
-  );
-
-  // Update master checkbox indeterminate state
-  useEffect(() => {
-    if (masterCheckboxRef.current) {
-      masterCheckboxRef.current.indeterminate = !allVisibleSelected && someVisibleSelected;
+  
+  // Update selection calculations to work with paginated data
+  const { allVisibleSelected, someVisibleSelected } = useMemo(() => {
+    if (paginatedTranches.length === 0) {
+      return { allVisibleSelected: false, someVisibleSelected: false };
     }
+    
+    let selectedCount = 0;
+    for (const tranche of paginatedTranches) {
+      if ((selectedTranches[tranche.dealId] || []).includes(tranche.id)) {
+        selectedCount++;
+      }
+    }
+    
+    return {
+      allVisibleSelected: selectedCount === paginatedTranches.length,
+      someVisibleSelected: selectedCount > 0 && selectedCount < paginatedTranches.length
+    };
+  }, [paginatedTranches, selectedTranches]);
+
+  // Debounce the useEffect to prevent too many DOM updates
+  const timeoutRef = useRef<NodeJS.Timeout>();
+  
+  useEffect(() => {
+    // Clear any existing timeout
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    
+    // Debounce the DOM update
+    timeoutRef.current = setTimeout(() => {
+      if (masterCheckboxRef.current) {
+        try {
+          masterCheckboxRef.current.indeterminate = someVisibleSelected && !allVisibleSelected;
+        } catch (error) {
+          console.warn('Error updating checkbox indeterminate state:', error);
+        }
+      }
+    }, 10); // Small delay to batch updates
+    
+    // Cleanup function
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
   }, [allVisibleSelected, someVisibleSelected]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div>
@@ -212,7 +271,7 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
       <div className="card mb-3">
         <div className="card-body">
           <div className="row g-3">
-            <div className="col-md-4">
+            <div className="col-md-3">
               <div className="input-group">
                 <span className="input-group-text">
                   <i className="bi bi-search"></i>
@@ -241,7 +300,22 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
                 })}
               </select>
             </div>
-            <div className="col-md-5">
+            <div className="col-md-2">
+              <select
+                className="form-select"
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(parseInt(e.target.value));
+                  setCurrentPage(1);
+                }}
+              >
+                <option value={25}>25 per page</option>
+                <option value={50}>50 per page</option>
+                <option value={100}>100 per page</option>
+                <option value={250}>250 per page</option>
+              </select>
+            </div>
+            <div className="col-md-4">
               <div className="btn-group" role="group">
                 <button
                   type="button"
@@ -249,14 +323,14 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
                   onClick={handleSelectAll}
                   disabled={allVisibleSelected}
                 >
-                  <i className="bi bi-check-all"></i> Select Visible ({totalVisible})
+                  <i className="bi bi-check-all"></i> Select Page ({paginatedTranches.length})
                 </button>
                 <button
                   type="button"
                   className="btn btn-outline-secondary btn-sm"
                   onClick={handleDeselectAll}
                 >
-                  <i className="bi bi-x-square"></i> Deselect Visible
+                  <i className="bi bi-x-square"></i> Deselect Page
                 </button>
               </div>
             </div>
@@ -270,7 +344,8 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
           <div className="d-flex justify-content-between align-items-center">
             <h6 className="mb-0">Available Tranches</h6>
             <div className="text-muted">
-              Showing {totalVisible} of {allTranches.length} tranches
+              Showing {Math.min((currentPage - 1) * itemsPerPage + 1, totalVisible)}-{Math.min(currentPage * itemsPerPage, totalVisible)} of {totalVisible} tranches
+              {allTranches.length !== totalVisible && ` (${allTranches.length} total)`}
             </div>
           </div>
         </div>
@@ -343,7 +418,7 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {filteredAndSortedTranches.length === 0 ? (
+                {paginatedTranches.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="text-center text-muted py-4">
                       <i className="bi bi-search me-2"></i>
@@ -351,7 +426,7 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  filteredAndSortedTranches.map(tranche => {
+                  paginatedTranches.map(tranche => {
                     const isSelected = (selectedTranches[tranche.dealId] || []).includes(tranche.id);
                     return (
                       <tr 
@@ -407,6 +482,81 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
               </tbody>
             </table>
           </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="d-flex justify-content-between align-items-center p-3 border-top">
+              <div className="text-muted">
+                Page {currentPage} of {totalPages}
+              </div>
+              <nav>
+                <ul className="pagination pagination-sm mb-0">
+                  <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
+                    <button
+                      className="page-link"
+                      onClick={() => setCurrentPage(1)}
+                      disabled={currentPage === 1}
+                    >
+                      <i className="bi bi-chevron-double-left"></i>
+                    </button>
+                  </li>
+                  <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
+                    <button
+                      className="page-link"
+                      onClick={() => setCurrentPage(currentPage - 1)}
+                      disabled={currentPage === 1}
+                    >
+                      <i className="bi bi-chevron-left"></i>
+                    </button>
+                  </li>
+                  
+                  {/* Show page numbers around current page */}
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    
+                    return (
+                      <li key={pageNum} className={`page-item ${currentPage === pageNum ? 'active' : ''}`}>
+                        <button
+                          className="page-link"
+                          onClick={() => setCurrentPage(pageNum)}
+                        >
+                          {pageNum}
+                        </button>
+                      </li>
+                    );
+                  })}
+                  
+                  <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
+                    <button
+                      className="page-link"
+                      onClick={() => setCurrentPage(currentPage + 1)}
+                      disabled={currentPage === totalPages}
+                    >
+                      <i className="bi bi-chevron-right"></i>
+                    </button>
+                  </li>
+                  <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
+                    <button
+                      className="page-link"
+                      onClick={() => setCurrentPage(totalPages)}
+                      disabled={currentPage === totalPages}
+                    >
+                      <i className="bi bi-chevron-double-right"></i>
+                    </button>
+                  </li>
+                </ul>
+              </nav>
+            </div>
+          )}
         </div>
       </div>
 
