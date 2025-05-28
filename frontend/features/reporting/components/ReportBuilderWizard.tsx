@@ -195,9 +195,35 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
         setCurrentStep(1);
       }
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving report:', error);
-      showToast(`Error ${isEditMode ? 'updating' : 'saving'} report configuration`, 'error');
+      
+      // Extract detailed error messages from the API response
+      let errorMessage = `Error ${isEditMode ? 'updating' : 'saving'} report configuration`;
+      
+      if (error.response?.data?.detail) {
+        const detail = error.response.data.detail;
+        
+        if (detail.errors && Array.isArray(detail.errors)) {
+          // Handle the backend's errors array format
+          const errorMessages = detail.errors.join(', ');
+          errorMessage = `${errorMessage}: ${errorMessages}`;
+        } else if (typeof detail === 'string') {
+          // Handle simple string error messages
+          errorMessage = `${errorMessage}: ${detail}`;
+        } else if (typeof detail === 'object' && detail.message) {
+          // Handle other object formats with a message property
+          errorMessage = `${errorMessage}: ${detail.message}`;
+        }
+      } else if (error.response?.data?.message) {
+        // Handle other API error formats
+        errorMessage = `${errorMessage}: ${error.response.data.message}`;
+      } else if (error.message) {
+        // Handle network or other errors
+        errorMessage = `${errorMessage}: ${error.message}`;
+      }
+      
+      showToast(errorMessage, 'error');
     } finally {
       setLoading(false);
     }

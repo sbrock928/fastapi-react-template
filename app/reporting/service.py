@@ -3,6 +3,7 @@
 from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
 from decimal import Decimal
+from pydantic import ValidationError
 
 from app.reporting.dao import ReportDAO
 from app.reporting.models import Report, ReportDeal, ReportTranche
@@ -12,26 +13,6 @@ from app.reporting.schemas import (
 )
 from app.datawarehouse.dao import DWDao
 from app.datawarehouse.schemas import DealRead, TrancheRead, TrancheReportSummary
-
-
-def collect_validation_errors() -> Dict:
-    """Helper function to collect multiple validation errors."""
-    errors = {}
-    
-    def add_error(field: str, message: str, error_type: str = "value_error"):
-        if field not in errors:
-            errors[field] = []
-        errors[field].append({"message": message, "type": error_type})
-    
-    def raise_if_errors():
-        if errors:
-            raise HTTPException(status_code=422, detail={"validation_errors": errors})
-    
-    # Return a dict with helper functions
-    return {
-        "add": add_error,
-        "raise_if_errors": raise_if_errors
-    }
 
 
 class ReportService:
@@ -45,27 +26,52 @@ class ReportService:
         self.report_dao = report_dao
         self.dw_dao = dw_dao
 
-    def _create_report_from_schema(self, report_data: ReportCreate) -> Report:
-        """Convert schema to model with relationships."""
-        report = Report(
-            name=report_data.name,
-            scope=report_data.scope.value,
-            created_by=report_data.created_by,
-            is_active=report_data.is_active,
-        )
-        
-        # Create deal associations
-        for deal_data in report_data.selected_deals:
-            report_deal = ReportDeal(deal_id=deal_data.deal_id)
+    async def _validate_database_constraints(
+        self, 
+        report_data: ReportCreate | ReportUpdate, 
+        existing_report_id: Optional[int] = None
+    ) -> None:
+        """Centralized database-dependent validation."""
+        errors = []
+
+        # Name uniqueness validation
+        if hasattr(report_data, 'name') and report_data.name:
+            existing_reports = await self.report_dao.get_all()
+            name_conflicts = [
+                r for r in existing_reports 
+                if r.name == report_data.name and r.id != existing_report_id
+            ]
+            if name_conflicts:
+                errors.append("Report name already exists")
+
+        # Validate deal existence in data warehouse
+        if hasattr(report_data, 'selected_deals') and report_data.selected_deals:
+            deal_ids = [deal.deal_id for deal in report_data.selected_deals]
+            existing_deals = await self.dw_dao.get_deals_by_ids(deal_ids)
+            existing_deal_ids = {deal.id for deal in existing_deals}
+            missing_deal_ids = set(deal_ids) - existing_deal_ids
             
-            # Add tranche associations
-            for tranche_data in deal_data.selected_tranches:
-                report_tranche = ReportTranche(tranche_id=tranche_data.tranche_id)
-                report_deal.selected_tranches.append(report_tranche)
-            
-            report.selected_deals.append(report_deal)
-        
-        return report
+            if missing_deal_ids:
+                errors.append(f"Deal IDs not found in data warehouse: {sorted(missing_deal_ids)}")
+
+            # Validate tranche existence for tranche-level reports
+            if (hasattr(report_data, 'scope') and 
+                report_data.scope == ReportScope.TRANCHE):
+                
+                all_tranche_ids = []
+                for deal in report_data.selected_deals:
+                    all_tranche_ids.extend([t.tranche_id for t in deal.selected_tranches])
+                
+                if all_tranche_ids:
+                    existing_tranches = await self.dw_dao.get_tranches_by_ids(all_tranche_ids)
+                    existing_tranche_ids = {tranche.id for tranche in existing_tranches}
+                    missing_tranche_ids = set(all_tranche_ids) - existing_tranche_ids
+                    
+                    if missing_tranche_ids:
+                        errors.append(f"Tranche IDs not found in data warehouse: {sorted(missing_tranche_ids)}")
+
+        if errors:
+            raise HTTPException(status_code=422, detail={"errors": errors})
 
     async def get_all(self) -> List[ReportRead]:
         """Get all reports."""
@@ -102,88 +108,43 @@ class ReportService:
 
         return summaries
 
-    async def before_create(self, report_data: ReportCreate) -> ReportCreate:
-        """Custom validation before report creation."""
-        errors = collect_validation_errors()
-
-        # Check if report name already exists (across all users)
-        existing_reports = await self.report_dao.get_all()
-        if any(r.name == report_data.name for r in existing_reports):
-            errors["add"]("name", "Report name already exists", "value_error.already_exists")
-
-        # Validate that selected deals exist in data warehouse
-        all_deal_ids = [deal.deal_id for deal in report_data.selected_deals]
-        if all_deal_ids:
-            existing_deals = await self.dw_dao.get_deals_by_ids(all_deal_ids)
-            existing_deal_ids = {deal.id for deal in existing_deals}
-            missing_deal_ids = set(all_deal_ids) - existing_deal_ids
-
-            if missing_deal_ids:
-                errors["add"]("selected_deals", f"Deal IDs not found: {sorted(missing_deal_ids)}")
-
-        # For tranche-level reports, validate tranche selections
-        if report_data.scope == ReportScope.TRANCHE:
-            all_tranche_ids = []
-            for deal in report_data.selected_deals:
-                all_tranche_ids.extend([t.tranche_id for t in deal.selected_tranches])
-            
-            if all_tranche_ids:
-                existing_tranches = await self.dw_dao.get_tranches_by_ids(all_tranche_ids)
-                existing_tranche_ids = {tranche.id for tranche in existing_tranches}
-                missing_tranche_ids = set(all_tranche_ids) - existing_tranche_ids
-
-                if missing_tranche_ids:
-                    errors["add"](
-                        "selected_deals",
-                        f"Tranche IDs not found: {sorted(missing_tranche_ids)}",
-                    )
-
-        errors["raise_if_errors"]()
-        return report_data
-
-    async def before_update(self, report_id: int, report_data: ReportUpdate) -> ReportUpdate:
-        """Custom validation before report update."""
-        errors = collect_validation_errors()
-
-        # Get current report
-        current_report = await self.report_dao.get_by_id(report_id)
-        if not current_report:
-            raise HTTPException(status_code=404, detail="Report not found")
-
-        # Check if name already exists (if changed)
-        if report_data.name and current_report.name != report_data.name:
-            existing_report = await self.report_dao.get_by_name_and_creator(
-                report_data.name, current_report.created_by
-            )
-            if existing_report:
-                errors["add"]("name", "Report name already exists", "value_error.already_exists")
-
-        errors["raise_if_errors"]()
-        return report_data
-
     async def create(self, report_data: ReportCreate) -> ReportRead:
-        """Create a new report."""
-        # Validate report data before creation
-        await self.before_create(report_data)
+        """Create a new report with simplified validation."""
+        # Pydantic already handled structural validation
+        # Only validate database constraints
+        await self._validate_database_constraints(report_data)
 
-        # Convert schema to model
-        report = self._create_report_from_schema(report_data)
+        # Direct model creation using Pydantic's model_dump
+        report_dict = report_data.model_dump()
+        report_dict['scope'] = report_data.scope.value  # Convert enum to string
         
-        # Create the report
+        # Create main report
+        report = Report(**{k: v for k, v in report_dict.items() if k != 'selected_deals'})
+        
+        # Add deals and tranches
+        for deal_data in report_data.selected_deals:
+            report_deal = ReportDeal(deal_id=deal_data.deal_id)
+            
+            for tranche_data in deal_data.selected_tranches:
+                report_tranche = ReportTranche(tranche_id=tranche_data.tranche_id)
+                report_deal.selected_tranches.append(report_tranche)
+            
+            report.selected_deals.append(report_deal)
+        
         created_report = await self.report_dao.create(report)
-        
         return ReportRead.model_validate(created_report)
 
     async def update(self, report_id: int, report_data: ReportUpdate) -> Optional[ReportRead]:
-        """Update a report."""
-        # Validate report data before update
-        await self.before_update(report_id, report_data)
-
+        """Update a report with simplified validation."""
         report = await self.report_dao.get_by_id(report_id)
         if not report:
             return None
 
-        # Update basic fields
+        # Pydantic already handled structural validation
+        # Only validate database constraints
+        await self._validate_database_constraints(report_data, existing_report_id=report_id)
+
+        # Update basic fields using Pydantic's model_dump
         update_data = report_data.model_dump(exclude_unset=True, exclude={'selected_deals'})
         
         # Handle scope enum conversion
@@ -195,14 +156,11 @@ class ReportService:
 
         # Handle deals and tranches update if provided
         if report_data.selected_deals is not None:
-            # Clear existing deals and tranches (cascade will handle tranches)
             report.selected_deals.clear()
             
-            # Add new deals and tranches
             for deal_data in report_data.selected_deals:
                 report_deal = ReportDeal(deal_id=deal_data.deal_id)
                 
-                # Add tranche associations
                 for tranche_data in deal_data.selected_tranches:
                     report_tranche = ReportTranche(tranche_id=tranche_data.tranche_id)
                     report_deal.selected_tranches.append(report_tranche)

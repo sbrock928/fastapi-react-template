@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { reportingApi } from '@/services/api';
 import { useCycleContext, useReportContext } from '@/context';
+import { useToast } from '@/context/ToastContext';
 import { 
   ReportManagementCard,
   RunReportsCard,
@@ -15,6 +16,7 @@ import type {
 const ReportingContent = () => {
   const { selectedCycle } = useCycleContext();
   const { savedReports, refreshReports } = useReportContext();
+  const { showToast } = useToast();
 
   // ===== REPORT STATE =====
   const [reportData, setReportData] = useState<ReportRow[]>([]);
@@ -65,12 +67,12 @@ const ReportingContent = () => {
   // ===== REPORT EXECUTION =====
   const runSavedReport = async () => {
     if (!selectedSavedReport) {
-      alert('Please select a saved report to run');
+      showToast('Please select a saved report to run', 'warning');
       return;
     }
 
     if (!selectedCycle || selectedCycle.value === '') {
-      alert('Please select a cycle');
+      showToast('Please select a cycle', 'warning');
       return;
     }
 
@@ -84,9 +86,36 @@ const ReportingContent = () => {
       setIsSkeletonMode(false);
       setShowResults(true);
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error running saved report:', error);
-      alert('Error running saved report. See console for details.');
+      
+      // Extract detailed error messages from the API response
+      let errorMessage = 'Error running saved report';
+      
+      if (error.response?.data?.detail) {
+        const detail = error.response.data.detail;
+        
+        if (detail.errors && Array.isArray(detail.errors)) {
+          // Handle the backend's errors array format
+          const errorMessages = detail.errors.join(', ');
+          errorMessage = `${errorMessage}: ${errorMessages}`;
+        } else if (typeof detail === 'string') {
+          // Handle simple string error messages
+          errorMessage = `${errorMessage}: ${detail}`;
+        } else if (typeof detail === 'object' && detail.message) {
+          // Handle other object formats with a message property
+          errorMessage = `${errorMessage}: ${detail.message}`;
+        }
+      } else if (error.response?.data?.message) {
+        // Handle other API error formats
+        errorMessage = `${errorMessage}: ${error.response.data.message}`;
+      } else if (error.message) {
+        // Handle network or other errors
+        errorMessage = `${errorMessage}: ${error.message}`;
+      }
+      
+      // Use toast instead of alert for better UX
+      showToast(errorMessage, 'error');
     } finally {
       setLoading(false);
     }

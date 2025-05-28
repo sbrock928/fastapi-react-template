@@ -1,9 +1,9 @@
 """Pydantic schemas for the reporting module."""
 
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import datetime
 from enum import Enum
-from pydantic import BaseModel, field_validator, ConfigDict
+from pydantic import BaseModel, field_validator, model_validator, ConfigDict
 
 
 class ReportScope(str, Enum):
@@ -97,6 +97,12 @@ class ReportCreate(ReportBase):
 
         return v
 
+    @model_validator(mode='after')
+    def validate_with_database_context(self):
+        """Placeholder for database validation - will be handled by service with dependency injection."""
+        # This validator can be extended to accept database context if needed in the future
+        return self
+
 
 class ReportRead(ReportBase):
     """Read schema for reports with normalized structure."""
@@ -126,6 +132,18 @@ class ReportUpdate(BaseModel):
                 raise ValueError("Report name cannot exceed 255 characters")
             return v.strip()
         return v
+
+    @model_validator(mode='after')
+    def validate_update_logic(self):
+        """Validate update-specific business rules."""
+        # If scope is being changed to TRANCHE, ensure deals have tranches
+        if (self.scope == ReportScope.TRANCHE and 
+            self.selected_deals is not None and 
+            self.selected_deals):
+            has_tranches = any(deal.selected_tranches for deal in self.selected_deals)
+            if not has_tranches:
+                raise ValueError("When changing to tranche-level scope, at least one tranche must be selected")
+        return self
 
 
 class ReportSummary(BaseModel):

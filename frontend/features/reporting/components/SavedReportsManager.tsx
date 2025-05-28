@@ -34,9 +34,28 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
       // Call the parent's edit handler with the full report configuration
       onEditReport(reportConfig);
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching report for editing:', error);
-      showToast('Error loading report for editing', 'error');
+      
+      // Extract detailed error messages from the API response
+      let errorMessage = 'Error loading report for editing';
+      
+      if (error.response?.data?.detail) {
+        const detail = error.response.data.detail;
+        
+        if (detail.errors && Array.isArray(detail.errors)) {
+          const errorMessages = detail.errors.join(', ');
+          errorMessage = `${errorMessage}: ${errorMessages}`;
+        } else if (typeof detail === 'string') {
+          errorMessage = `${errorMessage}: ${detail}`;
+        }
+      } else if (error.response?.data?.message) {
+        errorMessage = `${errorMessage}: ${error.response.data.message}`;
+      } else if (error.message) {
+        errorMessage = `${errorMessage}: ${error.message}`;
+      }
+      
+      showToast(errorMessage, 'error');
     } finally {
       setEditLoading(null);
     }
@@ -64,9 +83,35 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
       // Notify parent that reports were updated
       onReportsUpdated();
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting report:', error);
-      showToast(`Error deleting report "${reportName}"`, 'error');
+      
+      // Extract detailed error messages from the API response
+      let errorMessage = `Error deleting report "${reportName}"`;
+      
+      if (error.response?.data?.detail) {
+        const detail = error.response.data.detail;
+        
+        if (detail.errors && Array.isArray(detail.errors)) {
+          // Handle the backend's errors array format
+          const errorMessages = detail.errors.join(', ');
+          errorMessage = `${errorMessage}: ${errorMessages}`;
+        } else if (typeof detail === 'string') {
+          // Handle simple string error messages
+          errorMessage = `${errorMessage}: ${detail}`;
+        } else if (typeof detail === 'object' && detail.message) {
+          // Handle other object formats with a message property
+          errorMessage = `${errorMessage}: ${detail.message}`;
+        }
+      } else if (error.response?.data?.message) {
+        // Handle other API error formats
+        errorMessage = `${errorMessage}: ${error.response.data.message}`;
+      } else if (error.message) {
+        // Handle network or other errors
+        errorMessage = `${errorMessage}: ${error.message}`;
+      }
+      
+      showToast(errorMessage, 'error');
     } finally {
       setDeleteLoading(null);
     }
