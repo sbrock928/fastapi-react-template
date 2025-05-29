@@ -19,20 +19,30 @@ const DealSelector: React.FC<DealSelectorProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [sortField, setSortField] = useState<'deal_number' | 'issuer_code' | 'cdi_file' | 'cdb_file'>('deal_number');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [selectedIssuer, setSelectedIssuer] = useState<string>('');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
   const masterCheckboxRef = useRef<HTMLInputElement>(null);
 
+  // Get unique issuers for the filter dropdown
+  const uniqueIssuers = useMemo(() => {
+    const issuers = Array.from(new Set(deals.map(deal => deal.issr_cde))).sort();
+    return issuers;
+  }, [deals]);
   // Filter and sort deals
   const filteredAndSortedDeals = useMemo(() => {
     let filtered = deals.filter(deal => {
       const searchLower = searchTerm.toLowerCase();
-      return (
+      const matchesSearch = (
         deal.dl_nbr.toString().includes(searchLower) ||
         deal.issr_cde.toLowerCase().includes(searchLower) ||
         deal.cdi_file_nme.toLowerCase().includes(searchLower) ||
         (deal.CDB_cdi_file_nme && deal.CDB_cdi_file_nme.toLowerCase().includes(searchLower))
       );
+      
+      const matchesIssuer = selectedIssuer === '' || deal.issr_cde === selectedIssuer;
+      
+      return matchesSearch && matchesIssuer;
     });
 
     // Sort deals
@@ -68,10 +78,8 @@ const DealSelector: React.FC<DealSelectorProps> = ({
         const comparison = aValue - bValue;
         return sortDirection === 'asc' ? comparison : -comparison;
       }
-    });
-
-    return filtered;
-  }, [deals, searchTerm, sortField, sortDirection]);
+    });    return filtered;
+  }, [deals, searchTerm, sortField, sortDirection, selectedIssuer]);
 
   // Pagination
   const totalPages = Math.ceil(filteredAndSortedDeals.length / itemsPerPage);
@@ -175,10 +183,9 @@ const DealSelector: React.FC<DealSelectorProps> = ({
         </div>
       </div>
       
-      <div className="card-body">
-        {/* Search and Controls */}
+      <div className="card-body">        {/* Search and Controls */}
         <div className="row mb-3">
-          <div className="col-md-6">
+          <div className="col-md-3">
             <input
               type="text"
               className="form-control"
@@ -190,7 +197,24 @@ const DealSelector: React.FC<DealSelectorProps> = ({
               }}
             />
           </div>
-          <div className="col-md-3">
+          <div className="col-md-2">
+            <select
+              className="form-select"
+              value={selectedIssuer}
+              onChange={(e) => {
+                setSelectedIssuer(e.target.value);
+                setCurrentPage(1);
+              }}
+            >
+              <option value="">All Issuers</option>
+              {uniqueIssuers.map(issuer => (
+                <option key={issuer} value={issuer}>{issuer}</option>
+              ))}
+            </select>
+          </div>
+          <div className="col-md-2">
+          </div>
+          <div className="col-md-2">
             <select
               className="form-select"
               value={itemsPerPage}
@@ -205,13 +229,26 @@ const DealSelector: React.FC<DealSelectorProps> = ({
             </select>
           </div>
           <div className="col-md-3">
-            <button
-              className="btn btn-outline-primary"
-              onClick={onSelectAllDeals}
-              disabled={deals.length === 0}
-            >
-              Select All
-            </button>
+            <div className="d-flex gap-2">
+              <button
+                className="btn btn-outline-secondary btn-sm"
+                onClick={() => {
+                  setSearchTerm('');
+                  setSelectedIssuer('');
+                  setCurrentPage(1);
+                }}
+                disabled={searchTerm === '' && selectedIssuer === ''}
+              >
+                Clear Filters
+              </button>
+              <button
+                className="btn btn-outline-primary"
+                onClick={onSelectAllDeals}
+                disabled={deals.length === 0}
+              >
+                Select All
+              </button>
+            </div>
           </div>
         </div>
 
