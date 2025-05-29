@@ -60,6 +60,7 @@ export interface ReportDeal {
 export interface ReportConfig {
   id?: number;
   name: string;
+  description?: string;
   scope: 'DEAL' | 'TRANCHE';
   created_by: string;
   created_date?: string;
@@ -70,6 +71,7 @@ export interface ReportConfig {
 export interface ReportSummary {
   id: number;
   name: string;
+  description?: string;
   scope: 'DEAL' | 'TRANCHE';
   created_date: string;
   deal_count: number;

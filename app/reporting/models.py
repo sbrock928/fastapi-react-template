@@ -9,10 +9,10 @@ from app.core.database import Base
 class Report(Base):
     """Report configuration model stored in config database."""
 
-    __tablename__ = "reports"
-
+    __tablename__ = "reports"    
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False, index=True)
+    description = Column(String, nullable=True)  # Optional description field
     scope = Column(String, nullable=False)  # 'DEAL' or 'TRANCHE'
     created_by = Column(String, nullable=False, index=True)
     created_date = Column(DateTime, default=datetime.now)

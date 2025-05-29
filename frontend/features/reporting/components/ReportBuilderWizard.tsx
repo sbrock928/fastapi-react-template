@@ -21,10 +21,10 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
   // Wizard state
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [loading, setLoading] = useState<boolean>(false);
-
   // Report configuration state
   const [reportName, setReportName] = useState<string>('');
-  const [reportScope, setReportScope] = useState<'DEAL' | 'TRANCHE' | ''>('');  const [selectedDeals, setSelectedDeals] = useState<number[]>([]);
+  const [reportDescription, setReportDescription] = useState<string>('');
+  const [reportScope, setReportScope] = useState<'DEAL' | 'TRANCHE' | ''>('');const [selectedDeals, setSelectedDeals] = useState<number[]>([]);
   const [selectedTranches, setSelectedTranches] = useState<Record<number, string[]>>({});
 
   // Data state
@@ -37,11 +37,11 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
   useEffect(() => {
     loadDeals();
   }, []);
-
   // Initialize form with editing data if in edit mode
   useEffect(() => {
     if (isEditMode && editingReport) {
       setReportName(editingReport.name);
+      setReportDescription(editingReport.description || '');
       setReportScope(editingReport.scope);
       
       // Convert from backend normalized format to frontend format
@@ -142,14 +142,27 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       [dlNbr]: allTrancheIds
     }));
   };
-
   // Wizard navigation
   const nextStep = () => {
-    if (currentStep < 4) setCurrentStep(currentStep + 1);
+    let nextStepNum = currentStep + 1;
+    
+    // Skip step 3 (tranche selection) for DEAL scope reports
+    if (currentStep === 2 && reportScope === 'DEAL') {
+      nextStepNum = 4; // Jump directly to step 4 (review)
+    }
+    
+    if (nextStepNum <= 4) setCurrentStep(nextStepNum);
   };
 
   const prevStep = () => {
-    if (currentStep > 1) setCurrentStep(currentStep - 1);
+    let prevStepNum = currentStep - 1;
+    
+    // Skip step 3 (tranche selection) for DEAL scope reports when going backwards
+    if (currentStep === 4 && reportScope === 'DEAL') {
+      prevStepNum = 2; // Jump back to step 2 (deal selection)
+    }
+    
+    if (prevStepNum >= 1) setCurrentStep(prevStepNum);
   };
 
   // Save or update report configuration
@@ -164,12 +177,11 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
           dl_nbr: dlNbr,
           tr_id: trId
         }))
-      }));
-
-      if (isEditMode && editingReport?.id) {
+      }));      if (isEditMode && editingReport?.id) {
         // Update existing report
         const updateData = {
           name: reportName,
+          description: reportDescription || undefined,
           scope: reportScope as 'DEAL' | 'TRANCHE',
           selected_deals: transformedSelectedDeals
         };
@@ -180,6 +192,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
         // Create new report
         const reportConfig = {
           name: reportName,
+          description: reportDescription || undefined,
           scope: reportScope as 'DEAL' | 'TRANCHE',
           created_by: 'current_user', // TODO: Get from auth context
           selected_deals: transformedSelectedDeals
@@ -190,10 +203,10 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       }
       
       onReportSaved();
-      
-      // Reset form only if creating new (not editing)
+        // Reset form only if creating new (not editing)
       if (!isEditMode) {
         setReportName('');
+        setReportDescription('');
         setReportScope('');
         setSelectedDeals([]);
         setSelectedTranches({});
@@ -247,8 +260,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
                   You are editing: <strong>{editingReport?.name}</strong>
                 </div>
               )}
-            </div>
-            <div className="col-md-6">
+            </div>            <div className="col-md-6">
               <label htmlFor="reportName" className="form-label">Report Name</label>
               <input
                 type="text"
@@ -271,6 +283,18 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
                 <option value="DEAL">Deal Level (One row per deal)</option>
                 <option value="TRANCHE">Tranche Level (Multiple rows per deal)</option>
               </select>
+            </div>
+            <div className="col-12">
+              <label htmlFor="reportDescription" className="form-label">Description (Optional)</label>
+              <textarea
+                id="reportDescription"
+                className="form-control"
+                rows={3}
+                value={reportDescription}
+                onChange={(e) => setReportDescription(e.target.value)}
+                placeholder="Describe the purpose and use of this report..."
+              />
+              <div className="form-text">Provide a clear description of what this report contains and when it should be used.</div>
             </div>
             <div className="col-12">
               <div className="alert alert-info">
@@ -322,8 +346,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
             <div className="col-12">
               <h5 className="mb-3">Step 4: Review Configuration</h5>
               <div className="card">
-                <div className="card-body">
-                  <h6 className="card-title">Report Summary</h6>
+                <div className="card-body">                  <h6 className="card-title">Report Summary</h6>
                   <div className="row g-3">
                     <div className="col-md-4">
                       <strong>Name:</strong> {reportName}
@@ -334,6 +357,14 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
                     <div className="col-md-4">
                       <strong>Selected Deals:</strong> {selectedDeals.length}
                     </div>
+                    {reportDescription && (
+                      <div className="col-12">
+                        <strong>Description:</strong>
+                        <div className="mt-1 p-2 bg-light rounded">
+                          {reportDescription}
+                        </div>
+                      </div>
+                    )}
                   </div>
                   
                   {reportScope === 'TRANCHE' && (
@@ -380,7 +411,6 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
         return <div>Unknown step</div>;
     }
   };
-
   // Determine if user can proceed to next step
   const canProceed = () => {
     switch (currentStep) {
@@ -389,31 +419,42 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       case 2:
         return selectedDeals.length > 0;
       case 3:
+        // Step 3 should only be reached for TRANCHE scope reports
         if (reportScope === 'TRANCHE') {
           return Object.values(selectedTranches).some(tranches => tranches.length > 0);
         }
-        return true; // Skip tranche selection for DEAL scope
+        return false; // Should never reach here for DEAL scope
       case 4:
         return true;
       default:
         return false;
     }
   };
-
   return (
     <div className="report-builder-wizard">
       {/* Progress Bar */}
       <div className="mb-4">
         <div className="d-flex justify-content-between align-items-center mb-2">
           <h4>{isEditMode ? 'Edit Report Configuration' : 'Create New Report'}</h4>
-          <span className="badge bg-primary">Step {currentStep} of 4</span>
+          <span className="badge bg-primary">
+            Step {currentStep} of {reportScope === 'DEAL' ? '3' : '4'}
+            {reportScope === 'DEAL' && currentStep === 4 && ' (3)'}
+          </span>
         </div>
         <div className="progress">
           <div
             className="progress-bar"
             role="progressbar"
-            style={{ width: `${(currentStep / 4) * 100}%` }}
-            aria-valuenow={(currentStep / 4) * 100}
+            style={{ 
+              width: reportScope === 'DEAL' 
+                ? `${currentStep === 4 ? 100 : (currentStep / 3) * 100}%`
+                : `${(currentStep / 4) * 100}%`
+            }}
+            aria-valuenow={
+              reportScope === 'DEAL' 
+                ? (currentStep === 4 ? 100 : (currentStep / 3) * 100)
+                : (currentStep / 4) * 100
+            }
             aria-valuemin={0}
             aria-valuemax={100}
           ></div>

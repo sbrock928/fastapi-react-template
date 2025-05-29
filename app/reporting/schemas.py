@@ -47,6 +47,7 @@ class ReportBase(BaseModel):
     """Base schema for report configuration objects."""
 
     name: str
+    description: Optional[str] = None
     scope: ReportScope
     created_by: Optional[str] = "system"
     is_active: bool = True
@@ -116,6 +117,7 @@ class ReportUpdate(BaseModel):
     """Update schema - allows partial updates."""
 
     name: Optional[str] = None
+    description: Optional[str] = None
     scope: Optional[ReportScope] = None
     selected_deals: Optional[List[ReportDealCreate]] = None
     is_active: Optional[bool] = None
@@ -151,6 +153,7 @@ class ReportSummary(BaseModel):
 
     id: int
     name: str
+    description: Optional[str] = None
     scope: ReportScope
     created_by: str
     created_date: datetime

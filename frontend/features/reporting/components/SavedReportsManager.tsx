@@ -171,10 +171,17 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
                       </div>
                       <div className="col-sm-6">
                         <strong>Deals:</strong> {selectedReport.deal_count}
-                      </div>
-                      {selectedReport.scope === 'TRANCHE' && (
+                      </div>                      {selectedReport.scope === 'TRANCHE' && (
                         <div className="col-sm-6">
                           <strong>Tranches:</strong> {selectedReport.tranche_count}
+                        </div>
+                      )}
+                      {selectedReport.description && (
+                        <div className="col-12 mt-2">
+                          <strong>Description:</strong>
+                          <div className="mt-1 p-2 bg-light rounded small">
+                            {selectedReport.description}
+                          </div>
                         </div>
                       )}
                     </div>
