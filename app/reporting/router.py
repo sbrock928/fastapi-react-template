@@ -108,7 +108,7 @@ async def run_report(
 
 @router.post("/run/{report_id}", response_model=List[Dict[str, Any]])
 async def run_report_by_id(
-    report_id: int, request: Dict[str, str], service: ReportService = Depends(get_report_service)
+    report_id: int, request: Dict[str, Any], service: ReportService = Depends(get_report_service)
 ) -> List[Dict[str, Any]]:
     """Run a saved report by ID with cycle parameter."""
     cycle_code = request.get("cycle_code")
