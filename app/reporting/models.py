@@ -27,10 +27,10 @@ class ReportDeal(Base):
     """Report deal association model - stores which deals are selected for a report."""
 
     __tablename__ = "report_deals"
-
+    
     id = Column(Integer, primary_key=True, index=True)
     report_id = Column(Integer, ForeignKey("reports.id"), nullable=False)
-    deal_id = Column(Integer, nullable=False)  # References data warehouse deal ID
+    dl_nbr = Column(Integer, nullable=False)  # References data warehouse deal dl_nbr
     
     # Relationships
     report = relationship("Report", back_populates="selected_deals")
@@ -41,10 +41,11 @@ class ReportTranche(Base):
     """Report tranche association model - stores which tranches are selected for a report."""
 
     __tablename__ = "report_tranches"
-
+    
     id = Column(Integer, primary_key=True, index=True)
     report_deal_id = Column(Integer, ForeignKey("report_deals.id"), nullable=False)
-    tranche_id = Column(Integer, nullable=False)  # References data warehouse tranche ID
+    dl_nbr = Column(Integer, nullable=False)  # References data warehouse tranche dl_nbr
+    tr_id = Column(String, nullable=False)   # References data warehouse tranche tr_id
     
     # Relationship
     report_deal = relationship("ReportDeal", back_populates="selected_tranches")

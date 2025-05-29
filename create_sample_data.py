@@ -10,7 +10,7 @@ from datetime import date
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.core.database import DWSessionLocal
-from app.datawarehouse.models import Deal, Tranche
+from app.datawarehouse.models import Deal, Tranche, TrancheBal
 
 
 def create_comprehensive_sample_data():
@@ -27,73 +27,43 @@ def create_comprehensive_sample_data():
 
         print("Creating comprehensive sample data...")
 
-        # Sample deals with realistic MBS data
+        # Sample deals with new schema structure
         deals_data = [
             {
-                "name": "GSAMP Trust 2024-1",
-                "originator": "Goldman Sachs",
-                "deal_type": "RMBS",
-                "closing_date": date(2024, 1, 15),
-                "total_principal": Decimal("2500000000"),
-                "credit_rating": "AAA",
-                "yield_rate": Decimal("0.0485"),
-                "duration": Decimal("5.5"),
-                "cycle_code": "2024-01",
+                "dl_nbr": 1001,
+                "issr_cde": "GSAMP2024",
+                "cdi_file_nme": "GS24001A",
+                "CDB_cdi_file_nme": "GS24001CDB",
             },
             {
-                "name": "Wells Fargo Commercial 2024-A",
-                "originator": "Wells Fargo",
-                "deal_type": "CMBS",
-                "closing_date": date(2024, 2, 20),
-                "total_principal": Decimal("1800000000"),
-                "credit_rating": "AA+",
-                "yield_rate": Decimal("0.0520"),
-                "duration": Decimal("7.0"),
-                "cycle_code": "2024-02",
+                "dl_nbr": 1002,
+                "issr_cde": "WFCM2024A",
+                "cdi_file_nme": "WF24002A",
+                "CDB_cdi_file_nme": "WF24002CDB",
             },
             {
-                "name": "Chase Auto Receivables 2024-1",
-                "originator": "JPMorgan Chase",
-                "deal_type": "Auto ABS",
-                "closing_date": date(2024, 3, 10),
-                "total_principal": Decimal("1200000000"),
-                "credit_rating": "AAA",
-                "yield_rate": Decimal("0.0395"),
-                "duration": Decimal("3.5"),
-                "cycle_code": "2024-03",
+                "dl_nbr": 1003,
+                "issr_cde": "CHAR2024",
+                "cdi_file_nme": "CH24003A",
+                "CDB_cdi_file_nme": "CH24003CDB",
             },
             {
-                "name": "Bank of America RMBS 2024-2",
-                "originator": "Bank of America",
-                "deal_type": "RMBS",
-                "closing_date": date(2024, 1, 25),
-                "total_principal": Decimal("3200000000"),
-                "credit_rating": "AA",
-                "yield_rate": Decimal("0.0510"),
-                "duration": Decimal("6.2"),
-                "cycle_code": "2024-01",
+                "dl_nbr": 1004,
+                "issr_cde": "BOARMBS24",
+                "cdi_file_nme": "BA24004A",
+                "CDB_cdi_file_nme": "BA24004CDB",
             },
             {
-                "name": "Citi Student Loan Trust 2024-A",
-                "originator": "Citibank",
-                "deal_type": "Student Loan ABS",
-                "closing_date": date(2024, 2, 15),
-                "total_principal": Decimal("950000000"),
-                "credit_rating": "AA-",
-                "yield_rate": Decimal("0.0465"),
-                "duration": Decimal("8.1"),
-                "cycle_code": "2024-02",
+                "dl_nbr": 1005,
+                "issr_cde": "CITSL24A",
+                "cdi_file_nme": "CT24005A",
+                "CDB_cdi_file_nme": "CT24005CDB",
             },
             {
-                "name": "Morgan Stanley CMBS 2024-B",
-                "originator": "Morgan Stanley",
-                "deal_type": "CMBS",
-                "closing_date": date(2024, 3, 5),
-                "total_principal": Decimal("2100000000"),
-                "credit_rating": "AAA",
-                "yield_rate": Decimal("0.0535"),
-                "duration": Decimal("6.8"),
-                "cycle_code": "2024-03",
+                "dl_nbr": 1006,
+                "issr_cde": "MSCMBS24",
+                "cdi_file_nme": "MS24006A",
+                "CDB_cdi_file_nme": "MS24006CDB",
             },
         ]
 
@@ -106,295 +76,101 @@ def create_comprehensive_sample_data():
 
         dw_db.flush()  # Flush to get IDs but don't commit yet
 
-        # Define tranches for each deal
+        # Define tranches for each deal using new schema
         tranches_data = []
 
-        # GSAMP Trust 2024-1 tranches (Deal 0)
+        # Deal 1001 tranches
         tranches_data.extend(
             [
-                {
-                    "deal_id": created_deals[0].id,
-                    "name": "Class A-1",
-                    "class_name": "A-1",
-                    "subordination_level": 1,
-                    "principal_amount": Decimal("1500000000"),
-                    "interest_rate": Decimal("0.0450"),
-                    "credit_rating": "AAA",
-                    "payment_priority": 1,
-                    "cycle_code": "2024-01",
-                },
-                {
-                    "deal_id": created_deals[0].id,
-                    "name": "Class A-2",
-                    "class_name": "A-2",
-                    "subordination_level": 1,
-                    "principal_amount": Decimal("750000000"),
-                    "interest_rate": Decimal("0.0485"),
-                    "credit_rating": "AAA",
-                    "payment_priority": 2,
-                    "cycle_code": "2024-01",
-                },
-                {
-                    "deal_id": created_deals[0].id,
-                    "name": "Class B",
-                    "class_name": "B",
-                    "subordination_level": 2,
-                    "principal_amount": Decimal("200000000"),
-                    "interest_rate": Decimal("0.0650"),
-                    "credit_rating": "AA",
-                    "payment_priority": 3,
-                    "cycle_code": "2024-01",
-                },
-                {
-                    "deal_id": created_deals[0].id,
-                    "name": "Class C",
-                    "class_name": "C",
-                    "subordination_level": 3,
-                    "principal_amount": Decimal("50000000"),
-                    "interest_rate": Decimal("0.0950"),
-                    "credit_rating": "A",
-                    "payment_priority": 4,
-                    "cycle_code": "2024-01",
-                },
+                {"dl_nbr": 1001, "tr_id": "A1"},
+                {"dl_nbr": 1001, "tr_id": "A2"},
+                {"dl_nbr": 1001, "tr_id": "B"},
+                {"dl_nbr": 1001, "tr_id": "C"},
             ]
         )
 
-        # Wells Fargo Commercial 2024-A tranches (Deal 1)
+        # Deal 1002 tranches
         tranches_data.extend(
             [
-                {
-                    "deal_id": created_deals[1].id,
-                    "name": "Senior A",
-                    "class_name": "A",
-                    "subordination_level": 1,
-                    "principal_amount": Decimal("1260000000"),
-                    "interest_rate": Decimal("0.0500"),
-                    "credit_rating": "AA+",
-                    "payment_priority": 1,
-                    "cycle_code": "2024-02",
-                },
-                {
-                    "deal_id": created_deals[1].id,
-                    "name": "Subordinate B",
-                    "class_name": "B",
-                    "subordination_level": 2,
-                    "principal_amount": Decimal("360000000"),
-                    "interest_rate": Decimal("0.0720"),
-                    "credit_rating": "A",
-                    "payment_priority": 2,
-                    "cycle_code": "2024-02",
-                },
-                {
-                    "deal_id": created_deals[1].id,
-                    "name": "Junior C",
-                    "class_name": "C",
-                    "subordination_level": 3,
-                    "principal_amount": Decimal("180000000"),
-                    "interest_rate": Decimal("0.1050"),
-                    "credit_rating": "BBB",
-                    "payment_priority": 3,
-                    "cycle_code": "2024-02",
-                },
+                {"dl_nbr": 1002, "tr_id": "SEN-A"},
+                {"dl_nbr": 1002, "tr_id": "SUB-B"},
+                {"dl_nbr": 1002, "tr_id": "JUN-C"},
             ]
         )
 
-        # Chase Auto Receivables 2024-1 tranches (Deal 2)
+        # Deal 1003 tranches
         tranches_data.extend(
             [
-                {
-                    "deal_id": created_deals[2].id,
-                    "name": "Class A",
-                    "class_name": "A",
-                    "subordination_level": 1,
-                    "principal_amount": Decimal("960000000"),
-                    "interest_rate": Decimal("0.0375"),
-                    "credit_rating": "AAA",
-                    "payment_priority": 1,
-                    "cycle_code": "2024-03",
-                },
-                {
-                    "deal_id": created_deals[2].id,
-                    "name": "Class B",
-                    "class_name": "B",
-                    "subordination_level": 2,
-                    "principal_amount": Decimal("180000000"),
-                    "interest_rate": Decimal("0.0480"),
-                    "credit_rating": "AA",
-                    "payment_priority": 2,
-                    "cycle_code": "2024-03",
-                },
-                {
-                    "deal_id": created_deals[2].id,
-                    "name": "Class C",
-                    "class_name": "C",
-                    "subordination_level": 3,
-                    "principal_amount": Decimal("60000000"),
-                    "interest_rate": Decimal("0.0750"),
-                    "credit_rating": "A",
-                    "payment_priority": 3,
-                    "cycle_code": "2024-03",
-                },
+                {"dl_nbr": 1003, "tr_id": "CLASS-A"},
+                {"dl_nbr": 1003, "tr_id": "CLASS-B"},
+                {"dl_nbr": 1003, "tr_id": "CLASS-C"},
             ]
         )
 
-        # Bank of America RMBS 2024-2 tranches (Deal 3)
+        # Deal 1004 tranches
         tranches_data.extend(
             [
-                {
-                    "deal_id": created_deals[3].id,
-                    "name": "Class A-1",
-                    "class_name": "A-1",
-                    "subordination_level": 1,
-                    "principal_amount": Decimal("2000000000"),
-                    "interest_rate": Decimal("0.0490"),
-                    "credit_rating": "AA",
-                    "payment_priority": 1,
-                    "cycle_code": "2024-01",
-                },
-                {
-                    "deal_id": created_deals[3].id,
-                    "name": "Class A-2",
-                    "class_name": "A-2",
-                    "subordination_level": 1,
-                    "principal_amount": Decimal("900000000"),
-                    "interest_rate": Decimal("0.0520"),
-                    "credit_rating": "AA",
-                    "payment_priority": 2,
-                    "cycle_code": "2024-01",
-                },
-                {
-                    "deal_id": created_deals[3].id,
-                    "name": "Class B",
-                    "class_name": "B",
-                    "subordination_level": 2,
-                    "principal_amount": Decimal("250000000"),
-                    "interest_rate": Decimal("0.0680"),
-                    "credit_rating": "A",
-                    "payment_priority": 3,
-                    "cycle_code": "2024-01",
-                },
-                {
-                    "deal_id": created_deals[3].id,
-                    "name": "Class C",
-                    "class_name": "C",
-                    "subordination_level": 3,
-                    "principal_amount": Decimal("50000000"),
-                    "interest_rate": Decimal("0.0920"),
-                    "credit_rating": "BBB",
-                    "payment_priority": 4,
-                    "cycle_code": "2024-01",
-                },
+                {"dl_nbr": 1004, "tr_id": "A1"},
+                {"dl_nbr": 1004, "tr_id": "A2"},
+                {"dl_nbr": 1004, "tr_id": "A3"},
+                {"dl_nbr": 1004, "tr_id": "B"},
             ]
         )
 
-        # Citi Student Loan Trust 2024-A tranches (Deal 4)
+        # Deal 1005 tranches
         tranches_data.extend(
             [
-                {
-                    "deal_id": created_deals[4].id,
-                    "name": "Class A",
-                    "class_name": "A",
-                    "subordination_level": 1,
-                    "principal_amount": Decimal("760000000"),
-                    "interest_rate": Decimal("0.0445"),
-                    "credit_rating": "AA-",
-                    "payment_priority": 1,
-                    "cycle_code": "2024-02",
-                },
-                {
-                    "deal_id": created_deals[4].id,
-                    "name": "Class B",
-                    "class_name": "B",
-                    "subordination_level": 2,
-                    "principal_amount": Decimal("142500000"),
-                    "interest_rate": Decimal("0.0580"),
-                    "credit_rating": "A",
-                    "payment_priority": 2,
-                    "cycle_code": "2024-02",
-                },
-                {
-                    "deal_id": created_deals[4].id,
-                    "name": "Class C",
-                    "class_name": "C",
-                    "subordination_level": 3,
-                    "principal_amount": Decimal("47500000"),
-                    "interest_rate": Decimal("0.0820"),
-                    "credit_rating": "BBB",
-                    "payment_priority": 3,
-                    "cycle_code": "2024-02",
-                },
+                {"dl_nbr": 1005, "tr_id": "SENIOR"},
+                {"dl_nbr": 1005, "tr_id": "MEZZ"},
+                {"dl_nbr": 1005, "tr_id": "JUNIOR"},
             ]
         )
 
-        # Morgan Stanley CMBS 2024-B tranches (Deal 5)
+        # Deal 1006 tranches
         tranches_data.extend(
             [
-                {
-                    "deal_id": created_deals[5].id,
-                    "name": "Class A-1",
-                    "class_name": "A-1",
-                    "subordination_level": 1,
-                    "principal_amount": Decimal("1470000000"),
-                    "interest_rate": Decimal("0.0515"),
-                    "credit_rating": "AAA",
-                    "payment_priority": 1,
-                    "cycle_code": "2024-03",
-                },
-                {
-                    "deal_id": created_deals[5].id,
-                    "name": "Class A-2",
-                    "class_name": "A-2",
-                    "subordination_level": 1,
-                    "principal_amount": Decimal("420000000"),
-                    "interest_rate": Decimal("0.0550"),
-                    "credit_rating": "AAA",
-                    "payment_priority": 2,
-                    "cycle_code": "2024-03",
-                },
-                {
-                    "deal_id": created_deals[5].id,
-                    "name": "Class B",
-                    "class_name": "B",
-                    "subordination_level": 2,
-                    "principal_amount": Decimal("147000000"),
-                    "interest_rate": Decimal("0.0750"),
-                    "credit_rating": "AA",
-                    "payment_priority": 3,
-                    "cycle_code": "2024-03",
-                },
-                {
-                    "deal_id": created_deals[5].id,
-                    "name": "Class C",
-                    "class_name": "C",
-                    "subordination_level": 3,
-                    "principal_amount": Decimal("63000000"),
-                    "interest_rate": Decimal("0.0980"),
-                    "credit_rating": "A",
-                    "payment_priority": 4,
-                    "cycle_code": "2024-03",
-                },
+                {"dl_nbr": 1006, "tr_id": "A"},
+                {"dl_nbr": 1006, "tr_id": "B"},
+                {"dl_nbr": 1006, "tr_id": "C"},
+                {"dl_nbr": 1006, "tr_id": "D"},
             ]
         )
 
-        # Create all tranches
+        # Create tranches
+        created_tranches = []
         for tranche_data in tranches_data:
             tranche = Tranche(**tranche_data)
             dw_db.add(tranche)
+            created_tranches.append(tranche)
 
-        # Commit everything
+        dw_db.flush()
+
+        # Create sample TrancheBal records
+        tranche_bal_data = []
+        for tranche in created_tranches:
+            # Create a sample balance record for each tranche
+            tranche_bal_data.append({
+                "dl_nbr": tranche.dl_nbr,
+                "tr_id": tranche.tr_id,
+            })
+
+        # Create tranche balances
+        for bal_data in tranche_bal_data:
+            tranche_bal = TrancheBal(**bal_data)
+            dw_db.add(tranche_bal)
+
+        # Commit all changes
         dw_db.commit()
 
-        print(f"✅ Successfully created:")
+        print(f"✅ Successfully created sample data:")
         print(f"   📊 {len(created_deals)} deals")
-        print(f"   📈 {len(tranches_data)} tranches")
-        print(f"   🗓️  Across 3 cycles (2024-01, 2024-02, 2024-03)")
+        print(f"   📈 {len(created_tranches)} tranches") 
+        print(f"   📊 {len(tranche_bal_data)} tranche balance records")
 
-        # Print summary by cycle
-        print(f"\n📋 Summary by cycle:")
-        for cycle in ["2024-01", "2024-02", "2024-03"]:
-            cycle_deals = [d for d in created_deals if d.cycle_code == cycle]
-            cycle_tranches = [t for t in tranches_data if t["cycle_code"] == cycle]
-            print(f"   {cycle}: {len(cycle_deals)} deals, {len(cycle_tranches)} tranches")
+        # Print deal summary
+        print(f"\n📋 Created deals:")
+        for deal in created_deals:
+            print(f"   Deal {deal.dl_nbr}: {deal.issr_cde}")
 
         return True
 
@@ -419,7 +195,7 @@ def main():
         print("\n🎉 Sample data creation completed successfully!")
         print("\n🔗 You can now test the APIs:")
         print("   curl http://localhost:8000/api/reports/data/deals")
-        print("   curl http://localhost:8000/api/reports/data/deals/1/tranches")
+        print("   curl http://localhost:8000/api/reports/data/deals/1001/tranches")
     else:
         print("\n❌ Sample data creation failed!")
         return 1

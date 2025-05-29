@@ -14,75 +14,46 @@ export interface DynamicReportConfig {
 
 export type ReportRow = Record<string, any>;
 
-// Deal & Tranche Data Types (Updated for new data model)
+// Deal & Tranche Data Types (Updated for new schema)
 export interface Deal {
-  id: number;
-  name: string;
-  originator: string;
-  deal_type: string;
-  total_principal: number;
-  credit_rating: string;
-  yield_rate: number;
-  closing_date: string;
-  // Note: cycle_code removed - deals are now static
+  dl_nbr: number;
+  issr_cde: string;
+  cdi_file_nme: string;
+  CDB_cdi_file_nme: string;
 }
 
 export interface Tranche {
-  id: number;
-  deal_id: number;
-  name: string;
-  class_name: string;
-  subordination_level: number;
-  credit_rating: string;
-  payment_priority: number;
-  maturity_date?: string;
-  // Note: cycle_code, principal_amount, interest_rate moved to TrancheHistorical
+  dl_nbr: number;
+  tr_id: string;
 }
 
-// New Historical Data Type
-export interface TrancheHistorical {
-  id: number;
-  tranche_id: number;
-  cycle_code: string;
-  principal_amount: number;
-  interest_rate: number;
-  created_date: string;
-  updated_date: string;
-  is_active: boolean;
+// TrancheBal Data Type
+export interface TrancheBal {
+  dl_nbr: number;
+  tr_id: string;
+  balance: number;
 }
 
-// Combined data for reporting (includes both static and historical data)
-export interface TrancheWithHistorical extends Tranche {
-  cycle_code: string;
-  principal_amount: number;
-  interest_rate: number;
-}
-
-// Summary schemas with cycle data for reporting (matches backend TrancheReportSummary)
+// Report summary types for listing tranches
 export interface TrancheReportSummary {
-  id: number;
-  deal_id: number;
-  deal_name: string;
-  name: string;
-  class_name: string;
-  credit_rating: string;
-  cycle_code: string;
-  principal_amount: number;
-  interest_rate: number;
-  payment_priority?: number; // Add this for sorting compatibility
+  dl_nbr: number;
+  tr_id: string;
+  deal_issr_cde: string;
+  balance: number;
 }
 
 // Report Configuration Types (Updated to match backend normalized schema)
 export interface ReportTranche {
   id?: number;
   report_deal_id?: number;
-  tranche_id: number;
+  dl_nbr: number;
+  tr_id: string;
 }
 
 export interface ReportDeal {
   id?: number;
   report_id?: number;
-  deal_id: number;
+  dl_nbr: number;
   selected_tranches: ReportTranche[];
 }
 
@@ -93,8 +64,7 @@ export interface ReportConfig {
   created_by: string;
   created_date?: string;
   updated_date?: string;
-  selected_deals: ReportDeal[]; // Changed from number[] to ReportDeal[]
-  // Note: selected_tranches is now nested within each deal, not at root level
+  selected_deals: ReportDeal[];
 }
 
 export interface ReportSummary {
@@ -113,48 +83,31 @@ export interface RunReportRequest {
 }
 
 export interface DealReportRow {
-  deal_id: number;
-  deal_name: string;
-  originator: string;
-  deal_type: string;
-  total_principal: number;
-  credit_rating: string;
-  yield_rate: number;
-  closing_date: string;
-  cycle_code: string; // This comes from the report execution context
+  dl_nbr: number;
+  issr_cde: string;
+  cdi_file_nme: string;
+  CDB_cdi_file_nme: string;
   // Aggregated tranche data
   tranche_count?: number;
-  total_tranche_principal?: number;
-  avg_tranche_interest_rate?: number;
+  total_tranche_balance?: number;
   [key: string]: any; // Allow additional dynamic fields
 }
 
 export interface TrancheReportRow {
   // Deal information (static)
-  deal_id: number;
-  deal_name: string;
-  deal_originator: string;
-  deal_type: string;
-  deal_credit_rating: string;
-  deal_yield_rate: number;
-  // Tranche static information
-  tranche_id: number;
-  tranche_name: string;
-  class_name: string;
-  subordination_level: number;
-  credit_rating: string;
-  payment_priority: number;
-  maturity_date?: string;
-  // Historical/cycle-specific data
-  cycle_code: string;
-  principal_amount: number;
-  interest_rate: number;
+  dl_nbr: number;
+  deal_issr_cde: string;
+  deal_cdi_file_nme: string;
+  deal_CDB_cdi_file_nme: string;
+  // Tranche information
+  tr_id: string;
+  balance: number;
   [key: string]: any; // Allow additional dynamic fields
 }
 
-// Cycle Selection Types
+// Cycle Selection Types (simplified for new schema)
 export interface CycleOption {
-  value: string; // Changed from 'code' to 'value' to match usage in components
+  value: number;
   label: string;
 }
 
@@ -163,6 +116,6 @@ export interface ReportBuilderState {
   currentStep: number;
   reportName: string;
   reportScope: 'DEAL' | 'TRANCHE' | '';
-  selectedDeals: number[];
-  selectedTranches: Record<number, number[]>;
+  selectedDeals: number[]; // Changed back to number[] for dl_nbr
+  selectedTranches: Record<number, Array<{dl_nbr: number, tr_id: string}>>;
 }

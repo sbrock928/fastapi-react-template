@@ -1,55 +1,17 @@
 """Pydantic schemas for the datawarehouse module."""
 
 from typing import Optional, List
-from datetime import datetime, date
-from decimal import Decimal
-from pydantic import BaseModel, field_validator, ConfigDict
+from pydantic import BaseModel, ConfigDict
 
 
-# Deal Schemas - Only static information
+# Deal Schemas
 class DealBase(BaseModel):
-    """Base schema for deal objects with static fields only."""
-
-    name: str
-    originator: str
-    deal_type: str
-    closing_date: date
-    total_principal: Decimal  # Original total principal at issuance
-    credit_rating: Optional[str] = None
-    yield_rate: Optional[Decimal] = None
-    duration: Optional[Decimal] = None
-    is_active: bool = True
+    dl_nbr: int
+    issr_cde: str
+    cdi_file_nme: str
+    CDB_cdi_file_nme: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
-
-    @field_validator("name", "originator", "deal_type")
-    @classmethod
-    def validate_required_strings(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("Field cannot be empty")
-        return v.strip()
-
-    @field_validator("total_principal")
-    @classmethod
-    def validate_total_principal(cls, v: Decimal) -> Decimal:
-        if v <= 0:
-            raise ValueError("Total principal must be positive")
-        return v
-
-    @field_validator("yield_rate")
-    @classmethod
-    def validate_yield_rate(cls, v: Optional[Decimal]) -> Optional[Decimal]:
-        if v is not None:
-            if v < 0 or v > 1:
-                raise ValueError("Yield rate should be between 0 and 1 (e.g., 0.0485 for 4.85%)")
-        return v
-
-    @field_validator("duration")
-    @classmethod
-    def validate_duration(cls, v: Optional[Decimal]) -> Optional[Decimal]:
-        if v is not None and v <= 0:
-            raise ValueError("Duration must be positive")
-        return v
 
 
 class DealCreate(DealBase):
@@ -57,62 +19,21 @@ class DealCreate(DealBase):
 
 
 class DealRead(DealBase):
-    id: int
-    created_date: datetime
-    updated_date: datetime
+    pass
 
 
 class DealUpdate(BaseModel):
-    """Update schema - allows partial updates."""
-
-    name: Optional[str] = None
-    originator: Optional[str] = None
-    deal_type: Optional[str] = None
-    closing_date: Optional[date] = None
-    total_principal: Optional[Decimal] = None
-    credit_rating: Optional[str] = None
-    yield_rate: Optional[Decimal] = None
-    duration: Optional[Decimal] = None
-    is_active: Optional[bool] = None
-
+    issr_cde: Optional[str] = None
+    cdi_file_nme: Optional[str] = None
+    CDB_cdi_file_nme: Optional[str] = None
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
-# Tranche Schemas - Only static information
+# Tranche Schemas
 class TrancheBase(BaseModel):
-    """Base schema for tranche objects with static fields only."""
-
-    deal_id: int
-    name: str
-    class_name: str
-    subordination_level: int = 1
-    credit_rating: Optional[str] = None  # Original credit rating at issuance
-    payment_priority: int = 1
-    maturity_date: Optional[date] = None
-    is_active: bool = True
-
+    dl_nbr: int
+    tr_id: str
     model_config = ConfigDict(from_attributes=True, extra="forbid")
-
-    @field_validator("name", "class_name")
-    @classmethod
-    def validate_required_strings(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("Field cannot be empty")
-        return v.strip()
-
-    @field_validator("deal_id")
-    @classmethod
-    def validate_deal_id(cls, v: int) -> int:
-        if v <= 0:
-            raise ValueError("Deal ID must be positive")
-        return v
-
-    @field_validator("subordination_level", "payment_priority")
-    @classmethod
-    def validate_positive_integers(cls, v: int) -> int:
-        if v < 1:
-            raise ValueError("Value must be positive")
-        return v
 
 
 class TrancheCreate(TrancheBase):
@@ -120,182 +41,52 @@ class TrancheCreate(TrancheBase):
 
 
 class TrancheRead(TrancheBase):
-    id: int
-    created_date: datetime
-    updated_date: datetime
-
-
-class TrancheUpdate(BaseModel):
-    """Update schema - allows partial updates."""
-
-    deal_id: Optional[int] = None
-    name: Optional[str] = None
-    class_name: Optional[str] = None
-    subordination_level: Optional[int] = None
-    credit_rating: Optional[str] = None
-    payment_priority: Optional[int] = None
-    maturity_date: Optional[date] = None
-    is_active: Optional[bool] = None
-
-    model_config = ConfigDict(from_attributes=True, extra="forbid")
-
-
-# Tranche Historical Schemas - Time-varying data
-class TrancheHistoricalBase(BaseModel):
-    """Base schema for tranche historical objects with cycle-specific fields."""
-
-    tranche_id: int
-    cycle_code: str
-    principal_amount: Decimal  # Current outstanding principal
-    interest_rate: Decimal  # Current interest rate (can drift over time)
-    is_active: bool = True
-
-    model_config = ConfigDict(from_attributes=True, extra="forbid")
-
-    @field_validator("cycle_code")
-    @classmethod
-    def validate_cycle_code(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("Cycle code cannot be empty")
-        return v.strip()
-
-    @field_validator("tranche_id")
-    @classmethod
-    def validate_tranche_id(cls, v: int) -> int:
-        if v <= 0:
-            raise ValueError("Tranche ID must be positive")
-        return v
-
-    @field_validator("principal_amount")
-    @classmethod
-    def validate_principal_amount(cls, v: Decimal) -> Decimal:
-        if v < 0:  # Allow 0 for fully amortized tranches
-            raise ValueError("Principal amount cannot be negative")
-        return v
-
-    @field_validator("interest_rate")
-    @classmethod
-    def validate_interest_rate(cls, v: Decimal) -> Decimal:
-        if v < 0 or v > 1:
-            raise ValueError("Interest rate should be between 0 and 1 (e.g., 0.0485 for 4.85%)")
-        return v
-
-
-class TrancheHistoricalCreate(TrancheHistoricalBase):
     pass
 
 
-class TrancheHistoricalRead(TrancheHistoricalBase):
-    id: int
-    created_date: datetime
-    updated_date: datetime
-
-
-class TrancheHistoricalUpdate(BaseModel):
-    """Update schema - allows partial updates."""
-
-    tranche_id: Optional[int] = None
-    cycle_code: Optional[str] = None
-    principal_amount: Optional[Decimal] = None
-    interest_rate: Optional[Decimal] = None
-    is_active: Optional[bool] = None
-
+class TrancheUpdate(BaseModel):
+    dl_nbr: Optional[int] = None
+    tr_id: Optional[str] = None
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
-# Cycle Schemas
-class CycleBase(BaseModel):
-    """Base schema for cycle objects with common fields."""
-
-    code: str
-    description: Optional[str] = None
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
-
+# TrancheBal Schemas
+class TrancheBalBase(BaseModel):
+    dl_nbr: int
+    tr_id: str
+    cycle_date: str
+    balance: float
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
-    @field_validator("code")
-    @classmethod
-    def validate_code(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("Cycle code cannot be empty")
-        return v.strip()
+
+class TrancheBalCreate(TrancheBalBase):
+    pass
 
 
-class CycleRead(CycleBase):
-    """Read schema for cycle objects."""
+class TrancheBalRead(TrancheBalBase):
+    pass
 
-    id: int
-    created_at: Optional[str] = None
+
+class TrancheBalUpdate(BaseModel):
+    dl_nbr: Optional[int] = None
+    tr_id: Optional[str] = None
+    cycle_date: Optional[str] = None
+    balance: Optional[float] = None
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
 # Combined schemas
-class TrancheWithHistorical(TrancheRead):
-    """Tranche schema that includes its historical data."""
-
-    historical_data: List[TrancheHistoricalRead] = []
-
-
-class TrancheHistoricalWithTranche(TrancheHistoricalRead):
-    """Tranche historical schema that includes the parent tranche."""
-
-    tranche: TrancheRead
-
-
 class DealWithTranches(DealRead):
-    """Deal schema that includes its tranches."""
-
     tranches: List[TrancheRead] = []
 
 
 class TrancheWithDeal(TrancheRead):
-    """Tranche schema that includes its parent deal."""
-
     deal: DealRead
 
 
-# Summary schemas for API responses
-class DealSummary(BaseModel):
-    """Summary schema for deal listings."""
-
-    id: int
-    name: str
-    originator: str
-    deal_type: str
-    total_principal: Decimal
-    credit_rating: Optional[str]
-    yield_rate: Optional[Decimal]
-    tranche_count: int
-
-    model_config = ConfigDict(from_attributes=True)
+class TrancheWithBals(TrancheRead):
+    tranchebals: List[TrancheBalRead] = []
 
 
-class TrancheSummary(BaseModel):
-    """Summary schema for tranche listings."""
-
-    id: int
-    deal_id: int
-    deal_name: str
-    name: str
-    class_name: str
-    credit_rating: Optional[str]
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-# Summary schemas with cycle data for reporting
-class TrancheReportSummary(BaseModel):
-    """Summary schema for tranche listings with cycle-specific data."""
-
-    id: int
-    deal_id: int
-    deal_name: str
-    name: str
-    class_name: str
-    credit_rating: Optional[str]
-    cycle_code: str
-    principal_amount: Decimal
-    interest_rate: Decimal
-    payment_priority: Optional[int] = 1  # Add payment_priority field
-
-    model_config = ConfigDict(from_attributes=True)
+class TrancheBalWithTranche(TrancheBalRead):
+    tranche: TrancheRead

@@ -15,7 +15,8 @@ class ReportScope(str, Enum):
 
 class ReportTrancheBase(BaseModel):
     """Base schema for report tranche associations."""
-    tranche_id: int
+    dl_nbr: int
+    tr_id: str
 
 class ReportTrancheCreate(ReportTrancheBase):
     pass
@@ -29,7 +30,7 @@ class ReportTranche(ReportTrancheBase):
 
 class ReportDealBase(BaseModel):
     """Base schema for report deal associations."""
-    deal_id: int
+    dl_nbr: int
 
 class ReportDealCreate(ReportDealBase):
     selected_tranches: List[ReportTrancheCreate] = []
@@ -65,17 +66,17 @@ class ReportBase(BaseModel):
 class ReportCreate(ReportBase):
     """Create schema for reports with normalized structure."""
     selected_deals: List[ReportDealCreate] = []
-
+    
     @field_validator("selected_deals")
     @classmethod
     def validate_selected_deals(cls, v: List[ReportDealCreate]) -> List[ReportDealCreate]:
         if not v:
             raise ValueError("At least one deal must be selected")
         
-        # Check for duplicate deal IDs
-        deal_ids = [deal.deal_id for deal in v]
-        if len(set(deal_ids)) != len(deal_ids):
-            raise ValueError("Duplicate deal IDs are not allowed")
+        # Check for duplicate deal numbers
+        dl_nbrs = [deal.dl_nbr for deal in v]
+        if len(set(dl_nbrs)) != len(dl_nbrs):
+            raise ValueError("Duplicate deal numbers are not allowed")
         
         return v
 
@@ -88,12 +89,11 @@ class ReportCreate(ReportBase):
             has_tranches = any(deal.selected_tranches for deal in v)
             if not has_tranches:
                 raise ValueError("Tranche-level reports must have at least one tranche selected")
-            
-            # Check for duplicate tranche IDs within each deal
+              # Check for duplicate tranche IDs within each deal
             for deal in v:
-                tranche_ids = [tranche.tranche_id for tranche in deal.selected_tranches]
-                if len(set(tranche_ids)) != len(tranche_ids):
-                    raise ValueError(f"Duplicate tranche IDs found for deal {deal.deal_id}")
+                tranche_keys = [(tranche.dl_nbr, tranche.tr_id) for tranche in deal.selected_tranches]
+                if len(set(tranche_keys)) != len(tranche_keys):
+                    raise ValueError(f"Duplicate tranche keys found for deal {deal.dl_nbr}")
 
         return v
 
@@ -165,13 +165,7 @@ class RunReportRequest(BaseModel):
     """Request schema for running a saved report."""
 
     report_id: int
-    cycle_code: str
+    cycle_code: int
 
     model_config = ConfigDict(extra="forbid")
 
-    @field_validator("cycle_code")
-    @classmethod
-    def validate_cycle_code(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("Cycle code cannot be empty")
-        return v.strip()

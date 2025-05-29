@@ -1,3 +1,4 @@
+# filepath: c:\Users\steph\fastapi-react-template\app\reporting\service.py
 """Service layer for the reporting module."""
 
 from typing import List, Dict, Any, Optional
@@ -11,8 +12,8 @@ from app.reporting.schemas import (
     ReportRead, ReportCreate, ReportUpdate, ReportSummary, ReportScope,
     ReportDealCreate, ReportTrancheCreate
 )
-from app.datawarehouse.dao import DWDao
-from app.datawarehouse.schemas import DealRead, TrancheRead, TrancheReportSummary
+from app.datawarehouse.dao import DatawarehouseDAO
+from app.datawarehouse.schemas import DealRead, TrancheRead
 
 
 class ReportService:
@@ -21,7 +22,7 @@ class ReportService:
     def __init__(
         self,
         report_dao: ReportDAO,
-        dw_dao: DWDao,
+        dw_dao: DatawarehouseDAO,
     ):
         self.report_dao = report_dao
         self.dw_dao = dw_dao
@@ -46,29 +47,40 @@ class ReportService:
 
         # Validate deal existence in data warehouse
         if hasattr(report_data, 'selected_deals') and report_data.selected_deals:
-            deal_ids = [deal.deal_id for deal in report_data.selected_deals]
-            existing_deals = await self.dw_dao.get_deals_by_ids(deal_ids)
-            existing_deal_ids = {deal.id for deal in existing_deals}
-            missing_deal_ids = set(deal_ids) - existing_deal_ids
+            dl_nbrs = [deal.dl_nbr for deal in report_data.selected_deals]
+            existing_deals = []
+            for dl_nbr in dl_nbrs:
+                deal = self.dw_dao.get_deal_by_dl_nbr(dl_nbr)
+                if deal:
+                    existing_deals.append(deal)
             
-            if missing_deal_ids:
-                errors.append(f"Deal IDs not found in data warehouse: {sorted(missing_deal_ids)}")
+            existing_dl_nbrs = {deal.dl_nbr for deal in existing_deals}
+            missing_dl_nbrs = set(dl_nbrs) - existing_dl_nbrs
+            
+            if missing_dl_nbrs:
+                errors.append(f"Deal numbers not found in data warehouse: {sorted(missing_dl_nbrs)}")
 
             # Validate tranche existence for tranche-level reports
             if (hasattr(report_data, 'scope') and 
                 report_data.scope == ReportScope.TRANCHE):
                 
-                all_tranche_ids = []
+                all_tranche_keys = []
                 for deal in report_data.selected_deals:
-                    all_tranche_ids.extend([t.tranche_id for t in deal.selected_tranches])
+                    all_tranche_keys.extend([(t.dl_nbr, t.tr_id) for t in deal.selected_tranches])
                 
-                if all_tranche_ids:
-                    existing_tranches = await self.dw_dao.get_tranches_by_ids(all_tranche_ids)
-                    existing_tranche_ids = {tranche.id for tranche in existing_tranches}
-                    missing_tranche_ids = set(all_tranche_ids) - existing_tranche_ids
+                if all_tranche_keys:
+                    existing_tranches = []
+                    for dl_nbr, tr_id in all_tranche_keys:
+                        tranche = self.dw_dao.get_tranche_by_keys(dl_nbr, tr_id)
+                        if tranche:
+                            existing_tranches.append(tranche)
                     
-                    if missing_tranche_ids:
-                        errors.append(f"Tranche IDs not found in data warehouse: {sorted(missing_tranche_ids)}")
+                    existing_tranche_keys = {(tranche.dl_nbr, tranche.tr_id) for tranche in existing_tranches}
+                    missing_tranche_keys = set(all_tranche_keys) - existing_tranche_keys
+                    
+                    if missing_tranche_keys:
+                        missing_keys_str = [f"({dl_nbr}, {tr_id})" for dl_nbr, tr_id in sorted(missing_tranche_keys)]
+                        errors.append(f"Tranche keys not found in data warehouse: {missing_keys_str}")
 
         if errors:
             raise HTTPException(status_code=422, detail={"errors": errors})
@@ -123,10 +135,10 @@ class ReportService:
         
         # Add deals and tranches
         for deal_data in report_data.selected_deals:
-            report_deal = ReportDeal(deal_id=deal_data.deal_id)
+            report_deal = ReportDeal(dl_nbr=deal_data.dl_nbr)
             
             for tranche_data in deal_data.selected_tranches:
-                report_tranche = ReportTranche(tranche_id=tranche_data.tranche_id)
+                report_tranche = ReportTranche(dl_nbr=tranche_data.dl_nbr, tr_id=tranche_data.tr_id)
                 report_deal.selected_tranches.append(report_tranche)
             
             report.selected_deals.append(report_deal)
@@ -159,10 +171,10 @@ class ReportService:
             report.selected_deals.clear()
             
             for deal_data in report_data.selected_deals:
-                report_deal = ReportDeal(deal_id=deal_data.deal_id)
+                report_deal = ReportDeal(dl_nbr=deal_data.dl_nbr)
                 
                 for tranche_data in deal_data.selected_tranches:
-                    report_tranche = ReportTranche(tranche_id=tranche_data.tranche_id)
+                    report_tranche = ReportTranche(dl_nbr=tranche_data.dl_nbr, tr_id=tranche_data.tr_id)
                     report_deal.selected_tranches.append(report_tranche)
                 
                 report.selected_deals.append(report_deal)
@@ -174,7 +186,7 @@ class ReportService:
         """Delete a report."""
         return await self.report_dao.delete(report_id)
 
-    async def run_saved_report(self, report_id: int, cycle_code: str) -> List[Dict[str, Any]]:
+    async def run_saved_report(self, report_id: int, cycle_code: int) -> List[Dict[str, Any]]:
         """Run a saved report by fetching config and querying data warehouse."""
 
         # 1. Get report configuration from config DB
@@ -185,214 +197,126 @@ class ReportService:
         if not report.is_active:
             raise HTTPException(status_code=400, detail="Report is inactive")
 
-        # 2. Query data warehouse using stored IDs
+        # 2. Query data warehouse using stored keys
         results = []
 
         if report.scope == "DEAL":
-            # Deal-level report: one row per deal with aggregated data from historical tables
+            # Deal-level report: one row per deal with aggregated data from tranche balance tables
             for report_deal in report.selected_deals:
-                deal_id = report_deal.deal_id
+                dl_nbr = report_deal.dl_nbr
                 
                 # Get static deal data
-                deal = await self.dw_dao.get_deal_by_id(deal_id)
+                deal = self.dw_dao.get_deal_by_dl_nbr(dl_nbr)
                 if not deal:
                     continue
 
                 # Get tranches for this deal
-                tranches = await self.dw_dao.get_tranches_by_deal_id(deal_id)
-                tranche_ids = [t.id for t in tranches]
+                tranches = self.dw_dao.get_tranches_by_dl_nbr(dl_nbr)
+                tranche_keys = [(t.dl_nbr, t.tr_id) for t in tranches]
 
-                # Get historical data for all tranches in this cycle
-                historical_data = (
-                    await self.dw_dao.get_historical_by_tranche_ids_and_cycle(
-                        tranche_ids, cycle_code
-                    )
-                )
+                # Get balance data for all tranches in this deal
+                balance_data = []
+                for dl_nbr_key, tr_id in tranche_keys:
+                    balance = self.dw_dao.get_tranchebal_by_keys(dl_nbr_key, tr_id)
+                    if balance:
+                        balance_data.append(balance)
 
-                # Calculate aggregated metrics from historical data
-                if historical_data:
-                    total_tranche_principal = sum(
-                        float(h.principal_amount) for h in historical_data
+                # Calculate aggregated metrics from balance data
+                if balance_data:
+                    total_tranche_balance = sum(
+                        float(b.balance) for b in balance_data if b.balance
                     )
-                    avg_interest_rate = sum(
-                        float(h.interest_rate) for h in historical_data
-                    ) / len(historical_data)
-                    tranche_count = len(historical_data)
+                    tranche_count = len(balance_data)
                 else:
-                    total_tranche_principal = 0
-                    avg_interest_rate = 0
+                    total_tranche_balance = 0
                     tranche_count = 0
 
                 result_row = {
-                    "deal_id": deal.id,
-                    "deal_name": deal.name,
-                    "originator": deal.originator,
-                    "deal_type": deal.deal_type,
-                    "closing_date": (
-                        deal.closing_date.isoformat() if deal.closing_date else None
-                    ),
-                    "total_principal": float(deal.total_principal),
-                    "credit_rating": deal.credit_rating,
-                    "yield_rate": float(deal.yield_rate) if deal.yield_rate else None,
-                    "duration": float(deal.duration) if deal.duration else None,
-                    "cycle_code": cycle_code,
-                    # Aggregated tranche data from historical table
+                    "dl_nbr": deal.dl_nbr,
+                    "issr_cde": deal.issr_cde,
+                    "cdi_file_nme": deal.cdi_file_nme,
+                    "CDB_cdi_file_nme": deal.CDB_cdi_file_nme,
+                    # Aggregated tranche data
                     "tranche_count": tranche_count,
-                    "total_tranche_principal": total_tranche_principal,
-                    "avg_tranche_interest_rate": avg_interest_rate,
+                    "total_tranche_balance": total_tranche_balance,
                 }
                 results.append(result_row)
 
         else:  # TRANCHE level
-            # Tranche-level report: one row per selected tranche with cycle-specific data
+            # Tranche-level report: one row per selected tranche with balance data
             for report_deal in report.selected_deals:
-                deal_id = report_deal.deal_id
+                dl_nbr = report_deal.dl_nbr
                 
                 # Get deal info for context
-                deal = await self.dw_dao.get_deal_by_id(deal_id)
+                deal = self.dw_dao.get_deal_by_dl_nbr(dl_nbr)
                 if not deal:
                     continue
 
-                # Get selected tranche IDs for this deal
-                tranche_ids = [rt.tranche_id for rt in report_deal.selected_tranches]
-                
-                # Get static tranche data
-                tranches = await self.dw_dao.get_tranches_by_ids(tranche_ids)
-                tranche_dict = {t.id: t for t in tranches}
+                # Get selected tranche keys for this deal
+                tranche_keys = [(rt.dl_nbr, rt.tr_id) for rt in report_deal.selected_tranches]
 
-                # Get historical data for selected tranches in this cycle
-                historical_data = (
-                    await self.dw_dao.get_historical_by_tranche_ids_and_cycle(
-                        tranche_ids, cycle_code
-                    )
-                )
-
-                # Join static tranche data with historical data
-                for hist in historical_data:
-                    tranche = tranche_dict.get(hist.tranche_id)
+                # Get data for each selected tranche
+                for dl_nbr_key, tr_id in tranche_keys:
+                    tranche = self.dw_dao.get_tranche_by_keys(dl_nbr_key, tr_id)
                     if not tranche:
                         continue
+                    
+                    # Get balance data for this tranche
+                    balance = self.dw_dao.get_tranchebal_by_keys(dl_nbr_key, tr_id)
 
                     result_row = {
-                        "deal_id": deal.id,
-                        "deal_name": deal.name,
-                        "deal_originator": deal.originator,
-                        "deal_type": deal.deal_type,
-                        "deal_credit_rating": deal.credit_rating,
-                        "deal_yield_rate": float(deal.yield_rate) if deal.yield_rate else None,
-                        "tranche_id": tranche.id,
-                        "tranche_name": tranche.name,
-                        "class_name": tranche.class_name,
-                        "subordination_level": tranche.subordination_level,
-                        "principal_amount": float(
-                            hist.principal_amount
-                        ),  # From historical table
-                        "interest_rate": float(hist.interest_rate),  # From historical table
-                        "credit_rating": tranche.credit_rating,  # Static from tranche table
-                        "payment_priority": tranche.payment_priority,
-                        "maturity_date": (
-                            tranche.maturity_date.isoformat() if tranche.maturity_date else None
-                        ),
-                        "cycle_code": hist.cycle_code,
-                    }
+                        "dl_nbr": deal.dl_nbr,
+                        "deal_issr_cde": deal.issr_cde,
+                        "deal_cdi_file_nme": deal.cdi_file_nme,
+                        "deal_CDB_cdi_file_nme": deal.CDB_cdi_file_nme,
+                        "tr_id": tranche.tr_id,
+                        "balance": float(balance.balance) if balance and balance.balance else 0.0,                    }
                     results.append(result_row)
 
         return results
 
-    async def get_available_deals(self, cycle_code: Optional[str] = None) -> List[DealRead]:
+    async def get_available_deals(self, cycle_code: Optional[int] = None) -> List[DealRead]:
         """Get available deals for report building."""
-        deals = await self.dw_dao.get_all_deals()
+        deals = self.dw_dao.get_all_deals()
         return [DealRead.model_validate(deal) for deal in deals]
 
     async def get_available_tranches_for_deals(
-        self, deal_ids: List[int], cycle_code: Optional[str] = None
-    ) -> Dict[int, List[TrancheReportSummary]]:
-        """Get available tranches for specific deals with cycle-specific data if available."""
+        self, dl_nbrs: List[int], cycle_code: Optional[int] = None
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Get available tranches for specific deals."""
         result = {}
-
-        for deal_id in deal_ids:
+        for dl_nbr in dl_nbrs:
             # Get static tranche data
-            tranches = await self.dw_dao.get_tranches_by_deal_id(deal_id)
+            tranches = self.dw_dao.get_tranches_by_dl_nbr(dl_nbr)
 
-            # Convert to report format with cycle data if available
+            # Convert to report format
             tranche_summaries = []
             for tranche in tranches:
-                # Get deal name for the summary
-                deal = await self.dw_dao.get_deal_by_id(deal_id)
-                deal_name = deal.name if deal else "Unknown Deal"
+                # Get deal info for context
+                deal = self.dw_dao.get_deal_by_dl_nbr(dl_nbr)
+                deal_info = deal.issr_cde if deal else "Unknown Deal"
 
-                if cycle_code:
-                    # Try to get historical data for this cycle
-                    historical = await self.dw_dao.get_historical_by_tranche_and_cycle(
-                        tranche.id, cycle_code
-                    )
-                    if historical:
-                        # Use historical data for cycle-specific fields
-                        summary = TrancheReportSummary(
-                            id=tranche.id,
-                            deal_id=tranche.deal_id,
-                            deal_name=deal_name,
-                            name=tranche.name,
-                            class_name=tranche.class_name,
-                            credit_rating=tranche.credit_rating,
-                            cycle_code=historical.cycle_code,
-                            principal_amount=historical.principal_amount,
-                            interest_rate=historical.interest_rate,
-                            payment_priority=tranche.payment_priority,
-                        )
-                    else:
-                        # No historical data for this cycle, skip this tranche
-                        continue
-                else:
-                    # No cycle specified, get latest historical data if available
-                    latest_historical = await self.dw_dao.get_latest_historical_by_tranche_id(
-                        tranche.id
-                    )
-                    if latest_historical:
-                        summary = TrancheReportSummary(
-                            id=tranche.id,
-                            deal_id=tranche.deal_id,
-                            deal_name=deal_name,
-                            name=tranche.name,
-                            class_name=tranche.class_name,
-                            credit_rating=tranche.credit_rating,
-                            cycle_code=latest_historical.cycle_code,
-                            principal_amount=latest_historical.principal_amount,
-                            interest_rate=latest_historical.interest_rate,
-                            payment_priority=tranche.payment_priority,
-                        )
-                    else:
-                        # No historical data at all, use placeholder values
-                        summary = TrancheReportSummary(
-                            id=tranche.id,
-                            deal_id=tranche.deal_id,
-                            deal_name=deal_name,
-                            name=tranche.name,
-                            class_name=tranche.class_name,
-                            credit_rating=tranche.credit_rating,
-                            cycle_code="N/A",
-                            principal_amount=Decimal("0"),
-                            interest_rate=Decimal("0"),
-                            payment_priority=tranche.payment_priority,
-                        )
+                # Get balance data
+                balance = self.dw_dao.get_tranchebal_by_keys(tranche.dl_nbr, tranche.tr_id)
 
+                summary = {
+                    "dl_nbr": tranche.dl_nbr,
+                    "tr_id": tranche.tr_id,
+                    "deal_issr_cde": deal_info,
+                    "balance": float(balance.balance) if balance and balance.balance else 0.0,
+                }
                 tranche_summaries.append(summary)
 
-            result[deal_id] = tranche_summaries
+            # Convert dl_nbr (int) to string for response model compatibility
+            result[str(dl_nbr)] = tranche_summaries
 
         return result
 
-    async def get_available_cycles(self) -> List[Dict[str, str]]:
-        """Get available cycle codes from the cycles table or historical data."""
+    async def get_available_cycles(self) -> List[Dict[str, Any]]:
+        """Get available cycle codes from the data warehouse."""
         try:
-            # Use the cycle methods from the DWDao class
-            return await self.dw_dao.get_available_cycles()
-
+            return self.dw_dao.get_available_cycles()
         except Exception as e:
-            # Fallback to dummy data if there's an issue with cycles table
+            # Fallback to empty data
             print(f"Warning: Could not fetch cycle data from data warehouse: {e}")
-            dummy_cycles = [
-                {"code": "2024Q4", "label": "2024Q4 (Quarter 4 2024)"},
-                {"code": "2025Q1", "label": "2025Q1 (Quarter 1 2025)"},
-            ]
-            return dummy_cycles
+            return []

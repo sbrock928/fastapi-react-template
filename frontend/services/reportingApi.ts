@@ -15,23 +15,21 @@ const reportingApi = {
   // ===== DEAL & TRANCHE DATA ENDPOINTS =====
   
   // Get available deals for report building
-  getDeals: (cycleCode?: string): Promise<{ data: Deal[] }> => {
+  getDeals: (cycleCode?: number): Promise<{ data: Deal[] }> => {
     const params = cycleCode ? { cycle_code: cycleCode } : {};
     return apiClient.get('/reports/data/deals', { params });
-  },
-
-  // Get tranches for specific deals
-  getTranches: (dealIds: number[], cycleCode?: string): Promise<{ data: Record<number, TrancheReportSummary[]> }> => {
+  },  // Get tranches for specific deals
+  getTranches: (dlNbrs: number[], cycleCode?: number): Promise<{ data: Record<number, TrancheReportSummary[]> }> => {
     return apiClient.post('/reports/data/tranches', {
-      deal_ids: dealIds,
+      dl_nbrs: dlNbrs,
       cycle_code: cycleCode
     });
   },
 
   // Get tranches for a single deal
-  getDealTranches: (dealId: number, cycleCode?: string): Promise<{ data: TrancheReportSummary[] }> => {
+  getDealTranches: (dlNbr: number, cycleCode?: number): Promise<{ data: TrancheReportSummary[] }> => {
     const params = cycleCode ? { cycle_code: cycleCode } : {};
-    return apiClient.get(`/reports/data/deals/${dealId}/tranches`, { params });
+    return apiClient.get(`/reports/data/deals/${dlNbr}/tranches`, { params });
   },
 
   // ===== REPORT CONFIGURATION ENDPOINTS =====
@@ -74,14 +72,13 @@ const reportingApi = {
   },
 
   // Run report by ID with cycle parameter
-  runReportById: (reportId: number, cycleCode: string): Promise<{ data: DealReportRow[] | TrancheReportRow[] }> => {
+  runReportById: (reportId: number, cycleCode: number): Promise<{ data: DealReportRow[] | TrancheReportRow[] }> => {
     return apiClient.post(`/reports/run/${reportId}`, { cycle_code: cycleCode });
   },
 
   // ===== STATISTICS AND METADATA =====
-
   // Get available cycles from data warehouse
-  getAvailableCycles: (): Promise<{ data: Array<{ code: string; label: string }> }> => {
+  getAvailableCycles: (): Promise<{ data: Array<{ label: string; value: number }> }> => {
     return apiClient.get('/reports/data/cycles');
   },
 

@@ -24,13 +24,12 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
 
   // Report configuration state
   const [reportName, setReportName] = useState<string>('');
-  const [reportScope, setReportScope] = useState<'DEAL' | 'TRANCHE' | ''>('');
-  const [selectedDeals, setSelectedDeals] = useState<number[]>([]);
-  const [selectedTranches, setSelectedTranches] = useState<Record<number, number[]>>({});
+  const [reportScope, setReportScope] = useState<'DEAL' | 'TRANCHE' | ''>('');  const [selectedDeals, setSelectedDeals] = useState<number[]>([]);
+  const [selectedTranches, setSelectedTranches] = useState<Record<number, string[]>>({});
 
   // Data state
   const [deals, setDeals] = useState<Deal[]>([]);
-  const [tranches, setTranches] = useState<Record<number, TrancheReportSummary[]>>({});
+  const [tranches, setTranches] = useState<Record<string, TrancheReportSummary[]>>({});
   const [dealsLoading, setDealsLoading] = useState<boolean>(false);
   const [tranchesLoading, setTranchesLoading] = useState<boolean>(false);
 
@@ -47,15 +46,15 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       
       // Convert from backend normalized format to frontend format
       if (editingReport.selected_deals) {
-        // Extract deal IDs
-        const dealIds = editingReport.selected_deals.map(deal => deal.deal_id);
-        setSelectedDeals(dealIds);
+        // Extract deal numbers
+        const dlNbrs = editingReport.selected_deals.map(deal => deal.dl_nbr);
+        setSelectedDeals(dlNbrs);
         
-        // Convert tranches back to frontend format: Record<dealId, trancheIds[]>
-        const tranchesFormat: Record<number, number[]> = {};
+        // Convert tranches back to frontend format: Record<dlNbr, trId[]>
+        const tranchesFormat: Record<string, string[]> = {};
         editingReport.selected_deals.forEach(deal => {
           if (deal.selected_tranches && deal.selected_tranches.length > 0) {
-            tranchesFormat[deal.deal_id] = deal.selected_tranches.map(tranche => tranche.tranche_id);
+            tranchesFormat[deal.dl_nbr] = deal.selected_tranches.map(tranche => tranche.tr_id);
           }
         });
         setSelectedTranches(tranchesFormat);
@@ -98,44 +97,49 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
   };
 
   // Handle deal selection
-  const handleDealToggle = (dealId: number) => {
+  const handleDealToggle = (dlNbr: number) => {
     setSelectedDeals(prev => {
-      if (prev.includes(dealId)) {
+      if (prev.includes(dlNbr)) {
         // Remove deal and its tranches
-        const newSelected = prev.filter(id => id !== dealId);
+        const newSelected = prev.filter(id => id !== dlNbr);
         setSelectedTranches(prevTranches => {
           const newTranches = { ...prevTranches };
-          delete newTranches[dealId];
+          delete newTranches[dlNbr];
           return newTranches;
         });
         return newSelected;
       } else {
-        return [...prev, dealId];
+        return [...prev, dlNbr];
       }
     });
   };
 
   // Handle tranche selection
-  const handleTrancheToggle = (dealId: number, trancheId: number) => {
+  const handleTrancheToggle = (dlNbr: number, trId: string) => {
     setSelectedTranches(prev => {
-      const dealTranches = prev[dealId] || [];
-      const newDealTranches = dealTranches.includes(trancheId)
-        ? dealTranches.filter(id => id !== trancheId)
-        : [...dealTranches, trancheId];
+      const dealTranches = prev[dlNbr] || [];
+      const newDealTranches = dealTranches.includes(trId)
+        ? dealTranches.filter(id => id !== trId)
+        : [...dealTranches, trId];
       
       return {
         ...prev,
-        [dealId]: newDealTranches
+        [dlNbr]: newDealTranches
       };
     });
   };
+  // Handle select all deals
+  const handleSelectAllDeals = () => {
+    const allDealNumbers = deals.map(deal => deal.dl_nbr);
+    setSelectedDeals(allDealNumbers);
+  };
 
   // Handle select all tranches for a deal
-  const handleSelectAllTranches = (dealId: number) => {
-    const allTrancheIds = (tranches[dealId] || []).map(t => t.id);
+  const handleSelectAllTranches = (dlNbr: number) => {
+    const allTrancheIds = (tranches[dlNbr] || []).map(t => t.tr_id);
     setSelectedTranches(prev => ({
       ...prev,
-      [dealId]: allTrancheIds
+      [dlNbr]: allTrancheIds
     }));
   };
 
@@ -154,10 +158,11 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     
     try {
       // Transform frontend format to backend normalized schema format
-      const transformedSelectedDeals = selectedDeals.map(dealId => ({
-        deal_id: dealId,
-        selected_tranches: (selectedTranches[dealId] || []).map(trancheId => ({
-          tranche_id: trancheId
+      const transformedSelectedDeals = selectedDeals.map(dlNbr => ({
+        dl_nbr: dlNbr,
+        selected_tranches: (selectedTranches[dlNbr] || []).map(trId => ({
+          dl_nbr: dlNbr,
+          tr_id: trId
         }))
       }));
 
@@ -226,18 +231,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       showToast(errorMessage, 'error');
     } finally {
       setLoading(false);
-    }
-  };
-
-  // Format currency
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      notation: 'compact',
-      maximumFractionDigits: 1
-    }).format(amount);
-  };
+    }  };
 
   // Render wizard step content
   const renderWizardStep = () => {
@@ -289,11 +283,11 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
         );
 
       case 2:
-        return (
-          <DealSelector
+        return (          <DealSelector
             deals={deals}
             selectedDeals={selectedDeals}
             onDealToggle={handleDealToggle}
+            onSelectAllDeals={handleSelectAllDeals}
             loading={dealsLoading}
           />
         );
@@ -301,35 +295,10 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       case 3:
         if (reportScope !== 'TRANCHE') {
           return (
-            <div>
-              <h5 className="mb-3">Step 3: Deal-Level Configuration</h5>
-              <div className="alert alert-success">
-                <i className="bi bi-check-circle me-2"></i>
-                Your deal-level report is configured! You've selected {selectedDeals.length} deal{selectedDeals.length !== 1 ? 's' : ''} 
-                and will get one row per deal with aggregated data.
-              </div>
-              <div className="card">
-                <div className="card-header">
-                  <h6 className="mb-0">Selected Deals Summary</h6>
-                </div>
-                <div className="card-body">
-                  {selectedDeals.map(dealId => {
-                    const deal = deals.find(d => d.id === dealId);
-                    if (!deal) return null;
-                    return (
-                      <div key={dealId} className="d-flex justify-content-between align-items-center py-2 border-bottom">
-                        <div>
-                          <strong>{deal.name}</strong>
-                          <div className="small text-muted">{deal.deal_type} • {deal.originator}</div>
-                        </div>
-                        <div className="text-end">
-                          <div>{formatCurrency(deal.total_principal)}</div>
-                          <div className="small text-muted">{deal.credit_rating}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+            <div className="text-center p-5">
+              <div className="alert alert-warning">
+                <i className="bi bi-info-circle me-2"></i>
+                Tranche selection is only available for TRANCHE scope reports.
               </div>
             </div>
           );
@@ -349,61 +318,81 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
 
       case 4:
         return (
-          <div>
-            <h5 className="mb-3">Step 4: Review & Save</h5>
-            <div className="card">
-              <div className="card-header">
-                <h6 className="mb-0">Report Configuration Summary</h6>
-              </div>
-              <div className="card-body">
-                <dl className="row">
-                  <dt className="col-sm-3">Report Name:</dt>
-                  <dd className="col-sm-9">{reportName}</dd>
-                  
-                  <dt className="col-sm-3">Report Scope:</dt>
-                  <dd className="col-sm-9">
-                    <span className={`badge ${reportScope === 'DEAL' ? 'bg-primary' : 'bg-info'}`}>
-                      {reportScope} Level
-                    </span>
-                  </dd>
-                  
-                  <dt className="col-sm-3">Selected Deals:</dt>
-                  <dd className="col-sm-9">{selectedDeals.length} deal{selectedDeals.length !== 1 ? 's' : ''}</dd>
+          <div className="row">
+            <div className="col-12">
+              <h5 className="mb-3">Step 4: Review Configuration</h5>
+              <div className="card">
+                <div className="card-body">
+                  <h6 className="card-title">Report Summary</h6>
+                  <div className="row g-3">
+                    <div className="col-md-4">
+                      <strong>Name:</strong> {reportName}
+                    </div>
+                    <div className="col-md-4">
+                      <strong>Scope:</strong> {reportScope}
+                    </div>
+                    <div className="col-md-4">
+                      <strong>Selected Deals:</strong> {selectedDeals.length}
+                    </div>
+                  </div>
                   
                   {reportScope === 'TRANCHE' && (
-                    <>
-                      <dt className="col-sm-3">Selected Tranches:</dt>
-                      <dd className="col-sm-9">{Object.values(selectedTranches).flat().length} tranche{Object.values(selectedTranches).flat().length !== 1 ? 's' : ''}</dd>
-                    </>
+                    <div className="mt-3">
+                      <strong>Selected Tranches:</strong>
+                      <ul className="list-unstyled mt-2">
+                        {selectedDeals.map(dlNbr => {
+                          const deal = deals.find(d => d.dl_nbr === dlNbr);
+                          const trancheCount = selectedTranches[dlNbr]?.length || 0;
+                          return (
+                            <li key={dlNbr} className="mb-1">
+                              <span className="badge bg-primary me-2">{dlNbr}</span>
+                              {deal?.issr_cde} - {trancheCount} tranches selected
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
                   )}
-                  
-                  <dt className="col-sm-3">Expected Output:</dt>
-                  <dd className="col-sm-9">
-                    {reportScope === 'DEAL' 
-                      ? `${selectedDeals.length} row${selectedDeals.length !== 1 ? 's' : ''} (one per deal)`
-                      : `${Object.values(selectedTranches).flat().length} row${Object.values(selectedTranches).flat().length !== 1 ? 's' : ''} (one per tranche)`
-                    }
-                  </dd>
-                </dl>
+
+                  {reportScope === 'DEAL' && (
+                    <div className="mt-3">
+                      <strong>Selected Deals:</strong>
+                      <ul className="list-unstyled mt-2">
+                        {selectedDeals.map(dlNbr => {
+                          const deal = deals.find(d => d.dl_nbr === dlNbr);
+                          return (
+                            <li key={dlNbr} className="mb-1">
+                              <span className="badge bg-primary me-2">{dlNbr}</span>
+                              {deal?.issr_cde}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
         );
 
       default:
-        return null;
+        return <div>Unknown step</div>;
     }
   };
 
-  // Validate current step
-  const isCurrentStepValid = () => {
+  // Determine if user can proceed to next step
+  const canProceed = () => {
     switch (currentStep) {
       case 1:
         return reportName.trim() !== '' && reportScope !== '';
       case 2:
         return selectedDeals.length > 0;
       case 3:
-        return reportScope === 'DEAL' || Object.values(selectedTranches).flat().length > 0;
+        if (reportScope === 'TRANCHE') {
+          return Object.values(selectedTranches).some(tranches => tranches.length > 0);
+        }
+        return true; // Skip tranche selection for DEAL scope
       case 4:
         return true;
       default:
@@ -412,85 +401,76 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
   };
 
   return (
-    <>
-      {/* Progress indicator */}
-      <div className="progress mb-4" style={{ height: '8px' }}>
-        <div 
-          className="progress-bar" 
-          role="progressbar" 
-          style={{ width: `${(currentStep / 4) * 100}%` }}
-          aria-valuenow={currentStep} 
-          aria-valuemin={0} 
-          aria-valuemax={4}
-        ></div>
-      </div>
-      
-      {/* Step indicators */}
-      <div className="d-flex justify-content-between mb-4">
-        {[1, 2, 3, 4].map(step => (
-          <div key={step} className={`text-center ${currentStep >= step ? 'text-primary' : 'text-muted'}`}>
-            <div className={`rounded-circle d-inline-flex align-items-center justify-content-center ${
-              currentStep >= step ? 'bg-primary text-white' : 'bg-light'
-            }`} style={{ width: '32px', height: '32px', fontSize: '14px' }}>
-              {currentStep > step ? <i className="bi bi-check"></i> : step}
-            </div>
-            <div className="small mt-1">
-              {step === 1 && 'Setup'}
-              {step === 2 && 'Deals'}
-              {step === 3 && (reportScope === 'TRANCHE' ? 'Tranches' : 'Review')}
-              {step === 4 && 'Save'}
-            </div>
-          </div>
-        ))}
+    <div className="report-builder-wizard">
+      {/* Progress Bar */}
+      <div className="mb-4">
+        <div className="d-flex justify-content-between align-items-center mb-2">
+          <h4>{isEditMode ? 'Edit Report Configuration' : 'Create New Report'}</h4>
+          <span className="badge bg-primary">Step {currentStep} of 4</span>
+        </div>
+        <div className="progress">
+          <div
+            className="progress-bar"
+            role="progressbar"
+            style={{ width: `${(currentStep / 4) * 100}%` }}
+            aria-valuenow={(currentStep / 4) * 100}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          ></div>
+        </div>
       </div>
 
-      {/* Step content */}
-      {renderWizardStep()}
+      {/* Step Content */}
+      <div className="wizard-content mb-4">
+        {renderWizardStep()}
+      </div>
 
-      {/* Navigation buttons */}
-      <div className="d-flex justify-content-between mt-4">
+      {/* Navigation Buttons */}
+      <div className="d-flex justify-content-between">
         <button
           type="button"
           className="btn btn-outline-secondary"
           onClick={prevStep}
           disabled={currentStep === 1}
         >
-          <i className="bi bi-arrow-left"></i> Previous
+          <i className="bi bi-arrow-left me-2"></i>
+          Previous
         </button>
-        
+
         <div>
           {currentStep < 4 ? (
             <button
               type="button"
               className="btn btn-primary"
               onClick={nextStep}
-              disabled={!isCurrentStepValid()}
+              disabled={!canProceed()}
             >
-              Next <i className="bi bi-arrow-right"></i>
+              Next
+              <i className="bi bi-arrow-right ms-2"></i>
             </button>
           ) : (
             <button
               type="button"
               className="btn btn-success"
               onClick={saveReportConfig}
-              disabled={loading || !isCurrentStepValid()}
+              disabled={loading || !canProceed()}
             >
               {loading ? (
                 <>
-                  <span className="spinner-border spinner-border-sm me-2"></span>
+                  <span className="spinner-border spinner-border-sm me-2" role="status"></span>
                   {isEditMode ? 'Updating...' : 'Saving...'}
                 </>
               ) : (
                 <>
-                  <i className={`bi ${isEditMode ? 'bi-check-lg' : 'bi-save'}`}></i> 
-                  {isEditMode ? 'Update Report Configuration' : 'Save Report Configuration'}
+                  <i className="bi bi-check-circle me-2"></i>
+                  {isEditMode ? 'Update Report' : 'Save Report'}
                 </>
               )}
             </button>
           )}
         </div>
       </div>
-    </>
+    </div>
   );
 };
 

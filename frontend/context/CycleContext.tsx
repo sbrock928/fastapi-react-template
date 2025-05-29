@@ -36,15 +36,13 @@ export const CycleProvider: React.FC<CycleProviderProps> = ({ children }) => {
       if (initialized) return;
 
       setLoading(true);
-      setError(null);
-
-      try {
+      setError(null);      try {
         const response = await reportingApi.getAvailableCycles();
 
         const options = [
-          { value: '', label: 'Select a Cycle' },
-          ...response.data.map((item: { code: string; label: string }) => ({
-            value: item.code,
+          { value: 0, label: 'Select a Cycle' },
+          ...response.data.map((item: { label: string; value: number }) => ({
+            value: item.value,
             label: item.label
           }))
         ];

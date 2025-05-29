@@ -1,10 +1,11 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import type { Deal } from '@/types';
 
 interface DealSelectorProps {
   deals: Deal[];
   selectedDeals: number[];
-  onDealToggle: (dealId: number) => void;
+  onDealToggle: (dlNbr: number) => void;
+  onSelectAllDeals: () => void;
   loading?: boolean;
 }
 
@@ -12,470 +13,346 @@ const DealSelector: React.FC<DealSelectorProps> = ({
   deals,
   selectedDeals,
   onDealToggle,
+  onSelectAllDeals,
   loading = false
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [dealTypeFilter, setDealTypeFilter] = useState('');
-  const [originatorFilter, setOriginatorFilter] = useState('');
-  const [sortField, setSortField] = useState<keyof Deal>('name');
+  const [sortField, setSortField] = useState<'deal_number' | 'issuer_code' | 'cdi_file' | 'cdb_file'>('deal_number');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(50); // Default to 50 items per page
+  const [itemsPerPage, setItemsPerPage] = useState(50);
+  const masterCheckboxRef = useRef<HTMLInputElement>(null);
 
-  // Get unique values for filters
-  const uniqueDealTypes = useMemo(() => {
-    return [...new Set(deals.map(deal => deal.deal_type))].sort();
-  }, [deals]);
-
-  const uniqueOriginators = useMemo(() => {
-    return [...new Set(deals.map(deal => deal.originator))].sort();
-  }, [deals]);
-
-  // Filter and search deals
-  const filteredDeals = useMemo(() => {
+  // Filter and sort deals
+  const filteredAndSortedDeals = useMemo(() => {
     let filtered = deals.filter(deal => {
-      const matchesSearch = deal.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           deal.originator.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesDealType = !dealTypeFilter || deal.deal_type === dealTypeFilter;
-      const matchesOriginator = !originatorFilter || deal.originator === originatorFilter;
-      
-      return matchesSearch && matchesDealType && matchesOriginator;
+      const searchLower = searchTerm.toLowerCase();
+      return (
+        deal.dl_nbr.toString().includes(searchLower) ||
+        deal.issr_cde.toLowerCase().includes(searchLower) ||
+        deal.cdi_file_nme.toLowerCase().includes(searchLower) ||
+        (deal.CDB_cdi_file_nme && deal.CDB_cdi_file_nme.toLowerCase().includes(searchLower))
+      );
     });
 
     // Sort deals
     filtered.sort((a, b) => {
-      let aValue = a[sortField];
-      let bValue = b[sortField];
+      let aValue: any, bValue: any;
       
-      // Handle numeric fields
-      if (typeof aValue === 'number' && typeof bValue === 'number') {
-        return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+      switch (sortField) {
+        case 'deal_number':
+          aValue = a.dl_nbr;
+          bValue = b.dl_nbr;
+          break;
+        case 'issuer_code':
+          aValue = a.issr_cde;
+          bValue = b.issr_cde;
+          break;
+        case 'cdi_file':
+          aValue = a.cdi_file_nme;
+          bValue = b.cdi_file_nme;
+          break;
+        case 'cdb_file':
+          aValue = a.CDB_cdi_file_nme || '';
+          bValue = b.CDB_cdi_file_nme || '';
+          break;
+        default:
+          aValue = a.dl_nbr;
+          bValue = b.dl_nbr;
       }
-      
-      // Handle string fields
-      aValue = String(aValue).toLowerCase();
-      bValue = String(bValue).toLowerCase();
-      
-      if (sortDirection === 'asc') {
-        return aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
+
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        const comparison = aValue.localeCompare(bValue);
+        return sortDirection === 'asc' ? comparison : -comparison;
       } else {
-        return aValue > bValue ? -1 : aValue < bValue ? 1 : 0;
+        const comparison = aValue - bValue;
+        return sortDirection === 'asc' ? comparison : -comparison;
       }
     });
 
     return filtered;
-  }, [deals, searchTerm, dealTypeFilter, originatorFilter, sortField, sortDirection]);
+  }, [deals, searchTerm, sortField, sortDirection]);
 
-  // Paginate the filtered results
+  // Pagination
+  const totalPages = Math.ceil(filteredAndSortedDeals.length / itemsPerPage);
   const paginatedDeals = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    return filteredDeals.slice(startIndex, endIndex);
-  }, [filteredDeals, currentPage, itemsPerPage]);
+    return filteredAndSortedDeals.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredAndSortedDeals, currentPage, itemsPerPage]);
 
-  const totalPages = Math.ceil(filteredDeals.length / itemsPerPage);
-
-  // Reset to page 1 when filters change
+  // Update master checkbox state
   useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, dealTypeFilter, originatorFilter, sortField, sortDirection]);
+    if (masterCheckboxRef.current) {
+      const visibleDealNumbers = paginatedDeals.map(deal => deal.dl_nbr);
+      const selectedVisibleDeals = visibleDealNumbers.filter(dlNbr => selectedDeals.includes(dlNbr));
+      
+      if (selectedVisibleDeals.length === 0) {
+        masterCheckboxRef.current.checked = false;
+        masterCheckboxRef.current.indeterminate = false;
+      } else if (selectedVisibleDeals.length === visibleDealNumbers.length) {
+        masterCheckboxRef.current.checked = true;
+        masterCheckboxRef.current.indeterminate = false;
+      } else {
+        masterCheckboxRef.current.checked = false;
+        masterCheckboxRef.current.indeterminate = true;
+      }
+    }
+  }, [paginatedDeals, selectedDeals]);
 
-  // Format currency
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      notation: 'compact',
-      maximumFractionDigits: 1
-    }).format(amount);
-  };
-
-  // Format percentage
-  const formatPercent = (rate: number) => {
-    return (rate * 100).toFixed(2) + '%';
-  };
-
-  // Handle sort
-  const handleSort = (field: keyof Deal) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+  // Handle sorting
+  const handleSort = (field: typeof sortField) => {
+    if (field === sortField) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
     } else {
       setSortField(field);
       setSortDirection('asc');
     }
+    setCurrentPage(1);
   };
 
-  // Handle select all visible deals (now works with current page)
-  const handleSelectAllVisible = () => {
-    const visibleDealIds = paginatedDeals.map(deal => deal.id);
-    const allVisibleSelected = visibleDealIds.every(id => selectedDeals.includes(id));
+  const getSortIcon = (field: typeof sortField) => {
+    if (field !== sortField) return ' ↕️';
+    return sortDirection === 'asc' ? ' ↑' : ' ↓';
+  };
+
+  // Handle master checkbox toggle
+  const handleMasterToggle = () => {
+    const visibleDealNumbers = paginatedDeals.map(deal => deal.dl_nbr);
+    const selectedVisibleDeals = visibleDealNumbers.filter(dlNbr => selectedDeals.includes(dlNbr));
     
-    if (allVisibleSelected) {
-      // Unselect all visible deals
-      visibleDealIds.forEach(dealId => {
-        if (selectedDeals.includes(dealId)) {
-          onDealToggle(dealId);
+    if (selectedVisibleDeals.length === visibleDealNumbers.length) {
+      // All visible deals are selected, so unselect them
+      visibleDealNumbers.forEach(dlNbr => {
+        if (selectedDeals.includes(dlNbr)) {
+          onDealToggle(dlNbr);
         }
       });
     } else {
-      // Select all visible deals
-      visibleDealIds.forEach(dealId => {
-        if (!selectedDeals.includes(dealId)) {
-          onDealToggle(dealId);
+      // Not all visible deals are selected, so select all visible deals
+      visibleDealNumbers.forEach(dlNbr => {
+        if (!selectedDeals.includes(dlNbr)) {
+          onDealToggle(dlNbr);
         }
       });
     }
   };
 
-  // Clear all filters
-  const clearFilters = () => {
-    setSearchTerm('');
-    setDealTypeFilter('');
-    setOriginatorFilter('');
+  // Handle pagination
+  const handlePageChange = (newPage: number) => {
+    setCurrentPage(Math.max(1, Math.min(newPage, totalPages)));
   };
 
   if (loading) {
     return (
-      <div className="text-center py-4">
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
-        </div>
-        <p className="mt-2">Loading available deals...</p>
-      </div>
-    );
-  }
-
-  if (deals.length === 0) {
-    return (
-      <div className="alert alert-info">
-        <i className="bi bi-info-circle me-2"></i>
-        No deals available for configuration. Please contact your administrator if this seems incorrect.
-      </div>
-    );
-  }
-
-  const allVisibleSelected = paginatedDeals.length > 0 && paginatedDeals.every(deal => selectedDeals.includes(deal.id));
-  const someVisibleSelected = paginatedDeals.some(deal => selectedDeals.includes(deal.id));
-
-  return (
-    <div>
-      <h5 className="mb-3">Step 2: Select Deals</h5>
-      <p className="text-muted">Choose which deals to include in your report template. Data will be pulled for the selected cycle when you run the report.</p>
-      
-      {/* Search and Filter Controls */}
-      <div className="card mb-3">
-        <div className="card-body">
-          <div className="row g-3">
-            <div className="col-md-3">
-              <label htmlFor="dealSearch" className="form-label">Search Deals</label>
-              <div className="input-group">
-                <span className="input-group-text">
-                  <i className="bi bi-search"></i>
-                </span>
-                <input
-                  type="text"
-                  id="dealSearch"
-                  className="form-control"
-                  placeholder="Search by deal name or originator..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-                {searchTerm && (
-                  <button
-                    className="btn btn-outline-secondary"
-                    type="button"
-                    onClick={() => setSearchTerm('')}
-                  >
-                    <i className="bi bi-x"></i>
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="col-md-2">
-              <label htmlFor="dealTypeFilter" className="form-label">Deal Type</label>
-              <select
-                id="dealTypeFilter"
-                className="form-select"
-                value={dealTypeFilter}
-                onChange={(e) => setDealTypeFilter(e.target.value)}
-              >
-                <option value="">All Types</option>
-                {uniqueDealTypes.map(type => (
-                  <option key={type} value={type}>{type}</option>
-                ))}
-              </select>
-            </div>
-            <div className="col-md-2">
-              <label htmlFor="originatorFilter" className="form-label">Originator</label>
-              <select
-                id="originatorFilter"
-                className="form-select"
-                value={originatorFilter}
-                onChange={(e) => setOriginatorFilter(e.target.value)}
-              >
-                <option value="">All Originators</option>
-                {uniqueOriginators.map(originator => (
-                  <option key={originator} value={originator}>{originator}</option>
-                ))}
-              </select>
-            </div>
-            <div className="col-md-2">
-              <label htmlFor="itemsPerPage" className="form-label">Per Page</label>
-              <select
-                id="itemsPerPage"
-                className="form-select"
-                value={itemsPerPage}
-                onChange={(e) => {
-                  setItemsPerPage(parseInt(e.target.value));
-                  setCurrentPage(1);
-                }}
-              >
-                <option value={25}>25 per page</option>
-                <option value={50}>50 per page</option>
-                <option value={100}>100 per page</option>
-                <option value={250}>250 per page</option>
-              </select>
-            </div>
-            <div className="col-md-3 d-flex align-items-end gap-2">
-              <button
-                type="button"
-                className="btn btn-outline-secondary"
-                onClick={clearFilters}
-                disabled={!searchTerm && !dealTypeFilter && !originatorFilter}
-              >
-                Clear Filters
-              </button>
-              <button
-                type="button"
-                className="btn btn-outline-primary"
-                onClick={handleSelectAllVisible}
-                disabled={paginatedDeals.length === 0}
-              >
-                {allVisibleSelected ? 'Unselect Page' : 'Select Page'} 
-                ({paginatedDeals.length})
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Deals Table */}
       <div className="card">
         <div className="card-header">
-          <div className="d-flex justify-content-between align-items-center">
-            <h6 className="mb-0">Available Deals</h6>
-            <div className="text-muted">
-              Showing {Math.min((currentPage - 1) * itemsPerPage + 1, filteredDeals.length)}-{Math.min(currentPage * itemsPerPage, filteredDeals.length)} of {filteredDeals.length} deals
-              {deals.length !== filteredDeals.length && ` (${deals.length} total)`}
-            </div>
-          </div>
+          <h5 className="mb-0">Select Deals</h5>
         </div>
-        <div className="card-body p-0">
-          <div className="table-responsive">
-            <table className="table table-hover mb-0">
-              <thead className="sticky-top bg-light">
-                <tr>
-                  <th style={{ width: '50px' }}>
-                    <input
-                      type="checkbox"
-                      className="form-check-input"
-                      checked={allVisibleSelected}
-                      ref={(input) => {
-                        if (input) input.indeterminate = someVisibleSelected && !allVisibleSelected;
-                      }}
-                      onChange={handleSelectAllVisible}
-                      disabled={paginatedDeals.length === 0}
-                    />
-                  </th>
-                  <th 
-                    style={{ cursor: 'pointer', minWidth: '250px' }}
-                    onClick={() => handleSort('name')}
-                  >
-                    Deal Name
-                    {sortField === 'name' && (
-                      <i className={`bi bi-chevron-${sortDirection === 'asc' ? 'up' : 'down'} ms-1`}></i>
-                    )}
-                  </th>
-                  <th 
-                    style={{ cursor: 'pointer', minWidth: '150px' }}
-                    onClick={() => handleSort('originator')}
-                  >
-                    Originator
-                    {sortField === 'originator' && (
-                      <i className={`bi bi-chevron-${sortDirection === 'asc' ? 'up' : 'down'} ms-1`}></i>
-                    )}
-                  </th>
-                  <th 
-                    style={{ cursor: 'pointer', minWidth: '100px' }}
-                    onClick={() => handleSort('deal_type')}
-                  >
-                    Type
-                    {sortField === 'deal_type' && (
-                      <i className={`bi bi-chevron-${sortDirection === 'asc' ? 'up' : 'down'} ms-1`}></i>
-                    )}
-                  </th>
-                  <th 
-                    style={{ cursor: 'pointer', minWidth: '120px' }}
-                    onClick={() => handleSort('total_principal')}
-                    className="text-end"
-                  >
-                    Principal
-                    {sortField === 'total_principal' && (
-                      <i className={`bi bi-chevron-${sortDirection === 'asc' ? 'up' : 'down'} ms-1`}></i>
-                    )}
-                  </th>
-                  <th style={{ minWidth: '100px' }}>Rating</th>
-                  <th 
-                    style={{ cursor: 'pointer', minWidth: '100px' }}
-                    onClick={() => handleSort('yield_rate')}
-                    className="text-end"
-                  >
-                    Yield
-                    {sortField === 'yield_rate' && (
-                      <i className={`bi bi-chevron-${sortDirection === 'asc' ? 'up' : 'down'} ms-1`}></i>
-                    )}
-                  </th>
-                  <th 
-                    style={{ cursor: 'pointer', minWidth: '120px' }}
-                    onClick={() => handleSort('closing_date')}
-                  >
-                    Closing Date
-                    {sortField === 'closing_date' && (
-                      <i className={`bi bi-chevron-${sortDirection === 'asc' ? 'up' : 'down'} ms-1`}></i>
-                    )}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {paginatedDeals.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="text-center py-4 text-muted">
-                      <i className="bi bi-search me-2"></i>
-                      No deals match your current filters.
-                    </td>
-                  </tr>
-                ) : (
-                  paginatedDeals.map(deal => (
-                    <tr 
-                      key={deal.id} 
-                      className={selectedDeals.includes(deal.id) ? 'table-primary' : ''}
-                      style={{ cursor: 'pointer' }}
-                      onClick={() => onDealToggle(deal.id)}
-                    >
-                      <td>
-                        <input
-                          type="checkbox"
-                          className="form-check-input"
-                          checked={selectedDeals.includes(deal.id)}
-                          onChange={() => onDealToggle(deal.id)}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      </td>
-                      <td>
-                        <div className="fw-bold">{deal.name}</div>
-                      </td>
-                      <td>{deal.originator}</td>
-                      <td>
-                        <span className="badge bg-secondary">{deal.deal_type}</span>
-                      </td>
-                      <td className="text-end">{formatCurrency(deal.total_principal)}</td>
-                      <td>
-                        <span className="badge bg-success">{deal.credit_rating}</span>
-                      </td>
-                      <td className="text-end">{formatPercent(deal.yield_rate)}</td>
-                      <td>{new Date(deal.closing_date).toLocaleDateString()}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Pagination Controls */}
-          {totalPages > 1 && (
-            <div className="d-flex justify-content-between align-items-center p-3 border-top">
-              <div className="text-muted">
-                Page {currentPage} of {totalPages}
-              </div>
-              <nav>
-                <ul className="pagination pagination-sm mb-0">
-                  <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
-                    <button
-                      className="page-link"
-                      onClick={() => setCurrentPage(1)}
-                      disabled={currentPage === 1}
-                    >
-                      <i className="bi bi-chevron-double-left"></i>
-                    </button>
-                  </li>
-                  <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
-                    <button
-                      className="page-link"
-                      onClick={() => setCurrentPage(currentPage - 1)}
-                      disabled={currentPage === 1}
-                    >
-                      <i className="bi bi-chevron-left"></i>
-                    </button>
-                  </li>
-                  
-                  {/* Show page numbers around current page */}
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    let pageNum;
-                    if (totalPages <= 5) {
-                      pageNum = i + 1;
-                    } else if (currentPage <= 3) {
-                      pageNum = i + 1;
-                    } else if (currentPage >= totalPages - 2) {
-                      pageNum = totalPages - 4 + i;
-                    } else {
-                      pageNum = currentPage - 2 + i;
-                    }
-                    
-                    return (
-                      <li key={pageNum} className={`page-item ${currentPage === pageNum ? 'active' : ''}`}>
-                        <button
-                          className="page-link"
-                          onClick={() => setCurrentPage(pageNum)}
-                        >
-                          {pageNum}
-                        </button>
-                      </li>
-                    );
-                  })}
-                  
-                  <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
-                    <button
-                      className="page-link"
-                      onClick={() => setCurrentPage(currentPage + 1)}
-                      disabled={currentPage === totalPages}
-                    >
-                      <i className="bi bi-chevron-right"></i>
-                    </button>
-                  </li>
-                  <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
-                    <button
-                      className="page-link"
-                      onClick={() => setCurrentPage(totalPages)}
-                      disabled={currentPage === totalPages}
-                    >
-                      <i className="bi bi-chevron-double-right"></i>
-                    </button>
-                  </li>
-                </ul>
-              </nav>
+        <div className="card-body">
+          <div className="d-flex justify-content-center p-4">
+            <div className="spinner-border" role="status">
+              <span className="visually-hidden">Loading deals...</span>
             </div>
-          )}
+          </div>
         </div>
       </div>
+    );
+  }
 
-      {/* Selection Summary */}
-      <div className="alert alert-warning mt-3">
-        <i className="bi bi-check-circle me-2"></i>
-        Selected {selectedDeals.length} deal{selectedDeals.length !== 1 ? 's' : ''}
-        {filteredDeals.length !== deals.length && (
-          <span className="text-muted ms-2">
-            ({selectedDeals.filter(id => filteredDeals.some(deal => deal.id === id)).length} of {filteredDeals.length} visible)
-          </span>
+  return (
+    <div className="card">
+      <div className="card-header">
+        <div className="d-flex justify-content-between align-items-center">
+          <h5 className="mb-0">Select Deals</h5>
+          <div className="d-flex gap-2">
+            <span className="badge bg-secondary">
+              {selectedDeals.length} selected
+            </span>
+            <span className="badge bg-info">
+              {filteredAndSortedDeals.length} total
+            </span>
+          </div>
+        </div>
+      </div>
+      
+      <div className="card-body">
+        {/* Search and Controls */}
+        <div className="row mb-3">
+          <div className="col-md-6">
+            <input
+              type="text"
+              className="form-control"
+              placeholder="Search deals..."
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
+            />
+          </div>
+          <div className="col-md-3">
+            <select
+              className="form-select"
+              value={itemsPerPage}
+              onChange={(e) => {
+                setItemsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+            >
+              <option value={25}>25 per page</option>
+              <option value={50}>50 per page</option>
+              <option value={100}>100 per page</option>
+            </select>
+          </div>
+          <div className="col-md-3">
+            <button
+              className="btn btn-outline-primary"
+              onClick={onSelectAllDeals}
+              disabled={deals.length === 0}
+            >
+              Select All
+            </button>
+          </div>
+        </div>
+
+        {/* Deals Table */}
+        <div className="table-responsive">
+          <table className="table table-hover">
+            <thead>
+              <tr>
+                <th style={{ width: '50px' }}>
+                  <input
+                    ref={masterCheckboxRef}
+                    type="checkbox"
+                    className="form-check-input"
+                    onChange={handleMasterToggle}
+                    disabled={paginatedDeals.length === 0}
+                  />
+                </th>
+                <th 
+                  className="sortable"
+                  onClick={() => handleSort('deal_number')}
+                  style={{ cursor: 'pointer' }}
+                >
+                  Deal Number{getSortIcon('deal_number')}
+                </th>
+                <th 
+                  className="sortable"
+                  onClick={() => handleSort('issuer_code')}
+                  style={{ cursor: 'pointer' }}
+                >
+                  Issuer Code{getSortIcon('issuer_code')}
+                </th>
+                <th 
+                  className="sortable"
+                  onClick={() => handleSort('cdi_file')}
+                  style={{ cursor: 'pointer' }}
+                >
+                  CDI File{getSortIcon('cdi_file')}
+                </th>
+                <th 
+                  className="sortable"
+                  onClick={() => handleSort('cdb_file')}
+                  style={{ cursor: 'pointer' }}
+                >
+                  CDB File{getSortIcon('cdb_file')}
+                </th>
+                <th style={{ width: '100px' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedDeals.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="text-center py-4">
+                    {searchTerm ? 'No deals found matching your search.' : 'No deals available.'}
+                  </td>
+                </tr>
+              ) : (
+                paginatedDeals.map((deal) => (
+                  <tr key={deal.dl_nbr}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        className="form-check-input"
+                        checked={selectedDeals.includes(deal.dl_nbr)}
+                        onChange={() => onDealToggle(deal.dl_nbr)}
+                      />
+                    </td>
+                    <td>{deal.dl_nbr}</td>
+                    <td>{deal.issr_cde}</td>
+                    <td>{deal.cdi_file_nme}</td>
+                    <td>{deal.CDB_cdi_file_nme || '-'}</td>
+                    <td>
+                      <button
+                        className="btn btn-sm btn-outline-primary"
+                        onClick={() => onDealToggle(deal.dl_nbr)}
+                      >
+                        {selectedDeals.includes(deal.dl_nbr) ? 'Remove' : 'Add'}
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="d-flex justify-content-between align-items-center mt-3">
+            <div>
+              Showing {Math.min((currentPage - 1) * itemsPerPage + 1, filteredAndSortedDeals.length)} to{' '}
+              {Math.min(currentPage * itemsPerPage, filteredAndSortedDeals.length)} of{' '}
+              {filteredAndSortedDeals.length} deals
+            </div>
+            <nav>
+              <ul className="pagination mb-0">
+                <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
+                  <button
+                    className="page-link"
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
+                  >
+                    Previous
+                  </button>
+                </li>
+                
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+                  
+                  return (
+                    <li key={pageNum} className={`page-item ${currentPage === pageNum ? 'active' : ''}`}>
+                      <button
+                        className="page-link"
+                        onClick={() => handlePageChange(pageNum)}
+                      >
+                        {pageNum}
+                      </button>
+                    </li>
+                  );
+                })}
+                
+                <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
+                  <button
+                    className="page-link"
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                  >
+                    Next
+                  </button>
+                </li>
+              </ul>
+            </nav>
+          </div>
         )}
       </div>
     </div>
