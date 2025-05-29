@@ -198,60 +198,59 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
             <i className="bi bi-info-circle me-2"></i>
             No saved reports found. Create your first report configuration to get started.
           </div>
-        )}
-      </div>
-      
-      <div className="col-md-4 d-flex align-items-end gap-2">
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={onCreateNew}
-        >
-          <i className="bi bi-plus-lg"></i> Create New Report
-        </button>
-        
-        <button
-          type="button"
-          className="btn btn-outline-primary"
-          disabled={!selectedReportId || editLoading !== null}
-          onClick={() => selectedReportId && handleEditReport(parseInt(selectedReportId))}
-        >
-          {editLoading === selectedReportId ? (
-            <>
-              <span className="spinner-border spinner-border-sm me-1"></span>
-              Loading...
-            </>
-          ) : (
-            <>
-              <i className="bi bi-pencil"></i> Edit
-            </>
-          )}
-        </button>
-        
-        <button
-          type="button"
-          className="btn btn-outline-danger"
-          disabled={!selectedReportId || deleteLoading !== null}
-          onClick={() => {
-            if (selectedReportId) {
-              const report = savedReports.find(r => r.id.toString() === selectedReportId);
-              if (report) {
-                handleDeleteReport(report.id, report.name);
+        )}      </div>      <div className="col-md-4">
+        <div className="d-flex flex-column gap-2" style={{ paddingTop: '2rem' }}>
+          <button
+            type="button"
+            className="btn btn-primary w-100"
+            onClick={onCreateNew}
+          >
+            <i className="bi bi-plus-lg"></i> Create New Report
+          </button>
+          
+          <button
+            type="button"
+            className="btn btn-outline-primary w-100"
+            disabled={!selectedReportId || editLoading !== null}
+            onClick={() => selectedReportId && handleEditReport(parseInt(selectedReportId))}
+          >
+            {editLoading === selectedReportId ? (
+              <>
+                <span className="spinner-border spinner-border-sm me-1"></span>
+                Loading...
+              </>
+            ) : (
+              <>
+                <i className="bi bi-pencil"></i> Edit
+              </>
+            )}
+          </button>
+          
+          <button
+            type="button"
+            className="btn btn-outline-danger w-100"
+            disabled={!selectedReportId || deleteLoading !== null}
+            onClick={() => {
+              if (selectedReportId) {
+                const report = savedReports.find(r => r.id.toString() === selectedReportId);
+                if (report) {
+                  handleDeleteReport(report.id, report.name);
+                }
               }
-            }
-          }}
-        >
-          {deleteLoading === selectedReportId ? (
-            <>
-              <span className="spinner-border spinner-border-sm me-1"></span>
-              Deleting...
-            </>
-          ) : (
-            <>
-              <i className="bi bi-trash"></i> Delete
-            </>
-          )}
-        </button>
+            }}
+          >
+            {deleteLoading === selectedReportId ? (
+              <>
+                <span className="spinner-border spinner-border-sm me-1"></span>
+                Deleting...
+              </>
+            ) : (
+              <>
+                <i className="bi bi-trash"></i> Delete
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
