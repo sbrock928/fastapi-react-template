@@ -183,7 +183,6 @@ def create_sample_data():
                     "dl_nbr": tranche.dl_nbr,
                     "tr_id": tranche.tr_id,
                     "cycle_date": base_dates[record_num % len(base_dates)],
-                    "balance": round(random.uniform(100000, 10000000), 2)  # Random balance
                 }
                 tranche_bal_data.append(bal_data)
 

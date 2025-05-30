@@ -55,7 +55,6 @@ class TrancheBalBase(BaseModel):
     dl_nbr: int
     tr_id: str
     cycle_date: str
-    balance: float
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
@@ -71,7 +70,6 @@ class TrancheBalUpdate(BaseModel):
     dl_nbr: Optional[int] = None
     tr_id: Optional[str] = None
     cycle_date: Optional[str] = None
-    balance: Optional[float] = None
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 

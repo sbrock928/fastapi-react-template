@@ -21,22 +21,12 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
   loading = false
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortField, setSortField] = useState<'deal_number' | 'tr_id' | 'issuer_code' | 'balance'>('deal_number');
+  const [sortField, setSortField] = useState<'deal_number' | 'tr_id' | 'issuer_code'>('deal_number');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [selectedDealFilter, setSelectedDealFilter] = useState<number | 'all'>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
   const masterCheckboxRef = useRef<HTMLInputElement>(null);
-
-  // Format currency
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      notation: 'compact',
-      maximumFractionDigits: 1
-    }).format(amount);
-  };
 
   // Get sort icon for table headers
   const getSortIcon = (field: string) => {
@@ -102,10 +92,6 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
         case 'issuer_code':
           aValue = a.deal.issr_cde;
           bValue = b.deal.issr_cde;
-          break;
-        case 'balance':
-          aValue = a.balance;
-          bValue = b.balance;
           break;
         default:
           aValue = a.tr_id;
@@ -279,18 +265,13 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
                 style={{ cursor: 'pointer' }}
               >
                 Issuer Code{getSortIcon('issuer_code')}
-              </th>              <th 
+              </th>
+              <th 
                 className="sortable"
                 onClick={() => handleSort('tr_id')}
                 style={{ cursor: 'pointer' }}
               >
                 Tranche ID{getSortIcon('tr_id')}
-              </th>              <th 
-                className="sortable text-end"
-                onClick={() => handleSort('balance')}
-                style={{ cursor: 'pointer' }}
-              >
-                Balance{getSortIcon('balance')}
               </th>
               <th style={{ width: '100px' }}>Actions</th>
             </tr>
@@ -298,7 +279,7 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
           <tbody>
             {paginatedTranches.length === 0 ? (
               <tr>
-                <td colSpan={6} className="text-center py-4 text-muted">
+                <td colSpan={5} className="text-center py-4 text-muted">
                   No tranches found matching your search criteria.
                 </td>
               </tr>
@@ -329,7 +310,6 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
                     <td>
                       <div className="fw-bold">{tranche.tr_id}</div>
                     </td>
-                    <td className="text-end">{formatCurrency(tranche.balance)}</td>
                     <td>
                       <button
                         className="btn btn-sm btn-outline-primary"

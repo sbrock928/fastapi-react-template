@@ -13,6 +13,8 @@ from app.reporting.schemas import (
     ReportUpdate,
     ReportSummary,
     RunReportRequest,
+    AvailableField,
+    ReportScope,
 )
 from app.core.dependencies import SessionDep, DWSessionDep
 from app.datawarehouse.dao import DatawarehouseDAO
@@ -117,34 +119,48 @@ async def run_report_by_id(
     return await service.run_saved_report(report_id, cycle_code)
 
 
+# ===== FIELD CONFIGURATION ENDPOINTS =====
+
+
+@router.get("/fields/available", response_model=List[AvailableField])
+async def get_available_fields(
+    scope: ReportScope, service: ReportService = Depends(get_report_service)
+) -> List[AvailableField]:
+    """Get available fields for report configuration based on scope."""
+    return await service.get_available_fields(scope)
+
+
 # ===== DATA ENDPOINTS (for report building) =====
 
 
 @router.get("/data/deals", response_model=List[Dict[str, Any]])
 async def get_available_deals(
-    cycle_code: Optional[int] = None, service: ReportService = Depends(get_report_service)
+    service: ReportService = Depends(get_report_service),
 ) -> List[Dict[str, Any]]:
     """Get available deals for report building."""
-    deals = await service.get_available_deals(cycle_code)
+    deals = await service.get_available_deals()
     return [deal.model_dump() for deal in deals]
 
 
-@router.post("/data/tranches", response_model=Dict[str, List[Dict[str, Any]]])
+@router.post("/data/tranches", response_model=Dict[int, List[Dict[str, Any]]])
 async def get_available_tranches(
     request: Dict[str, Any], service: ReportService = Depends(get_report_service)
-) -> Dict[str, List[Dict[str, Any]]]:
+) -> Dict[int, List[Dict[str, Any]]]:
     """Get available tranches for specific deals."""
-    dl_nbrs = request.get("dl_nbrs", [])
+    deal_ids = request.get("deal_ids", [])
     cycle_code = request.get("cycle_code")
 
-    tranches_by_deal = await service.get_available_tranches_for_deals(dl_nbrs, cycle_code)
-    return tranches_by_deal
+    tranches_by_deal = await service.get_available_tranches_for_deals(deal_ids, cycle_code)
+    return {
+        deal_id: [tranche.model_dump() for tranche in tranches]
+        for deal_id, tranches in tranches_by_deal.items()
+    }
 
 
-@router.get("/data/cycles", response_model=List[Dict[str, Any]])
+@router.get("/data/cycles", response_model=List[Dict[str, str]])
 async def get_available_cycles(
     service: ReportService = Depends(get_report_service),
-) -> List[Dict[str, Any]]:
+) -> List[Dict[str, str]]:
     """Get available cycle codes from the data warehouse."""
     return await service.get_available_cycles()
 

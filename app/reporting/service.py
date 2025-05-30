@@ -221,32 +221,24 @@ class ReportService:
         if not deal:
             return None
 
-        # Get all tranches and their balances for this deal
+        # Get all tranches for this deal
         tranches = self.dw_dao.get_tranches_by_dl_nbr(dl_nbr)
-        balance_data = [
-            self.dw_dao.get_tranchebal_by_keys(t.dl_nbr, t.tr_id)
-            for t in tranches
-        ]
-        valid_balances = [b for b in balance_data if b and b.balance]
 
         return {
             "dl_nbr": deal.dl_nbr,
             "issr_cde": deal.issr_cde,
             "cdi_file_nme": deal.cdi_file_nme,
             "CDB_cdi_file_nme": deal.CDB_cdi_file_nme,
-            "tranche_count": len(valid_balances),
-            "total_tranche_balance": sum(float(b.balance) for b in valid_balances),
+            "tranche_count": len(tranches),
         }
 
     async def _get_tranche_detailed_data(
         self, deal, dl_nbr: int, tr_id: str
     ) -> Optional[Dict[str, Any]]:
-        """Get detailed tranche data with balance information."""
+        """Get detailed tranche data."""
         tranche = self.dw_dao.get_tranche_by_keys(dl_nbr, tr_id)
         if not tranche:
             return None
-
-        balance = self.dw_dao.get_tranchebal_by_keys(dl_nbr, tr_id)
         
         return {
             "dl_nbr": deal.dl_nbr,
@@ -254,7 +246,7 @@ class ReportService:
             "deal_cdi_file_nme": deal.cdi_file_nme,
             "deal_CDB_cdi_file_nme": deal.CDB_cdi_file_nme,
             "tr_id": tranche.tr_id,
-            "balance": float(balance.balance) if balance and balance.balance else 0.0,        }
+        }
 
     async def get_available_deals(self, cycle_code: Optional[int] = None) -> List[DealRead]:
         """Get available deals for report building."""
@@ -278,13 +270,10 @@ class ReportService:
 
         tranche_summaries = []
         for tranche in tranches:
-            balance = self.dw_dao.get_tranchebal_by_keys(tranche.dl_nbr, tranche.tr_id)
-            
             summary = {
                 "dl_nbr": tranche.dl_nbr,
                 "tr_id": tranche.tr_id,
                 "deal_issr_cde": deal_info,
-                "balance": float(balance.balance) if balance and balance.balance else 0.0,
             }
             tranche_summaries.append(summary)
         

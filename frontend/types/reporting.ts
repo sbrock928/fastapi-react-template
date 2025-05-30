@@ -31,7 +31,7 @@ export interface Tranche {
 export interface TrancheBal {
   dl_nbr: number;
   tr_id: string;
-  balance: number;
+  cycle_date: string;
 }
 
 // Report summary types for listing tranches
@@ -39,7 +39,6 @@ export interface TrancheReportSummary {
   dl_nbr: number;
   tr_id: string;
   deal_issr_cde: string;
-  balance: number;
 }
 
 // Report Configuration Types (Updated to match backend normalized schema)
@@ -91,7 +90,6 @@ export interface DealReportRow {
   CDB_cdi_file_nme: string;
   // Aggregated tranche data
   tranche_count?: number;
-  total_tranche_balance?: number;
   [key: string]: any; // Allow additional dynamic fields
 }
 
@@ -103,7 +101,6 @@ export interface TrancheReportRow {
   deal_CDB_cdi_file_nme: string;
   // Tranche information
   tr_id: string;
-  balance: number;
   [key: string]: any; // Allow additional dynamic fields
 }
 

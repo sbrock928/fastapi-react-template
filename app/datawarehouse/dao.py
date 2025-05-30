@@ -40,16 +40,16 @@ class DatawarehouseDAO:
         result = self.db.execute(stmt)
         return result.scalars().first()
 
-    # ===== TRANCHE BALANCE METHODS =====
+    # ===== TRANCHE CYCLE DATA METHODS =====
 
     def get_tranchebals_by_tranche(self, dl_nbr: int, tr_id: str) -> List[TrancheBal]:
-        """Get tranche balances by tranche DL number and tranche ID"""
+        """Get tranche cycle data by tranche DL number and tranche ID"""
         stmt = select(TrancheBal).where(TrancheBal.dl_nbr == dl_nbr, TrancheBal.tr_id == tr_id)
         result = self.db.execute(stmt)
         return list(result.scalars().all())
 
     def get_tranchebal_by_keys(self, dl_nbr: int, tr_id: str, cycle_date: Optional[int] = None) -> Optional[TrancheBal]:
-        """Get a tranche balance by DL number, tranche ID, and optionally cycle date"""
+        """Get tranche cycle data by DL number, tranche ID, and optionally cycle date"""
         if cycle_date:
             stmt = select(TrancheBal).where(
                 TrancheBal.dl_nbr == dl_nbr, 
@@ -57,7 +57,7 @@ class DatawarehouseDAO:
                 TrancheBal.cycle_date == cycle_date
             )
         else:
-            # Get the most recent balance if no cycle date specified
+            # Get the most recent cycle data if no cycle date specified
             stmt = select(TrancheBal).where(
                 TrancheBal.dl_nbr == dl_nbr, 
                 TrancheBal.tr_id == tr_id

@@ -58,7 +58,6 @@ class TrancheBal(Base):
     dl_nbr: Mapped[int] = mapped_column(ForeignKey("tranche.dl_nbr"), primary_key=True)
     tr_id: Mapped[str] = mapped_column(String(15), ForeignKey("tranche.tr_id"), primary_key=True)
     cycle_date: Mapped[str] = mapped_column(String(10), primary_key=True)  # YYYY-MM-DD format
-    balance: Mapped[float] = mapped_column(Float, nullable=False)
 
     tranche = relationship(
         "Tranche",
