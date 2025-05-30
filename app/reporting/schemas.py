@@ -1,7 +1,7 @@
 """Pydantic schemas for the reporting module."""
 
-from typing import Optional, List, Any
-from datetime import datetime
+from typing import Optional, List, Any, Union
+from datetime import datetime, date
 from enum import Enum
 from pydantic import BaseModel, field_validator, model_validator, ConfigDict
 
@@ -20,6 +20,72 @@ class FieldType(str, Enum):
     NUMBER = "number"
     DATE = "date"
     PERCENTAGE = "percentage"
+
+
+class FilterOperator(str, Enum):
+    """Enumeration of filter operators."""
+    
+    EQUALS = "equals"
+    NOT_EQUALS = "not_equals"
+    GREATER_THAN = "greater_than"
+    LESS_THAN = "less_than"
+    GREATER_THAN_OR_EQUAL = "greater_than_or_equal"
+    LESS_THAN_OR_EQUAL = "less_than_or_equal"
+    CONTAINS = "contains"
+    NOT_CONTAINS = "not_contains"
+    STARTS_WITH = "starts_with"
+    ENDS_WITH = "ends_with"
+    IS_NULL = "is_null"
+    IS_NOT_NULL = "is_not_null"
+    IN = "in"
+    NOT_IN = "not_in"
+
+
+class FilterConditionBase(BaseModel):
+    """Base schema for filter conditions."""
+    field_name: str
+    operator: FilterOperator
+    value: Optional[Union[str, int, float, bool, List[Union[str, int, float]]]] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+    
+    @field_validator("value")
+    @classmethod
+    def validate_value(cls, v, info):
+        """Validate that value is appropriate for the operator."""
+        if not hasattr(info, "data") or not info.data:
+            return v
+            
+        operator = info.data.get("operator")
+        
+        # Operators that don't need a value
+        if operator in [FilterOperator.IS_NULL, FilterOperator.IS_NOT_NULL]:
+            return None
+            
+        # Operators that need a list value
+        if operator in [FilterOperator.IN, FilterOperator.NOT_IN]:
+            if v is None or (isinstance(v, list) and len(v) == 0):
+                raise ValueError(f"Operator {operator} requires a non-empty list of values")
+            if not isinstance(v, list):
+                raise ValueError(f"Operator {operator} requires a list of values")
+            return v
+        
+        # All other operators need a single value
+        if v is None:
+            raise ValueError(f"Operator {operator} requires a value")
+            
+        return v
+
+
+class FilterConditionCreate(FilterConditionBase):
+    """Create schema for filter conditions."""
+    pass
+
+
+class FilterCondition(FilterConditionBase):
+    """Schema for filter conditions with ID."""
+    id: int
+    report_id: int
 
 
 class ReportFieldBase(BaseModel):
@@ -96,6 +162,7 @@ class ReportCreate(ReportBase):
     """Create schema for reports with normalized structure."""
     selected_deals: List[ReportDealCreate] = []
     selected_fields: List[ReportFieldCreate] = []
+    filter_conditions: List[FilterConditionCreate] = []
     
     @field_validator("selected_deals")
     @classmethod
@@ -120,6 +187,17 @@ class ReportCreate(ReportBase):
         field_names = [field.field_name for field in v]
         if len(set(field_names)) != len(field_names):
             raise ValueError("Duplicate field names are not allowed")
+        
+        return v
+
+    @field_validator("filter_conditions")
+    @classmethod
+    def validate_filter_conditions(cls, v: List[FilterConditionCreate]) -> List[FilterConditionCreate]:
+        """Validate filter conditions."""
+        # Check for duplicate filter conditions on the same field
+        field_operator_pairs = [(f.field_name, f.operator) for f in v]
+        if len(set(field_operator_pairs)) != len(field_operator_pairs):
+            raise ValueError("Duplicate filter conditions are not allowed")
         
         return v
 
@@ -154,6 +232,7 @@ class ReportRead(ReportBase):
     updated_date: datetime
     selected_deals: List[ReportDeal] = []
     selected_fields: List[ReportField] = []
+    filter_conditions: List[FilterCondition] = []
 
 
 class ReportUpdate(BaseModel):
@@ -164,6 +243,7 @@ class ReportUpdate(BaseModel):
     scope: Optional[ReportScope] = None
     selected_deals: Optional[List[ReportDealCreate]] = None
     selected_fields: Optional[List[ReportFieldCreate]] = None
+    filter_conditions: Optional[List[FilterConditionCreate]] = None
     is_active: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
@@ -177,6 +257,18 @@ class ReportUpdate(BaseModel):
             if len(v.strip()) > 255:
                 raise ValueError("Report name cannot exceed 255 characters")
             return v.strip()
+        return v
+
+    @field_validator("filter_conditions")
+    @classmethod
+    def validate_filter_conditions(cls, v: Optional[List[FilterConditionCreate]]) -> Optional[List[FilterConditionCreate]]:
+        """Validate filter conditions."""
+        if v is not None:
+            # Check for duplicate filter conditions on the same field
+            field_operator_pairs = [(f.field_name, f.operator) for f in v]
+            if len(set(field_operator_pairs)) != len(field_operator_pairs):
+                raise ValueError("Duplicate filter conditions are not allowed")
+        
         return v
 
     @model_validator(mode='after')

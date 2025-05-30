@@ -7,12 +7,14 @@ from decimal import Decimal
 from pydantic import ValidationError
 
 from app.reporting.dao import ReportDAO
-from app.reporting.models import Report, ReportDeal, ReportTranche, ReportField
+from app.reporting.models import Report, ReportDeal, ReportTranche, ReportField, FilterCondition
 from app.reporting.schemas import (
     ReportRead, ReportCreate, ReportUpdate, ReportSummary, ReportScope,
-    ReportDealCreate, ReportTrancheCreate, ReportFieldCreate, AvailableField, FieldType
+    ReportDealCreate, ReportTrancheCreate, ReportFieldCreate, AvailableField, FieldType,
+    FilterConditionCreate, FilterOperator
 )
 from app.datawarehouse.dao import DatawarehouseDAO
+from app.datawarehouse.models import Deal
 from app.datawarehouse.schemas import DealRead, TrancheRead
 
 
@@ -263,13 +265,16 @@ class ReportService:
         report_dict['scope'] = report_data.scope.value  # Convert enum to string
         
         # Create main report
-        report = Report(**{k: v for k, v in report_dict.items() if k not in ['selected_deals', 'selected_fields']})
+        report = Report(**{k: v for k, v in report_dict.items() if k not in ['selected_deals', 'selected_fields', 'filter_conditions']})
         
         # Add deals and tranches
         self._populate_deals_and_tranches(report, report_data.selected_deals)
         
         # Add fields
         self._populate_fields(report, report_data.selected_fields)
+        
+        # Add filter conditions
+        self._populate_filter_conditions(report, report_data.filter_conditions)
         
         created_report = await self.report_dao.create(report)
         return ReportRead.model_validate(created_report)
@@ -285,7 +290,7 @@ class ReportService:
         await self._validate_database_constraints(report_data, existing_report_id=report_id)
 
         # Update basic fields using Pydantic's model_dump
-        update_data = report_data.model_dump(exclude_unset=True, exclude={'selected_deals', 'selected_fields'})
+        update_data = report_data.model_dump(exclude_unset=True, exclude={'selected_deals', 'selected_fields', 'filter_conditions'})
         
         # Handle scope enum conversion
         if "scope" in update_data and update_data["scope"]:
@@ -303,6 +308,11 @@ class ReportService:
         if report_data.selected_fields is not None:
             report.selected_fields.clear()
             self._populate_fields(report, report_data.selected_fields)
+
+        # Handle filter conditions update if provided
+        if report_data.filter_conditions is not None:
+            report.filter_conditions.clear()
+            self._populate_filter_conditions(report, report_data.filter_conditions)
 
         updated_report = await self.report_dao.update(report)
         return ReportRead.model_validate(updated_report)
@@ -330,20 +340,22 @@ class ReportService:
         return report
 
     async def _run_deal_level_report(self, report: Report, cycle_code: int) -> List[Dict[str, Any]]:
-        """Generate deal-level report with dynamic field selection."""
+        """Generate deal-level report with dynamic field selection and filtering."""
         results = []
         selected_field_names = [field.field_name for field in report.selected_fields]
+        filter_conditions = report.filter_conditions
         
         for report_deal in report.selected_deals:
             deal_data = await self._get_deal_data_with_fields(report_deal.dl_nbr, selected_field_names)
-            if deal_data:
+            if deal_data and self._apply_filters(deal_data, filter_conditions):
                 results.append(deal_data)
         return results
 
     async def _run_tranche_level_report(self, report: Report, cycle_code: int) -> List[Dict[str, Any]]:
-        """Generate tranche-level report with dynamic field selection."""
+        """Generate tranche-level report with dynamic field selection and filtering."""
         results = []
         selected_field_names = [field.field_name for field in report.selected_fields]
+        filter_conditions = report.filter_conditions
         
         for report_deal in report.selected_deals:
             deal = self.dw_dao.get_deal_by_dl_nbr(report_deal.dl_nbr)
@@ -354,72 +366,91 @@ class ReportService:
                 tranche_data = await self._get_tranche_data_with_fields(
                     deal, report_tranche.dl_nbr, report_tranche.tr_id, selected_field_names, cycle_code
                 )
-                if tranche_data:
+                if tranche_data and self._apply_filters(tranche_data, filter_conditions):
                     results.append(tranche_data)
         return results
 
-    async def _get_deal_data_with_fields(self, dl_nbr: int, selected_fields: List[str]) -> Optional[Dict[str, Any]]:
-        """Get deal data with only selected fields."""
-        deal = self.dw_dao.get_deal_by_dl_nbr(dl_nbr)
-        if not deal:
-            return None
+    def _apply_filters(self, data_row: Dict[str, Any], filter_conditions: List[FilterCondition]) -> bool:
+        """Apply filter conditions to a data row. Returns True if the row passes all filters."""
+        if not filter_conditions:
+            return True
+            
+        for condition in filter_conditions:
+            if not self._evaluate_filter_condition(data_row, condition):
+                return False
+        return True
 
-        # Build the result dict with only selected fields
-        result = {}
+    def _evaluate_filter_condition(self, data_row: Dict[str, Any], condition: FilterCondition) -> bool:
+        """Evaluate a single filter condition against a data row."""
+        field_value = data_row.get(condition.field_name)
+        operator = FilterOperator(condition.operator)
+        filter_value = condition.value
         
-        # Available deal fields
-        available_data = {
-            "dl_nbr": deal.dl_nbr,
-            "issr_cde": deal.issr_cde,
-            "cdi_file_nme": deal.cdi_file_nme,
-            "CDB_cdi_file_nme": deal.CDB_cdi_file_nme,
-        }
-        
-        # Add tranche count if requested
-        if "tranche_count" in selected_fields:
-            tranches = self.dw_dao.get_tranches_by_dl_nbr(dl_nbr)
-            available_data["tranche_count"] = len(tranches)
-        
-        # Only include requested fields
-        for field_name in selected_fields:
-            if field_name in available_data:
-                result[field_name] = available_data[field_name]
+        # Handle null checks first
+        if operator == FilterOperator.IS_NULL:
+            return field_value is None
+        elif operator == FilterOperator.IS_NOT_NULL:
+            return field_value is not None
+            
+        # If field value is None and we're not checking for null, condition fails
+        if field_value is None:
+            return False
+            
+        # Convert values for comparison
+        try:
+            # Convert filter value to string for parsing
+            if filter_value is not None:
+                filter_value_str = str(filter_value)
+            else:
+                filter_value_str = ""
                 
-        return result
-
-    async def _get_tranche_data_with_fields(
-        self, deal, dl_nbr: int, tr_id: str, selected_fields: List[str], cycle_code: int
-    ) -> Optional[Dict[str, Any]]:
-        """Get tranche data with only selected fields."""
-        tranche = self.dw_dao.get_tranche_by_keys(dl_nbr, tr_id)
-        if not tranche:
-            return None
-        
-        # Build the result dict with only selected fields
-        result = {}
-        
-        # Available tranche fields
-        available_data = {
-            "dl_nbr": deal.dl_nbr,
-            "deal_issr_cde": deal.issr_cde,
-            "deal_cdi_file_nme": deal.cdi_file_nme,
-            "deal_CDB_cdi_file_nme": deal.CDB_cdi_file_nme,
-            "tr_id": tranche.tr_id,
-        }
-        
-        # Add cycle data if requested
-        if "cycle_date" in selected_fields:
-            # Get cycle data from TrancheBal
-            tranche_bal = self.dw_dao.get_tranchebal_by_keys(dl_nbr, tr_id, cycle_code)
-            if tranche_bal:
-                available_data["cycle_date"] = tranche_bal.cycle_date
-        
-        # Only include requested fields
-        for field_name in selected_fields:
-            if field_name in available_data:
-                result[field_name] = available_data[field_name]
+            # Numeric comparisons
+            if operator in [FilterOperator.GREATER_THAN, FilterOperator.LESS_THAN, 
+                          FilterOperator.GREATER_THAN_OR_EQUAL, FilterOperator.LESS_THAN_OR_EQUAL]:
+                field_num = float(field_value) if field_value is not None else 0
+                filter_num = float(filter_value_str) if filter_value_str else 0
                 
-        return result
+                if operator == FilterOperator.GREATER_THAN:
+                    return field_num > filter_num
+                elif operator == FilterOperator.LESS_THAN:
+                    return field_num < filter_num
+                elif operator == FilterOperator.GREATER_THAN_OR_EQUAL:
+                    return field_num >= filter_num
+                elif operator == FilterOperator.LESS_THAN_OR_EQUAL:
+                    return field_num <= filter_num
+                    
+            # String operations (case-insensitive)
+            field_str = str(field_value).lower() if field_value is not None else ""
+            filter_str = filter_value_str.lower()
+            
+            if operator == FilterOperator.EQUALS:
+                return field_str == filter_str
+            elif operator == FilterOperator.NOT_EQUALS:
+                return field_str != filter_str
+            elif operator == FilterOperator.CONTAINS:
+                return filter_str in field_str
+            elif operator == FilterOperator.NOT_CONTAINS:
+                return filter_str not in field_str
+            elif operator == FilterOperator.STARTS_WITH:
+                return field_str.startswith(filter_str)
+            elif operator == FilterOperator.ENDS_WITH:
+                return field_str.endswith(filter_str)
+            elif operator == FilterOperator.IN:
+                # filter_value should be a list for IN operator
+                if isinstance(filter_value, list):
+                    return field_str in [str(v).lower() for v in filter_value]
+                return False
+            elif operator == FilterOperator.NOT_IN:
+                # filter_value should be a list for NOT_IN operator
+                if isinstance(filter_value, list):
+                    return field_str not in [str(v).lower() for v in filter_value]
+                return True
+                
+        except (ValueError, TypeError):
+            # If conversion fails, return False for safety
+            return False
+            
+        return False
 
     async def get_available_deals(self, cycle_code: Optional[int] = None) -> List[DealRead]:
         """Get available deals for report building."""
@@ -482,3 +513,75 @@ class ReportService:
                 is_required=field_data.is_required
             )
             report.selected_fields.append(report_field)
+
+    def _populate_filter_conditions(self, report: Report, filter_conditions_data: List) -> None:
+        """Helper method to populate filter conditions for a report."""
+        for condition_data in filter_conditions_data:
+            filter_condition = FilterCondition(
+                field_name=condition_data.field_name,
+                operator=condition_data.operator,
+                value=condition_data.value
+            )
+            report.filter_conditions.append(filter_condition)
+
+    async def _get_deal_data_with_fields(self, dl_nbr: int, selected_field_names: List[str]) -> Optional[Dict[str, Any]]:
+        """Get deal data with only the selected fields."""
+        deal = self.dw_dao.get_deal_by_dl_nbr(dl_nbr)
+        if not deal:
+            return None
+        
+        deal_data = {}
+        
+        for field_name in selected_field_names:
+            if field_name == "dl_nbr":
+                deal_data["dl_nbr"] = deal.dl_nbr
+            elif field_name == "issr_cde":
+                deal_data["issr_cde"] = deal.issr_cde
+            elif field_name == "cdi_file_nme":
+                deal_data["cdi_file_nme"] = deal.cdi_file_nme
+            elif field_name == "CDB_cdi_file_nme":
+                deal_data["CDB_cdi_file_nme"] = deal.CDB_cdi_file_nme
+            elif field_name == "tranche_count":
+                # Calculate tranche count for aggregated field
+                tranches = self.dw_dao.get_tranches_by_dl_nbr(dl_nbr)
+                deal_data["tranche_count"] = len(tranches)
+        
+        return deal_data
+
+    async def _get_tranche_data_with_fields(
+        self, 
+        deal: Deal, 
+        dl_nbr: int, 
+        tr_id: str, 
+        selected_field_names: List[str], 
+        cycle_code: int
+    ) -> Optional[Dict[str, Any]]:
+        """Get tranche data with only the selected fields."""
+        tranche = self.dw_dao.get_tranche_by_keys(dl_nbr, tr_id)
+        if not tranche:
+            return None
+        
+        tranche_data = {}
+        
+        for field_name in selected_field_names:
+            # Deal-level fields
+            if field_name == "dl_nbr":
+                tranche_data["dl_nbr"] = deal.dl_nbr
+            elif field_name == "deal_issr_cde":
+                tranche_data["deal_issr_cde"] = deal.issr_cde
+            elif field_name == "deal_cdi_file_nme":
+                tranche_data["deal_cdi_file_nme"] = deal.cdi_file_nme
+            elif field_name == "deal_CDB_cdi_file_nme":
+                tranche_data["deal_CDB_cdi_file_nme"] = deal.CDB_cdi_file_nme
+            # Tranche-level fields
+            elif field_name == "tr_id":
+                tranche_data["tr_id"] = tranche.tr_id
+            elif field_name == "cycle_date":
+                # Get cycle data if requested
+                tranche_bal = self.dw_dao.get_tranchebal_by_keys(dl_nbr, tr_id)
+                if tranche_bal:
+                    tranche_data["cycle_date"] = tranche_bal.cycle_date
+                else:
+                    tranche_data["cycle_date"] = None
+        
+        return tranche_data

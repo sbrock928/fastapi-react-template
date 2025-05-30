@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { reportingApi } from '@/services/api';
 import { DealSelector, TrancheSelector } from './';
 import FieldSelector from './FieldSelector';
+import { FilterBuilder } from './FilterBuilder';
 import { useToast } from '@/context/ToastContext';
-import type { Deal, TrancheReportSummary, ReportConfig, AvailableField, ReportField } from '@/types/reporting';
+import type { Deal, TrancheReportSummary, ReportConfig, AvailableField, ReportField, FilterConditionCreate } from '@/types/reporting';
 
 interface ReportBuilderWizardProps {
   onReportSaved: () => void;
@@ -30,6 +31,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
   const [selectedDeals, setSelectedDeals] = useState<number[]>([]);
   const [selectedTranches, setSelectedTranches] = useState<Record<number, string[]>>({});
   const [selectedFields, setSelectedFields] = useState<ReportField[]>([]);
+  const [filterConditions, setFilterConditions] = useState<FilterConditionCreate[]>([]);
 
   // Data state
   const [deals, setDeals] = useState<Deal[]>([]);
@@ -75,6 +77,11 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       // Set selected fields
       if (editingReport.selected_fields) {
         setSelectedFields(editingReport.selected_fields);
+      }
+
+      // Set filter conditions
+      if (editingReport.filter_conditions) {
+        setFilterConditions(editingReport.filter_conditions);
       }
     }
   }, [isEditMode, editingReport]);
@@ -195,7 +202,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       nextStepNum = 4; // Jump to field selection
     }
     
-    if (nextStepNum <= 5) setCurrentStep(nextStepNum);
+    if (nextStepNum <= 6) setCurrentStep(nextStepNum);
   };
 
   const prevStep = () => {
@@ -228,7 +235,8 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
           description: reportDescription || undefined,
           scope: reportScope as 'DEAL' | 'TRANCHE',
           selected_deals: transformedSelectedDeals,
-          selected_fields: selectedFields
+          selected_fields: selectedFields,
+          filter_conditions: filterConditions
         };
 
         await reportingApi.updateReport(editingReport.id, updateData);
@@ -240,7 +248,8 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
           scope: reportScope as 'DEAL' | 'TRANCHE',
           created_by: 'current_user',
           selected_deals: transformedSelectedDeals,
-          selected_fields: selectedFields
+          selected_fields: selectedFields,
+          filter_conditions: filterConditions
         };
 
         await reportingApi.createReport(reportConfig);
@@ -398,9 +407,29 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
 
       case 5:
         return (
+          <div className="row g-3">
+            <div className="col-12">
+              <h5 className="mb-3">Step {reportScope === 'DEAL' ? '4' : '5'}: Set Filter Conditions (Optional)</h5>
+              <div className="alert alert-info">
+                <i className="bi bi-info-circle me-2"></i>
+                Use filters to refine the data included in your report. You can set conditions on any of the available fields.
+              </div>
+            </div>
+            <div className="col-12">
+              <FilterBuilder
+                availableFields={availableFields}
+                filterConditions={filterConditions}
+                onFiltersChange={setFilterConditions}
+              />
+            </div>
+          </div>
+        );
+
+      case 6:
+        return (
           <div className="row">
             <div className="col-12">
-              <h5 className="mb-3">Step {reportScope === 'DEAL' ? '4' : '5'}: Review Configuration</h5>
+              <h5 className="mb-3">Step {reportScope === 'DEAL' ? '5' : '6'}: Review Configuration</h5>
               <div className="card">
                 <div className="card-body">
                   <h6 className="card-title">Report Summary</h6>
@@ -434,6 +463,28 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
                         </span>
                       ))}
                     </div>
+                  </div>
+
+                  {/* Filter Conditions Summary */}
+                  <div className="mt-3">
+                    <strong>Filter Conditions ({filterConditions.length}):</strong>
+                    {filterConditions.length === 0 ? (
+                      <div className="mt-2 text-muted">
+                        <i className="bi bi-funnel me-2"></i>
+                        No filters configured - all data will be included
+                      </div>
+                    ) : (
+                      <div className="mt-2">
+                        {filterConditions.map((condition, index) => {
+                          const field = availableFields.find(f => f.field_name === condition.field_name);
+                          return (
+                            <div key={index} className="badge bg-secondary me-1 mb-1">
+                              {field?.display_name || condition.field_name} {condition.operator} {condition.value || '(empty)'}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
 
                   {reportScope === 'TRANCHE' && (
@@ -497,13 +548,15 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
         return selectedFields.length > 0;
       case 5:
         return true;
+      case 6:
+        return true; // Proceed to save in the last step
       default:
         return false;
     }
   };
 
-  const totalSteps = reportScope === 'DEAL' ? 4 : 5;
-  const displayStep = reportScope === 'DEAL' && currentStep > 3 ? currentStep - 1 : currentStep;
+  const totalSteps = reportScope === 'DEAL' ? 5 : 6;
+  const displayStep = reportScope === 'DEAL' && currentStep > 4 ? currentStep - 1 : currentStep;
 
   return (
     <div className="report-builder-wizard">
@@ -545,7 +598,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
         </button>
 
         <div>
-          {currentStep < 5 ? (
+          {currentStep < 6 ? (
             <button
               type="button"
               className="btn btn-primary"

@@ -86,6 +86,7 @@ export interface ReportConfig {
   updated_date?: string;
   selected_deals: ReportDeal[];
   selected_fields: ReportField[];
+  filter_conditions: FilterCondition[];
 }
 
 export interface ReportSummary {
@@ -142,6 +143,7 @@ export interface ReportFormState {
   selectedDeals: number[];
   selectedTranches: Record<number, string[]>;
   selectedFields: ReportField[];
+  filterConditions: FilterConditionCreate[];
   currentStep: number;
 }
 
@@ -151,4 +153,45 @@ export interface ValidationErrors {
   selectedDeals?: string;
   selectedTranches?: string;
   selectedFields?: string;
+  filterConditions?: string;
+}
+
+// Filter Types for Phase 2: Basic Filtering
+export type FilterOperator = 
+  | 'equals'
+  | 'not_equals'
+  | 'greater_than'
+  | 'less_than'
+  | 'greater_than_or_equal'
+  | 'less_than_or_equal'
+  | 'contains'
+  | 'not_contains'
+  | 'starts_with'
+  | 'ends_with'
+  | 'is_null'
+  | 'is_not_null'
+  | 'in'
+  | 'not_in';
+
+export interface FilterCondition {
+  id?: number;
+  report_id?: number;
+  field_name: string;
+  operator: FilterOperator;
+  value?: string | number | boolean | (string | number)[] | null;
+}
+
+export interface FilterConditionCreate {
+  field_name: string;
+  operator: FilterOperator;
+  value?: string | number | boolean | (string | number)[] | null;
+}
+
+// Helper types for filter UI
+export interface FilterOperatorOption {
+  value: FilterOperator;
+  label: string;
+  description: string;
+  valueType: 'single' | 'list' | 'none';
+  supportedFieldTypes: ('text' | 'number' | 'date' | 'percentage')[];
 }

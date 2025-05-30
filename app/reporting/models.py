@@ -19,9 +19,10 @@ class Report(Base):
     updated_date = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     is_active = Column(Boolean, default=True)
 
-    # Relationships to selected deals, tranches, and fields
+    # Relationships to selected deals, tranches, fields, and filter conditions
     selected_deals = relationship("ReportDeal", back_populates="report", cascade="all, delete-orphan")
     selected_fields = relationship("ReportField", back_populates="report", cascade="all, delete-orphan")
+    filter_conditions = relationship("FilterCondition", back_populates="report", cascade="all, delete-orphan")
 
 
 class ReportDeal(Base):
@@ -66,3 +67,18 @@ class ReportField(Base):
     
     # Relationship
     report = relationship("Report", back_populates="selected_fields")
+
+
+class FilterCondition(Base):
+    """Filter condition model - stores filter conditions for reports."""
+
+    __tablename__ = "filter_conditions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    report_id = Column(Integer, ForeignKey("reports.id"), nullable=False)
+    field_name = Column(String, nullable=False)  # e.g., "dl_nbr", "issr_cde"
+    operator = Column(String, nullable=False)    # e.g., "=", ">", "<", "LIKE"
+    value = Column(String, nullable=False)       # Value to compare against
+    
+    # Relationship
+    report = relationship("Report", back_populates="filter_conditions")
