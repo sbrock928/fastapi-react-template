@@ -119,6 +119,14 @@ async def run_report_by_id(
     return await service.run_saved_report(report_id, cycle_code)
 
 
+@router.get("/{report_id}/schema", response_model=Dict[str, Any])
+async def get_report_schema(
+    report_id: int, service: ReportService = Depends(get_report_service)
+) -> Dict[str, Any]:
+    """Get the schema/structure of a saved report for skeleton preview."""
+    return await service.get_report_schema(report_id)
+
+
 # ===== FIELD CONFIGURATION ENDPOINTS =====
 
 

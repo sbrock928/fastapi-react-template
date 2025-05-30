@@ -92,6 +92,19 @@ const reportingApi = {
     return apiClient.get('/reports/fields/available', {
       params: { scope }
     });
+  },
+
+  // Get report schema/skeleton for preview
+  getReportSchema: (reportId: number): Promise<{ data: { 
+    title: string; 
+    scope: string; 
+    columns: Array<{ field: string; header: string; type: string }>; 
+    skeleton_data: Record<string, any>[]; 
+    deal_count: number; 
+    tranche_count: number; 
+    field_count: number; 
+  } }> => {
+    return apiClient.get(`/reports/${reportId}/schema`);
   }
 };
 

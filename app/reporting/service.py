@@ -403,6 +403,112 @@ class ReportService:
         else:
             return await self._run_tranche_level_report(report, cycle_code)
 
+    async def get_report_schema(self, report_id: int) -> Dict[str, Any]:
+        """Get the schema/structure of a saved report for skeleton preview."""
+        report = await self._get_validated_report(report_id)
+        
+        # Get selected fields to determine columns
+        selected_field_names = [field.field_name for field in report.selected_fields]
+        
+        # Generate skeleton data based on field types
+        columns = []
+        skeleton_row = {}
+        
+        # Get available fields to determine data types
+        available_fields = await self.get_available_fields(ReportScope(report.scope))
+        field_type_map = {field.field_name: field for field in available_fields}
+        
+        for field_name in selected_field_names:
+            field_info = field_type_map.get(field_name)
+            if field_info:
+                # Create column definition
+                column = {
+                    "field": field_name,
+                    "header": field_info.display_name,
+                    "type": field_info.field_type.value
+                }
+                columns.append(column)
+                
+                # Generate skeleton value based on field type
+                skeleton_row[field_name] = self._generate_skeleton_value(field_info.field_type, field_info.display_name)
+        
+        return {
+            "title": f"{report.name} (Preview)",
+            "scope": report.scope,
+            "columns": columns,
+            "skeleton_data": [skeleton_row],  # Single row for preview
+            "deal_count": len(report.selected_deals),
+            "tranche_count": sum(len(deal.selected_tranches) for deal in report.selected_deals),
+            "field_count": len(report.selected_fields)
+        }
+
+    def _generate_skeleton_value(self, field_type: FieldType, display_name: str) -> str:
+        """Generate a skeleton value based on field type to show expected data format."""
+        if field_type == FieldType.NUMBER:
+            if "amount" in display_name.lower() or "balance" in display_name.lower():
+                return "123,456.78"
+            elif "count" in display_name.lower():
+                return "42"
+            elif "days" in display_name.lower():
+                return "30"
+            else:
+                return "12345"
+        elif field_type == FieldType.PERCENTAGE:
+            return "5.25%"
+        elif field_type == FieldType.DATE:
+            return "2024-12-31"
+        elif field_type == FieldType.TEXT:
+            if "code" in display_name.lower():
+                return "ABC123"
+            elif "file" in display_name.lower() and "name" in display_name.lower():
+                return "sample_file.csv"
+            elif "id" in display_name.lower():
+                return "TR001"
+            else:
+                return "Sample Text"
+        else:
+            return f"({field_type.value})"
+
+    async def get_available_cycles(self) -> List[Dict[str, Any]]:
+        """Get available cycle codes from the data warehouse."""
+        try:
+            return self.dw_dao.get_available_cycles()
+        except Exception as e:
+            # Fallback to empty data
+            print(f"Warning: Could not fetch cycle data from data warehouse: {e}")
+            return []
+
+    async def get_available_deals(self, cycle_code: Optional[int] = None) -> List[DealRead]:
+        """Get available deals for report building."""
+        deals = self.dw_dao.get_all_deals()
+        return [DealRead.model_validate(deal) for deal in deals]
+
+    async def get_available_tranches_for_deals(
+        self, dl_nbrs: List[int], cycle_code: Optional[int] = None
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Get available tranches for specific deals."""
+        result = {}
+        for dl_nbr in dl_nbrs:
+            result[str(dl_nbr)] = self._get_tranche_summaries_for_deal(dl_nbr)
+        return result
+
+    def _get_tranche_summaries_for_deal(self, dl_nbr: int) -> List[Dict[str, Any]]:
+        """Get tranche summaries for a specific deal."""
+        tranches = self.dw_dao.get_tranches_by_dl_nbr(dl_nbr)
+        deal = self.dw_dao.get_deal_by_dl_nbr(dl_nbr)
+        deal_info = deal.issr_cde if deal else "Unknown Deal"
+
+        tranche_summaries = []
+        for tranche in tranches:
+            summary = {
+                "dl_nbr": tranche.dl_nbr,
+                "tr_id": tranche.tr_id,
+                "deal_issr_cde": deal_info,
+            }
+            tranche_summaries.append(summary)
+        
+        return tranche_summaries
+
     async def _get_validated_report(self, report_id: int) -> Report:
         """Get and validate report configuration."""
         report = await self.report_dao.get_by_id(report_id)
@@ -524,46 +630,6 @@ class ReportService:
             return False
             
         return False
-
-    async def get_available_deals(self, cycle_code: Optional[int] = None) -> List[DealRead]:
-        """Get available deals for report building."""
-        deals = self.dw_dao.get_all_deals()
-        return [DealRead.model_validate(deal) for deal in deals]
-
-    async def get_available_tranches_for_deals(
-        self, dl_nbrs: List[int], cycle_code: Optional[int] = None
-    ) -> Dict[str, List[Dict[str, Any]]]:
-        """Get available tranches for specific deals."""
-        result = {}
-        for dl_nbr in dl_nbrs:
-            result[str(dl_nbr)] = self._get_tranche_summaries_for_deal(dl_nbr)
-        return result
-
-    def _get_tranche_summaries_for_deal(self, dl_nbr: int) -> List[Dict[str, Any]]:
-        """Get tranche summaries for a specific deal."""
-        tranches = self.dw_dao.get_tranches_by_dl_nbr(dl_nbr)
-        deal = self.dw_dao.get_deal_by_dl_nbr(dl_nbr)
-        deal_info = deal.issr_cde if deal else "Unknown Deal"
-
-        tranche_summaries = []
-        for tranche in tranches:
-            summary = {
-                "dl_nbr": tranche.dl_nbr,
-                "tr_id": tranche.tr_id,
-                "deal_issr_cde": deal_info,
-            }
-            tranche_summaries.append(summary)
-        
-        return tranche_summaries
-
-    async def get_available_cycles(self) -> List[Dict[str, Any]]:
-        """Get available cycle codes from the data warehouse."""
-        try:
-            return self.dw_dao.get_available_cycles()
-        except Exception as e:
-            # Fallback to empty data
-            print(f"Warning: Could not fetch cycle data from data warehouse: {e}")
-            return []
 
     def _populate_deals_and_tranches(self, report: Report, selected_deals_data: List) -> None:
         """Helper method to populate deals and tranches for a report."""

@@ -357,17 +357,12 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
                   
                   // Add skeleton class if in skeleton mode
                   if (isSkeletonMode) {
-                    className += ' skeleton-shimmer';
-                    
-                    // For skeleton mode, replace actual values with reasonable placeholders
-                    if (column.type === 'number') {
-                      cellValue = '10000';
-                    } else if (column.type === 'percentage') {
-                      cellValue = '100%';
-                    } else if (column.type === 'date') {
-                      cellValue = '2025-01-01';
+                    // For the first row in skeleton mode, show the field type instead of sample data
+                    if (idx === 0) {
+                      cellValue = `type: "${column.type}"`;
+                      className += ` ${styles.skeletonShimmer} ${styles.showText}`;
                     } else {
-                      cellValue = 'Example data';
+                      className += ` ${styles.skeletonShimmer}`;
                     }
                   }
                   

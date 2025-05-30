@@ -23,6 +23,7 @@ const ReportingContent = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [showResults, setShowResults] = useState<boolean>(false);
   const [isSkeletonMode, setIsSkeletonMode] = useState<boolean>(false);
+  const [reportSchema, setReportSchema] = useState<any>(null);
 
   // ===== REPORT BUILDER STATE =====
   const [reportBuilderMode, setReportBuilderMode] = useState<boolean>(false);
@@ -62,6 +63,34 @@ const ReportingContent = () => {
     setSelectedSavedReport(reportId);
     setShowResults(false);
     setReportData([]);
+    
+    // Load skeleton data when a report is selected
+    if (reportId) {
+      loadReportSkeleton(reportId);
+    }
+  };
+
+  // ===== SKELETON DATA LOADING =====
+  const loadReportSkeleton = async (reportId: string) => {
+    try {
+      const response = await reportingApi.getReportSchema(parseInt(reportId));
+      const skeletonData = response.data;
+      
+      // Store the schema for better column information
+      setReportSchema(skeletonData);
+      
+      // Set skeleton data and show results
+      setReportData(skeletonData.skeleton_data as ReportRow[]);
+      setIsSkeletonMode(true);
+      setShowResults(true);
+      
+      showToast(`Loaded preview for ${skeletonData.title}`, 'info');
+    } catch (error: any) {
+      console.error('Error loading report skeleton:', error);
+      
+      // Don't show error toast for skeleton loading failures - just silently fail
+      // The user can still run the report normally
+    }
   };
 
   // ===== REPORT EXECUTION =====
@@ -124,6 +153,20 @@ const ReportingContent = () => {
   // ===== RENDER HELPERS =====
   const getCurrentReportConfig = (): DynamicReportConfig | null => {
     if (selectedSavedReport && reportData.length > 0) {
+      // Use schema data if in skeleton mode for better column information
+      if (isSkeletonMode && reportSchema) {
+        return {
+          apiEndpoint: `/reports/run/${selectedSavedReport}`,
+          title: reportSchema.title,
+          columns: reportSchema.columns.map((col: any) => ({
+            field: col.field,
+            header: col.header,
+            type: col.type
+          }))
+        };
+      }
+      
+      // Fallback to dynamic generation from data
       const firstRow = reportData[0];
       const columns = Object.keys(firstRow).map(key => ({
         field: key,
