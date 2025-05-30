@@ -14,6 +14,26 @@ export interface DynamicReportConfig {
 
 export type ReportRow = Record<string, any>;
 
+// Field Selection Types
+export interface AvailableField {
+  field_name: string;
+  display_name: string;
+  field_type: 'text' | 'number' | 'date' | 'percentage';
+  description?: string;
+  scope: 'DEAL' | 'TRANCHE';
+  category: string;
+  is_default: boolean;
+}
+
+export interface ReportField {
+  id?: number;
+  report_id?: number;
+  field_name: string;
+  display_name: string;
+  field_type: 'text' | 'number' | 'date' | 'percentage';
+  is_required: boolean;
+}
+
 // Deal & Tranche Data Types (Updated for new schema)
 export interface Deal {
   dl_nbr: number;
@@ -65,6 +85,7 @@ export interface ReportConfig {
   created_date?: string;
   updated_date?: string;
   selected_deals: ReportDeal[];
+  selected_fields: ReportField[];
 }
 
 export interface ReportSummary {
@@ -72,9 +93,12 @@ export interface ReportSummary {
   name: string;
   description?: string;
   scope: 'DEAL' | 'TRANCHE';
+  created_by: string;
   created_date: string;
   deal_count: number;
   tranche_count: number;
+  field_count: number;
+  is_active: boolean;
 }
 
 // Report Execution Types
@@ -111,10 +135,20 @@ export interface CycleOption {
 }
 
 // Form and UI State Types
-export interface ReportBuilderState {
-  currentStep: number;
+export interface ReportFormState {
   reportName: string;
+  reportDescription: string;
   reportScope: 'DEAL' | 'TRANCHE' | '';
-  selectedDeals: number[]; // Changed back to number[] for dl_nbr
-  selectedTranches: Record<number, Array<{dl_nbr: number, tr_id: string}>>;
+  selectedDeals: number[];
+  selectedTranches: Record<number, string[]>;
+  selectedFields: ReportField[];
+  currentStep: number;
+}
+
+export interface ValidationErrors {
+  reportName?: string;
+  reportScope?: string;
+  selectedDeals?: string;
+  selectedTranches?: string;
+  selectedFields?: string;
 }

@@ -7,7 +7,8 @@ import type {
   ReportSummary, 
   RunReportRequest,
   DealReportRow,
-  TrancheReportRow 
+  TrancheReportRow,
+  AvailableField
 } from '@/types/reporting';
 
 // Reporting API service
@@ -84,7 +85,14 @@ const reportingApi = {
 
   // Export to Excel
   exportXlsx: (data: { reportType: string, data: ReportRow[], fileName: string }) => 
-    apiClient.post('/reports/export-xlsx', data, { responseType: 'blob' })
+    apiClient.post('/reports/export-xlsx', data, { responseType: 'blob' }),
+
+  // Get available fields for report building
+  getAvailableFields: (scope: 'DEAL' | 'TRANCHE'): Promise<{ data: AvailableField[] }> => {
+    return apiClient.get('/reports/fields/available', {
+      params: { scope }
+    });
+  }
 };
 
 export default reportingApi;

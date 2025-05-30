@@ -19,8 +19,9 @@ class Report(Base):
     updated_date = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     is_active = Column(Boolean, default=True)
 
-    # Relationships to selected deals and tranches
+    # Relationships to selected deals, tranches, and fields
     selected_deals = relationship("ReportDeal", back_populates="report", cascade="all, delete-orphan")
+    selected_fields = relationship("ReportField", back_populates="report", cascade="all, delete-orphan")
 
 
 class ReportDeal(Base):
@@ -49,3 +50,19 @@ class ReportTranche(Base):
     
     # Relationship
     report_deal = relationship("ReportDeal", back_populates="selected_tranches")
+
+
+class ReportField(Base):
+    """Report field configuration model - stores which fields are selected for a report."""
+
+    __tablename__ = "report_fields"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    report_id = Column(Integer, ForeignKey("reports.id"), nullable=False)
+    field_name = Column(String, nullable=False)  # e.g., "dl_nbr", "issr_cde"
+    display_name = Column(String, nullable=False)  # e.g., "Deal Number", "Issuer Code"
+    field_type = Column(String, nullable=False)  # e.g., "text", "number", "date"
+    is_required = Column(Boolean, default=False)
+    
+    # Relationship
+    report = relationship("Report", back_populates="selected_fields")

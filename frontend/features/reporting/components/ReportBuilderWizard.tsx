@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { reportingApi } from '@/services/api';
 import { DealSelector, TrancheSelector } from './';
+import FieldSelector from './FieldSelector';
 import { useToast } from '@/context/ToastContext';
-import type { Deal, TrancheReportSummary, ReportConfig } from '@/types/reporting';
+import type { Deal, TrancheReportSummary, ReportConfig, AvailableField, ReportField } from '@/types/reporting';
 
 interface ReportBuilderWizardProps {
   onReportSaved: () => void;
-  editingReport?: ReportConfig | null; // New prop for editing mode
-  mode?: 'create' | 'edit'; // New prop to track mode
+  editingReport?: ReportConfig | null;
+  mode?: 'create' | 'edit';
 }
 
 const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
@@ -21,22 +22,35 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
   // Wizard state
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [loading, setLoading] = useState<boolean>(false);
+  
   // Report configuration state
   const [reportName, setReportName] = useState<string>('');
   const [reportDescription, setReportDescription] = useState<string>('');
-  const [reportScope, setReportScope] = useState<'DEAL' | 'TRANCHE' | ''>('');const [selectedDeals, setSelectedDeals] = useState<number[]>([]);
+  const [reportScope, setReportScope] = useState<'DEAL' | 'TRANCHE' | ''>('');
+  const [selectedDeals, setSelectedDeals] = useState<number[]>([]);
   const [selectedTranches, setSelectedTranches] = useState<Record<number, string[]>>({});
+  const [selectedFields, setSelectedFields] = useState<ReportField[]>([]);
 
   // Data state
   const [deals, setDeals] = useState<Deal[]>([]);
   const [tranches, setTranches] = useState<Record<string, TrancheReportSummary[]>>({});
+  const [availableFields, setAvailableFields] = useState<AvailableField[]>([]);
   const [dealsLoading, setDealsLoading] = useState<boolean>(false);
   const [tranchesLoading, setTranchesLoading] = useState<boolean>(false);
+  const [fieldsLoading, setFieldsLoading] = useState<boolean>(false);
 
   // Load deals when wizard opens
   useEffect(() => {
     loadDeals();
   }, []);
+
+  // Load available fields when scope changes
+  useEffect(() => {
+    if (reportScope && reportScope !== '' as 'DEAL' | 'TRANCHE') {
+      loadAvailableFields(reportScope);
+    }
+  }, [reportScope]);
+
   // Initialize form with editing data if in edit mode
   useEffect(() => {
     if (isEditMode && editingReport) {
@@ -46,11 +60,9 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       
       // Convert from backend normalized format to frontend format
       if (editingReport.selected_deals) {
-        // Extract deal numbers
         const dlNbrs = editingReport.selected_deals.map(deal => deal.dl_nbr);
         setSelectedDeals(dlNbrs);
         
-        // Convert tranches back to frontend format: Record<dlNbr, trId[]>
         const tranchesFormat: Record<string, string[]> = {};
         editingReport.selected_deals.forEach(deal => {
           if (deal.selected_tranches && deal.selected_tranches.length > 0) {
@@ -58,6 +70,11 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
           }
         });
         setSelectedTranches(tranchesFormat);
+      }
+
+      // Set selected fields
+      if (editingReport.selected_fields) {
+        setSelectedFields(editingReport.selected_fields);
       }
     }
   }, [isEditMode, editingReport]);
@@ -82,17 +99,44 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     loadTranches();
   }, [selectedDeals, reportScope]);
 
-  // Load available deals (no cycle filtering during configuration)
+  // Load available deals
   const loadDeals = async () => {
     setDealsLoading(true);
     try {
-      const response = await reportingApi.getDeals(); // No cycle parameter
+      const response = await reportingApi.getDeals();
       setDeals(response.data);
     } catch (error) {
       console.error('Error loading deals:', error);
       showToast('Error loading deals', 'error');
     } finally {
       setDealsLoading(false);
+    }
+  };
+
+  // Load available fields based on scope
+  const loadAvailableFields = async (scope: 'DEAL' | 'TRANCHE') => {
+    setFieldsLoading(true);
+    try {
+      const response = await reportingApi.getAvailableFields(scope);
+      setAvailableFields(response.data);
+      
+      // Auto-select default fields if not in edit mode
+      if (!isEditMode) {
+        const defaultFields = response.data
+          .filter(field => field.is_default)
+          .map(field => ({
+            field_name: field.field_name,
+            display_name: field.display_name,
+            field_type: field.field_type,
+            is_required: false
+          }));
+        setSelectedFields(defaultFields);
+      }
+    } catch (error) {
+      console.error('Error loading available fields:', error);
+      showToast('Error loading available fields', 'error');
+    } finally {
+      setFieldsLoading(false);
     }
   };
 
@@ -148,10 +192,10 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     
     // Skip step 3 (tranche selection) for DEAL scope reports
     if (currentStep === 2 && reportScope === 'DEAL') {
-      nextStepNum = 4; // Jump directly to step 4 (review)
+      nextStepNum = 4; // Jump to field selection
     }
     
-    if (nextStepNum <= 4) setCurrentStep(nextStepNum);
+    if (nextStepNum <= 5) setCurrentStep(nextStepNum);
   };
 
   const prevStep = () => {
@@ -159,7 +203,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     
     // Skip step 3 (tranche selection) for DEAL scope reports when going backwards
     if (currentStep === 4 && reportScope === 'DEAL') {
-      prevStepNum = 2; // Jump back to step 2 (deal selection)
+      prevStepNum = 2; // Jump back to deal selection
     }
     
     if (prevStepNum >= 1) setCurrentStep(prevStepNum);
@@ -170,32 +214,33 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     setLoading(true);
     
     try {
-      // Transform frontend format to backend normalized schema format
       const transformedSelectedDeals = selectedDeals.map(dlNbr => ({
         dl_nbr: dlNbr,
         selected_tranches: (selectedTranches[dlNbr] || []).map(trId => ({
           dl_nbr: dlNbr,
           tr_id: trId
         }))
-      }));      if (isEditMode && editingReport?.id) {
-        // Update existing report
+      }));
+
+      if (isEditMode && editingReport?.id) {
         const updateData = {
           name: reportName,
           description: reportDescription || undefined,
           scope: reportScope as 'DEAL' | 'TRANCHE',
-          selected_deals: transformedSelectedDeals
+          selected_deals: transformedSelectedDeals,
+          selected_fields: selectedFields
         };
 
         await reportingApi.updateReport(editingReport.id, updateData);
         showToast('Report configuration updated successfully!', 'success');
       } else {
-        // Create new report
         const reportConfig = {
           name: reportName,
           description: reportDescription || undefined,
           scope: reportScope as 'DEAL' | 'TRANCHE',
-          created_by: 'current_user', // TODO: Get from auth context
-          selected_deals: transformedSelectedDeals
+          created_by: 'current_user',
+          selected_deals: transformedSelectedDeals,
+          selected_fields: selectedFields
         };
 
         await reportingApi.createReport(reportConfig);
@@ -203,48 +248,44 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       }
       
       onReportSaved();
-        // Reset form only if creating new (not editing)
+      
       if (!isEditMode) {
         setReportName('');
         setReportDescription('');
         setReportScope('');
         setSelectedDeals([]);
         setSelectedTranches({});
+        setSelectedFields([]);
         setCurrentStep(1);
       }
       
     } catch (error: any) {
       console.error('Error saving report:', error);
       
-      // Extract detailed error messages from the API response
       let errorMessage = `Error ${isEditMode ? 'updating' : 'saving'} report configuration`;
       
       if (error.response?.data?.detail) {
         const detail = error.response.data.detail;
         
         if (detail.errors && Array.isArray(detail.errors)) {
-          // Handle the backend's errors array format
           const errorMessages = detail.errors.join(', ');
           errorMessage = `${errorMessage}: ${errorMessages}`;
         } else if (typeof detail === 'string') {
-          // Handle simple string error messages
           errorMessage = `${errorMessage}: ${detail}`;
         } else if (typeof detail === 'object' && detail.message) {
-          // Handle other object formats with a message property
           errorMessage = `${errorMessage}: ${detail.message}`;
         }
       } else if (error.response?.data?.message) {
-        // Handle other API error formats
         errorMessage = `${errorMessage}: ${error.response.data.message}`;
       } else if (error.message) {
-        // Handle network or other errors
         errorMessage = `${errorMessage}: ${error.message}`;
       }
       
       showToast(errorMessage, 'error');
     } finally {
       setLoading(false);
-    }  };
+    }
+  };
 
   // Render wizard step content
   const renderWizardStep = () => {
@@ -307,7 +348,8 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
         );
 
       case 2:
-        return (          <DealSelector
+        return (
+          <DealSelector
             deals={deals}
             selectedDeals={selectedDeals}
             onDealToggle={handleDealToggle}
@@ -342,11 +384,26 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
 
       case 4:
         return (
+          <div className="col-12">
+            <h5 className="mb-3">Step {reportScope === 'DEAL' ? '3' : '4'}: Select Report Fields</h5>
+            <FieldSelector
+              scope={reportScope as 'DEAL' | 'TRANCHE'}
+              availableFields={availableFields}
+              selectedFields={selectedFields}
+              onFieldsChange={setSelectedFields}
+              loading={fieldsLoading}
+            />
+          </div>
+        );
+
+      case 5:
+        return (
           <div className="row">
             <div className="col-12">
-              <h5 className="mb-3">Step 4: Review Configuration</h5>
+              <h5 className="mb-3">Step {reportScope === 'DEAL' ? '4' : '5'}: Review Configuration</h5>
               <div className="card">
-                <div className="card-body">                  <h6 className="card-title">Report Summary</h6>
+                <div className="card-body">
+                  <h6 className="card-title">Report Summary</h6>
                   <div className="row g-3">
                     <div className="col-md-4">
                       <strong>Name:</strong> {reportName}
@@ -367,6 +424,18 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
                     )}
                   </div>
                   
+                  {/* Selected Fields Summary */}
+                  <div className="mt-3">
+                    <strong>Selected Fields ({selectedFields.length}):</strong>
+                    <div className="mt-2">
+                      {selectedFields.map(field => (
+                        <span key={field.field_name} className="badge bg-info me-1 mb-1">
+                          {field.display_name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
                   {reportScope === 'TRANCHE' && (
                     <div className="mt-3">
                       <strong>Selected Tranches:</strong>
@@ -411,6 +480,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
         return <div>Unknown step</div>;
     }
   };
+
   // Determine if user can proceed to next step
   const canProceed = () => {
     switch (currentStep) {
@@ -419,17 +489,22 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       case 2:
         return selectedDeals.length > 0;
       case 3:
-        // Step 3 should only be reached for TRANCHE scope reports
         if (reportScope === 'TRANCHE') {
           return Object.values(selectedTranches).some(tranches => tranches.length > 0);
         }
-        return false; // Should never reach here for DEAL scope
+        return false;
       case 4:
+        return selectedFields.length > 0;
+      case 5:
         return true;
       default:
         return false;
     }
   };
+
+  const totalSteps = reportScope === 'DEAL' ? 4 : 5;
+  const displayStep = reportScope === 'DEAL' && currentStep > 3 ? currentStep - 1 : currentStep;
+
   return (
     <div className="report-builder-wizard">
       {/* Progress Bar */}
@@ -437,24 +512,15 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
         <div className="d-flex justify-content-between align-items-center mb-2">
           <h4>{isEditMode ? 'Edit Report Configuration' : 'Create New Report'}</h4>
           <span className="badge bg-primary">
-            Step {currentStep} of {reportScope === 'DEAL' ? '3' : '4'}
-            {reportScope === 'DEAL' && currentStep === 4 && ' (3)'}
+            Step {displayStep} of {totalSteps}
           </span>
         </div>
         <div className="progress">
           <div
             className="progress-bar"
             role="progressbar"
-            style={{ 
-              width: reportScope === 'DEAL' 
-                ? `${currentStep === 4 ? 100 : (currentStep / 3) * 100}%`
-                : `${(currentStep / 4) * 100}%`
-            }}
-            aria-valuenow={
-              reportScope === 'DEAL' 
-                ? (currentStep === 4 ? 100 : (currentStep / 3) * 100)
-                : (currentStep / 4) * 100
-            }
+            style={{ width: `${(displayStep / totalSteps) * 100}%` }}
+            aria-valuenow={(displayStep / totalSteps) * 100}
             aria-valuemin={0}
             aria-valuemax={100}
           ></div>
@@ -479,7 +545,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
         </button>
 
         <div>
-          {currentStep < 4 ? (
+          {currentStep < 5 ? (
             <button
               type="button"
               className="btn btn-primary"

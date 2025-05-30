@@ -13,6 +13,34 @@ class ReportScope(str, Enum):
     TRANCHE = "TRANCHE"
 
 
+class FieldType(str, Enum):
+    """Enumeration of field types for reporting."""
+    
+    TEXT = "text"
+    NUMBER = "number"
+    DATE = "date"
+    PERCENTAGE = "percentage"
+
+
+class ReportFieldBase(BaseModel):
+    """Base schema for report field configurations."""
+    field_name: str
+    display_name: str
+    field_type: FieldType
+    is_required: bool = False
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ReportFieldCreate(ReportFieldBase):
+    pass
+
+
+class ReportField(ReportFieldBase):
+    id: int
+    report_id: int
+
+
 class ReportTrancheBase(BaseModel):
     """Base schema for report tranche associations."""
     dl_nbr: int
@@ -67,6 +95,7 @@ class ReportBase(BaseModel):
 class ReportCreate(ReportBase):
     """Create schema for reports with normalized structure."""
     selected_deals: List[ReportDealCreate] = []
+    selected_fields: List[ReportFieldCreate] = []
     
     @field_validator("selected_deals")
     @classmethod
@@ -81,6 +110,19 @@ class ReportCreate(ReportBase):
         
         return v
 
+    @field_validator("selected_fields")
+    @classmethod
+    def validate_selected_fields(cls, v: List[ReportFieldCreate]) -> List[ReportFieldCreate]:
+        if not v:
+            raise ValueError("At least one field must be selected")
+        
+        # Check for duplicate field names
+        field_names = [field.field_name for field in v]
+        if len(set(field_names)) != len(field_names):
+            raise ValueError("Duplicate field names are not allowed")
+        
+        return v
+
     @field_validator("selected_deals")
     @classmethod
     def validate_tranche_selections(cls, v: List[ReportDealCreate], info) -> List[ReportDealCreate]:
@@ -90,7 +132,7 @@ class ReportCreate(ReportBase):
             has_tranches = any(deal.selected_tranches for deal in v)
             if not has_tranches:
                 raise ValueError("Tranche-level reports must have at least one tranche selected")
-              # Check for duplicate tranche IDs within each deal
+              # Check for duplicate tranche ID within each deal
             for deal in v:
                 tranche_keys = [(tranche.dl_nbr, tranche.tr_id) for tranche in deal.selected_tranches]
                 if len(set(tranche_keys)) != len(tranche_keys):
@@ -111,6 +153,7 @@ class ReportRead(ReportBase):
     created_date: datetime
     updated_date: datetime
     selected_deals: List[ReportDeal] = []
+    selected_fields: List[ReportField] = []
 
 
 class ReportUpdate(BaseModel):
@@ -120,6 +163,7 @@ class ReportUpdate(BaseModel):
     description: Optional[str] = None
     scope: Optional[ReportScope] = None
     selected_deals: Optional[List[ReportDealCreate]] = None
+    selected_fields: Optional[List[ReportFieldCreate]] = None
     is_active: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
@@ -148,6 +192,18 @@ class ReportUpdate(BaseModel):
         return self
 
 
+class AvailableField(BaseModel):
+    """Schema for available fields that can be selected for reports."""
+    
+    field_name: str
+    display_name: str
+    field_type: FieldType
+    description: Optional[str] = None
+    scope: ReportScope  # Which report scope this field is available for
+    category: str  # e.g., "Deal", "Tranche", "Cycle Data"
+    is_default: bool = False  # Whether this field should be selected by default
+
+
 class ReportSummary(BaseModel):
     """Summary schema for report listings."""
 
@@ -159,6 +215,7 @@ class ReportSummary(BaseModel):
     created_date: datetime
     deal_count: int
     tranche_count: int
+    field_count: int
     is_active: bool
 
     model_config = ConfigDict(from_attributes=True)

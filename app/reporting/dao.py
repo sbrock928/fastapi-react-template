@@ -3,7 +3,7 @@
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, func
 from typing import List, Optional
-from app.reporting.models import Report, ReportDeal, ReportTranche
+from app.reporting.models import Report, ReportDeal, ReportTranche, ReportField
 
 
 class ReportDAO:
@@ -13,17 +13,27 @@ class ReportDAO:
         self.db = db_session
 
     async def get_all(self) -> List[Report]:
-        """Get all reports with their deals and tranches loaded"""
-        stmt = select(Report).where(Report.is_active == True).options(
-            selectinload(Report.selected_deals).selectinload(ReportDeal.selected_tranches)
+        """Get all reports with eager loading of relationships."""
+        stmt = (
+            select(Report)
+            .options(
+                selectinload(Report.selected_deals).selectinload(ReportDeal.selected_tranches),
+                selectinload(Report.selected_fields)
+            )
+            .where(Report.is_active == True)
         )
         result = self.db.execute(stmt)
         return list(result.scalars().all())
 
     async def get_by_id(self, report_id: int) -> Optional[Report]:
-        """Get a report by ID with all relationships loaded"""
-        stmt = select(Report).where(Report.id == report_id).options(
-            selectinload(Report.selected_deals).selectinload(ReportDeal.selected_tranches)
+        """Get a report by ID with eager loading of relationships."""
+        stmt = (
+            select(Report)
+            .options(
+                selectinload(Report.selected_deals).selectinload(ReportDeal.selected_tranches),
+                selectinload(Report.selected_fields)
+            )
+            .where(Report.id == report_id)
         )
         result = self.db.execute(stmt)
         return result.scalars().first()
@@ -74,7 +84,7 @@ class ReportDAO:
         return False
 
     async def hard_delete(self, report_id: int) -> bool:
-        """Hard delete a report by ID (cascade will handle deals and tranches)"""
+        """Hard delete a report by ID (cascade will handle deals, tranches, and fields)"""
         report = await self.get_by_id(report_id)
         if report:
             self.db.delete(report)
