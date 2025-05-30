@@ -33,6 +33,7 @@ class DealUpdate(BaseModel):
 class TrancheBase(BaseModel):
     dl_nbr: int
     tr_id: str
+    tr_cusip_id: str
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
@@ -47,6 +48,7 @@ class TrancheRead(TrancheBase):
 class TrancheUpdate(BaseModel):
     dl_nbr: Optional[int] = None
     tr_id: Optional[str] = None
+    tr_cusip_id: Optional[str] = None
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
@@ -54,7 +56,15 @@ class TrancheUpdate(BaseModel):
 class TrancheBalBase(BaseModel):
     dl_nbr: int
     tr_id: str
-    cycle_date: str
+    cycle_cde: int
+    tr_end_bal_amt: float
+    tr_prin_rel_ls_amt: float
+    tr_pass_thru_rte: float
+    tr_accrl_days: int
+    tr_int_dstrb_amt: float
+    tr_prin_dstrb_amt: float
+    tr_int_accrl_amt: float
+    tr_int_shtfl_amt: float
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
@@ -69,7 +79,15 @@ class TrancheBalRead(TrancheBalBase):
 class TrancheBalUpdate(BaseModel):
     dl_nbr: Optional[int] = None
     tr_id: Optional[str] = None
-    cycle_date: Optional[str] = None
+    cycle_cde: Optional[int] = None
+    tr_end_bal_amt: Optional[float] = None
+    tr_prin_rel_ls_amt: Optional[float] = None
+    tr_pass_thru_rte: Optional[float] = None
+    tr_accrl_days: Optional[int] = None
+    tr_int_dstrb_amt: Optional[float] = None
+    tr_prin_dstrb_amt: Optional[float] = None
+    tr_int_accrl_amt: Optional[float] = None
+    tr_int_shtfl_amt: Optional[float] = None
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 

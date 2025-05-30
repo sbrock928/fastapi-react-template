@@ -148,12 +148,22 @@ def create_comprehensive_sample_data():
         # Create sample TrancheBal records
         tranche_bal_data = []
         for tranche in created_tranches:
-            # Create a sample tranche record for each tranche with cycle date
-            tranche_bal_data.append({
-                "dl_nbr": tranche.dl_nbr,
-                "tr_id": tranche.tr_id,
-                "cycle_date": "2024-03-31",  # Sample cycle date
-            })
+            # Create sample tranche balance records with integer cycle codes
+            # Add multiple cycle records per tranche for testing
+            for cycle_code in [20241, 20242, 20243]:  # Q1, Q2, Q3 2024
+                tranche_bal_data.append({
+                    "dl_nbr": tranche.dl_nbr,
+                    "tr_id": tranche.tr_id,
+                    "cycle_cde": cycle_code,
+                    "tr_end_bal_amt": 1000000.0 + (cycle_code - 20240) * 50000,  # Varying amounts
+                    "tr_prin_rel_ls_amt": 25000.0,
+                    "tr_pass_thru_rte": 0.05,
+                    "tr_accrl_days": 30,
+                    "tr_int_dstrb_amt": 12500.0,
+                    "tr_prin_dstrb_amt": 10000.0,
+                    "tr_int_accrl_amt": 5000.0,
+                    "tr_int_shtfl_amt": 0.0,
+                })
 
         # Create tranche balances
         for bal_data in tranche_bal_data:

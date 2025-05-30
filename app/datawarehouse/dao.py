@@ -48,35 +48,34 @@ class DatawarehouseDAO:
         result = self.db.execute(stmt)
         return list(result.scalars().all())
 
-    def get_tranchebal_by_keys(self, dl_nbr: int, tr_id: str, cycle_date: Optional[int] = None) -> Optional[TrancheBal]:
-        """Get tranche cycle data by DL number, tranche ID, and optionally cycle date"""
-        if cycle_date:
+    def get_tranchebal_by_keys(self, dl_nbr: int, tr_id: str, cycle_cde: Optional[int] = None) -> Optional[TrancheBal]:
+        """Get tranche cycle data by DL number, tranche ID, and optionally cycle code"""
+        if cycle_cde:
             stmt = select(TrancheBal).where(
                 TrancheBal.dl_nbr == dl_nbr, 
                 TrancheBal.tr_id == tr_id,
-                TrancheBal.cycle_date == cycle_date
+                TrancheBal.cycle_cde == cycle_cde
             )
         else:
-            # Get the most recent cycle data if no cycle date specified
+            # Get the most recent cycle data if no cycle code specified
             stmt = select(TrancheBal).where(
                 TrancheBal.dl_nbr == dl_nbr, 
                 TrancheBal.tr_id == tr_id
-            ).order_by(TrancheBal.cycle_date.desc()).limit(1)
+            ).order_by(TrancheBal.cycle_cde.desc()).limit(1)
         
         result = self.db.execute(stmt)
         return result.scalars().first()
 
     def get_available_cycles(self) -> List[Dict[str, Any]]:
-
         """Get available cycle codes from the data warehouse.
         
-        Returns dummy cycle data for now since cycle functionality is not yet implemented.
+        Returns cycle data with integer values.
         """
-        # Return dummy cycle data with string values to match API response model
+        # Return cycle data with integer values to match the database schema
         return [
-            {"label": "2024 Q1", "value": "20241"},
-            {"label": "2024 Q2", "value": "20242"},
-            {"label": "2024 Q3", "value": "20243"},
-            {"label": "2024 Q4", "value": "20244"},
-            {"label": "2025 Q1", "value": "20251"},
+            {"label": "2024 Q1", "value": 20241},
+            {"label": "2024 Q2", "value": 20242},
+            {"label": "2024 Q3", "value": 20243},
+            {"label": "2024 Q4", "value": 20244},
+            {"label": "2025 Q1", "value": 20251},
         ]

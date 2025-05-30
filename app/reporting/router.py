@@ -147,20 +147,21 @@ async def get_available_tranches(
     request: Dict[str, Any], service: ReportService = Depends(get_report_service)
 ) -> Dict[int, List[Dict[str, Any]]]:
     """Get available tranches for specific deals."""
-    deal_ids = request.get("deal_ids", [])
+    dl_nbrs = request.get("dl_nbrs", [])
     cycle_code = request.get("cycle_code")
 
-    tranches_by_deal = await service.get_available_tranches_for_deals(deal_ids, cycle_code)
+    tranches_by_deal = await service.get_available_tranches_for_deals(dl_nbrs, cycle_code)
+    # Convert string keys to integers and return the dictionaries directly
     return {
-        deal_id: [tranche.model_dump() for tranche in tranches]
+        int(deal_id): tranches  # tranches are already dictionaries, no need for model_dump()
         for deal_id, tranches in tranches_by_deal.items()
     }
 
 
-@router.get("/data/cycles", response_model=List[Dict[str, str]])
+@router.get("/data/cycles", response_model=List[Dict[str, Any]])
 async def get_available_cycles(
     service: ReportService = Depends(get_report_service),
-) -> List[Dict[str, str]]:
+) -> List[Dict[str, Any]]:
     """Get available cycle codes from the data warehouse."""
     return await service.get_available_cycles()
 

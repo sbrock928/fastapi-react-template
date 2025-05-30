@@ -73,13 +73,13 @@ const reportingApi = {
   },
 
   // Run report by ID with cycle parameter
-  runReportById: (reportId: number, cycleCode: string): Promise<{ data: DealReportRow[] | TrancheReportRow[] }> => {
+  runReportById: (reportId: number, cycleCode: number): Promise<{ data: DealReportRow[] | TrancheReportRow[] }> => {
     return apiClient.post(`/reports/run/${reportId}`, { cycle_code: cycleCode });
   },
 
   // ===== STATISTICS AND METADATA =====
   // Get available cycles from data warehouse
-  getAvailableCycles: (): Promise<{ data: Array<{ label: string; value: string }> }> => {
+  getAvailableCycles: (): Promise<{ data: Array<{ label: string; value: number }> }> => {
     return apiClient.get('/reports/data/cycles');
   },
 

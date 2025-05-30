@@ -40,9 +40,9 @@ export const CycleProvider: React.FC<CycleProviderProps> = ({ children }) => {
         const response = await reportingApi.getAvailableCycles();
 
         const options = [
-          { value: '', label: 'Select a Cycle' },
-          ...response.data.map((item: { label: string; value: string }) => ({
-            value: item.value,
+          { value: 0, label: 'Select a Cycle' },  // Changed from empty string to 0
+          ...response.data.map((item: { label: string; value: number }) => ({
+            value: item.value,  // Now expecting number instead of string
             label: item.label
           }))
         ];

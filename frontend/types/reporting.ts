@@ -51,7 +51,7 @@ export interface Tranche {
 export interface TrancheBal {
   dl_nbr: number;
   tr_id: string;
-  cycle_date: string;
+  cycle_cde: number;  // Changed from cycle_date: string to cycle_cde: number
 }
 
 // Report summary types for listing tranches
@@ -105,7 +105,7 @@ export interface ReportSummary {
 // Report Execution Types
 export interface RunReportRequest {
   report_id: number;
-  cycle_code: string;
+  cycle_code: number;  // Changed from string to number
 }
 
 export interface DealReportRow {
@@ -131,7 +131,7 @@ export interface TrancheReportRow {
 
 // Cycle Selection Types (simplified for new schema)
 export interface CycleOption {
-  value: string;
+  value: number;  // Changed from string to number
   label: string;
 }
 

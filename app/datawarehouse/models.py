@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     CHAR,
     and_,
+    Numeric
 )
 from sqlalchemy.orm import relationship, Mapped, mapped_column, foreign
 from sqlalchemy.dialects.mssql import MONEY
@@ -35,6 +36,7 @@ class Tranche(Base):
 
     dl_nbr: Mapped[int] = mapped_column(ForeignKey("deal.dl_nbr"), primary_key=True)
     tr_id: Mapped[str] = mapped_column(String(15), primary_key=True)
+    tr_cusip_id: Mapped[str] = mapped_column(String(14), primary_key=True)
 
     deal = relationship("Deal", back_populates="tranches")
 
@@ -57,8 +59,18 @@ class TrancheBal(Base):
 
     dl_nbr: Mapped[int] = mapped_column(ForeignKey("tranche.dl_nbr"), primary_key=True)
     tr_id: Mapped[str] = mapped_column(String(15), ForeignKey("tranche.tr_id"), primary_key=True)
-    cycle_date: Mapped[str] = mapped_column(String(10), primary_key=True)  # YYYY-MM-DD format
+    cycle_cde: Mapped[SmallInteger] = mapped_column(SmallInteger, nullable=False, primary_key=True)  # YYYY-MM-DD format
 
+    # Newly added fields
+    tr_end_bal_amt: Mapped[float] = mapped_column(Numeric(19, 4), nullable=False)
+    tr_prin_rel_ls_amt: Mapped[float] = mapped_column(Numeric(19, 4), nullable=False)
+    tr_pass_thru_rte: Mapped[float] = mapped_column(Float(53), nullable=False)
+    tr_accrl_days: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    tr_int_dstrb_amt: Mapped[float] = mapped_column(Numeric(19, 4), nullable=False)
+    tr_prin_dstrb_amt: Mapped[float] = mapped_column(Numeric(19, 4), nullable=False)
+    tr_int_accrl_amt: Mapped[float] = mapped_column(Numeric(19, 4), nullable=False)
+    tr_int_shtfl_amt: Mapped[float] = mapped_column(Numeric(19, 4), nullable=False)
+    
     tranche = relationship(
         "Tranche",
         back_populates="tranchebals",

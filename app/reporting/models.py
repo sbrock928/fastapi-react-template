@@ -78,7 +78,7 @@ class FilterCondition(Base):
     report_id = Column(Integer, ForeignKey("reports.id"), nullable=False)
     field_name = Column(String, nullable=False)  # e.g., "dl_nbr", "issr_cde"
     operator = Column(String, nullable=False)    # e.g., "=", ">", "<", "LIKE"
-    value = Column(String, nullable=False)       # Value to compare against
+    value = Column(String, nullable=True)        # Value to compare against (NULL for IS_NULL/IS_NOT_NULL operators)
     
     # Relationship
     report = relationship("Report", back_populates="filter_conditions")

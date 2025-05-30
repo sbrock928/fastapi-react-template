@@ -135,10 +135,83 @@ class ReportService:
                 ),
                 # Cycle data (from TrancheBal) - these would be available when cycle is selected
                 AvailableField(
-                    field_name="cycle_date",
-                    display_name="Cycle Date",
-                    field_type=FieldType.DATE,
-                    description="Cycle date for the data",
+                    field_name="cycle_cde",  # Changed from cycle_date to cycle_cde
+                    display_name="Cycle Code",  # Changed from "Cycle Date" to "Cycle Code"
+                    field_type=FieldType.NUMBER,  # Changed from DATE to NUMBER
+                    description="Cycle code for the data",  # Updated description
+                    scope=scope,
+                    category="Cycle Data",
+                    is_default=False
+                ),
+                # New TrancheBal fields
+                AvailableField(
+                    field_name="tr_end_bal_amt",
+                    display_name="Ending Balance Amount",
+                    field_type=FieldType.NUMBER,
+                    description="Tranche ending balance amount",
+                    scope=scope,
+                    category="Cycle Data",
+                    is_default=True
+                ),
+                AvailableField(
+                    field_name="tr_prin_rel_ls_amt",
+                    display_name="Principal Release Loss Amount",
+                    field_type=FieldType.NUMBER,
+                    description="Tranche principal release loss amount",
+                    scope=scope,
+                    category="Cycle Data",
+                    is_default=False
+                ),
+                AvailableField(
+                    field_name="tr_pass_thru_rte",
+                    display_name="Pass-Through Rate",
+                    field_type=FieldType.PERCENTAGE,
+                    description="Tranche pass-through rate",
+                    scope=scope,
+                    category="Cycle Data",
+                    is_default=True
+                ),
+                AvailableField(
+                    field_name="tr_accrl_days",
+                    display_name="Accrual Days",
+                    field_type=FieldType.NUMBER,
+                    description="Tranche accrual days",
+                    scope=scope,
+                    category="Cycle Data",
+                    is_default=False
+                ),
+                AvailableField(
+                    field_name="tr_int_dstrb_amt",
+                    display_name="Interest Distribution Amount",
+                    field_type=FieldType.NUMBER,
+                    description="Tranche interest distribution amount",
+                    scope=scope,
+                    category="Cycle Data",
+                    is_default=True
+                ),
+                AvailableField(
+                    field_name="tr_prin_dstrb_amt",
+                    display_name="Principal Distribution Amount",
+                    field_type=FieldType.NUMBER,
+                    description="Tranche principal distribution amount",
+                    scope=scope,
+                    category="Cycle Data",
+                    is_default=True
+                ),
+                AvailableField(
+                    field_name="tr_int_accrl_amt",
+                    display_name="Interest Accrual Amount",
+                    field_type=FieldType.NUMBER,
+                    description="Tranche interest accrual amount",
+                    scope=scope,
+                    category="Cycle Data",
+                    is_default=False
+                ),
+                AvailableField(
+                    field_name="tr_int_shtfl_amt",
+                    display_name="Interest Shortfall Amount",
+                    field_type=FieldType.NUMBER,
+                    description="Tranche interest shortfall amount",
                     scope=scope,
                     category="Cycle Data",
                     is_default=False
@@ -576,12 +649,68 @@ class ReportService:
             # Tranche-level fields
             elif field_name == "tr_id":
                 tranche_data["tr_id"] = tranche.tr_id
-            elif field_name == "cycle_date":
+            elif field_name == "cycle_cde":
                 # Get cycle data if requested
                 tranche_bal = self.dw_dao.get_tranchebal_by_keys(dl_nbr, tr_id)
                 if tranche_bal:
-                    tranche_data["cycle_date"] = tranche_bal.cycle_date
+                    tranche_data["cycle_cde"] = tranche_bal.cycle_cde
                 else:
-                    tranche_data["cycle_date"] = None
+                    tranche_data["cycle_cde"] = None
+            elif field_name == "tr_end_bal_amt":
+                # Get tranche ending balance amount
+                tranche_bal = self.dw_dao.get_tranchebal_by_keys(dl_nbr, tr_id)
+                if tranche_bal:
+                    tranche_data["tr_end_bal_amt"] = tranche_bal.tr_end_bal_amt
+                else:
+                    tranche_data["tr_end_bal_amt"] = None
+            elif field_name == "tr_prin_rel_ls_amt":
+                # Get tranche principal release loss amount
+                tranche_bal = self.dw_dao.get_tranchebal_by_keys(dl_nbr, tr_id)
+                if tranche_bal:
+                    tranche_data["tr_prin_rel_ls_amt"] = tranche_bal.tr_prin_rel_ls_amt
+                else:
+                    tranche_data["tr_prin_rel_ls_amt"] = None
+            elif field_name == "tr_pass_thru_rte":
+                # Get tranche pass-through rate
+                tranche_bal = self.dw_dao.get_tranchebal_by_keys(dl_nbr, tr_id)
+                if tranche_bal:
+                    tranche_data["tr_pass_thru_rte"] = tranche_bal.tr_pass_thru_rte
+                else:
+                    tranche_data["tr_pass_thru_rte"] = None
+            elif field_name == "tr_accrl_days":
+                # Get tranche accrual days
+                tranche_bal = self.dw_dao.get_tranchebal_by_keys(dl_nbr, tr_id)
+                if tranche_bal:
+                    tranche_data["tr_accrl_days"] = tranche_bal.tr_accrl_days
+                else:
+                    tranche_data["tr_accrl_days"] = None
+            elif field_name == "tr_int_dstrb_amt":
+                # Get tranche interest distribution amount
+                tranche_bal = self.dw_dao.get_tranchebal_by_keys(dl_nbr, tr_id)
+                if tranche_bal:
+                    tranche_data["tr_int_dstrb_amt"] = tranche_bal.tr_int_dstrb_amt
+                else:
+                    tranche_data["tr_int_dstrb_amt"] = None
+            elif field_name == "tr_prin_dstrb_amt":
+                # Get tranche principal distribution amount
+                tranche_bal = self.dw_dao.get_tranchebal_by_keys(dl_nbr, tr_id)
+                if tranche_bal:
+                    tranche_data["tr_prin_dstrb_amt"] = tranche_bal.tr_prin_dstrb_amt
+                else:
+                    tranche_data["tr_prin_dstrb_amt"] = None
+            elif field_name == "tr_int_accrl_amt":
+                # Get tranche interest accrual amount
+                tranche_bal = self.dw_dao.get_tranchebal_by_keys(dl_nbr, tr_id)
+                if tranche_bal:
+                    tranche_data["tr_int_accrl_amt"] = tranche_bal.tr_int_accrl_amt
+                else:
+                    tranche_data["tr_int_accrl_amt"] = None
+            elif field_name == "tr_int_shtfl_amt":
+                # Get tranche interest shortfall amount
+                tranche_bal = self.dw_dao.get_tranchebal_by_keys(dl_nbr, tr_id)
+                if tranche_bal:
+                    tranche_data["tr_int_shtfl_amt"] = tranche_bal.tr_int_shtfl_amt
+                else:
+                    tranche_data["tr_int_shtfl_amt"] = None
         
         return tranche_data
