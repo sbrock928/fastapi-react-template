@@ -130,7 +130,7 @@ export interface TrancheReportRow {
 
 // Cycle Selection Types (simplified for new schema)
 export interface CycleOption {
-  value: number;
+  value: string;
   label: string;
 }
 

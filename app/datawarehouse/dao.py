@@ -72,11 +72,11 @@ class DatawarehouseDAO:
         
         Returns dummy cycle data for now since cycle functionality is not yet implemented.
         """
-        # Return dummy cycle data
+        # Return dummy cycle data with string values to match API response model
         return [
-            {"label": "2024 Q1", "value": 20241},
-            {"label": "2024 Q2", "value": 20242},
-            {"label": "2024 Q3", "value": 20243},
-            {"label": "2024 Q4", "value": 20244},
-            {"label": "2025 Q1", "value": 20251},
+            {"label": "2024 Q1", "value": "20241"},
+            {"label": "2024 Q2", "value": "20242"},
+            {"label": "2024 Q3", "value": "20243"},
+            {"label": "2024 Q4", "value": "20244"},
+            {"label": "2025 Q1", "value": "20251"},
         ]
