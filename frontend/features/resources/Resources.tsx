@@ -1,162 +1,71 @@
-import { useState, useEffect } from 'react';
-import { resourcesApi } from '@/services/api';
-import { useToast } from '@/context';
+// frontend/features/resources/ResourcesRefactored.tsx
+import { useState } from 'react';
 import { resourceConfig } from '@/config';
 import { ResourceModal } from './components';
 import { usePagination } from '@/hooks';
-import type { ResourceItem, ResourceConfig } from '@/types';
+import { 
+  useResourcesData,
+  useResourcesFiltering,
+  useResourcesModal,
+  useResourcesTable
+} from './hooks';
+import type { ResourceConfig } from '@/types';
 
 const Resources = () => {
-  // State variables
+  // Resource type state
   const [activeResource, setActiveResource] = useState<string>('');
-  const [items, setItems] = useState<ResourceItem[]>([]);
-  const [filteredItems, setFilteredItems] = useState<ResourceItem[]>([]);
-  const [filterText, setFilterText] = useState<string>('');
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [currentItem, setCurrentItem] = useState<ResourceItem | null>(null);
-  const [showModal, setShowModal] = useState<boolean>(false);
-  const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
-  
-  // Use the toast hook
-  const { showToast } = useToast();
-  
-  // Replace pagination state with usePagination hook
-  const getPagination = usePagination<ResourceItem>({ initialPage: 1, itemsPerPage: 10 });
+
+  // Data management hook
+  const {
+    items,
+    isLoading,
+    loadResources,
+    deleteResource,
+    getCurrentConfig,
+    getVisibleColumns
+  } = useResourcesData({ activeResource });
+
+  // Filtering hook
+  const {
+    filterText,
+    filteredItems,
+    setFilterText,
+    clearFilter,
+    getFilterSummary,
+    isFilterActive
+  } = useResourcesFiltering({ items, activeResource });
+
+  // Modal management hook
+  const {
+    currentItem,
+    showModal,
+    modalMode,
+    showCreateModal,
+    showEditModal,
+    handleModalClose,
+    handleResourceSaved,
+    canShowModal
+  } = useResourcesModal({ 
+    activeResource, 
+    onResourceSaved: loadResources 
+  });
+
+  // Table rendering hook
+  const {
+    formatCellContent,
+    showEmptyState,
+    showLoadingState,
+    showTableData,
+    getEmptyStateMessage
+  } = useResourcesTable({ 
+    filteredItems, 
+    isLoading, 
+    filterText 
+  });
+
+  // Pagination hook
+  const getPagination = usePagination<any>({ initialPage: 1, itemsPerPage: 10 });
   const pagination = getPagination(filteredItems);
-
-  // Fetch resources when resource type changes
-  useEffect(() => {
-    if (activeResource) {
-      loadResources();
-    }
-  }, [activeResource]);
-
-  // Filter items when filter text changes
-  useEffect(() => {
-    filterItems();
-  }, [filterText, items]);
-
-  // Load resources from API
-  const loadResources = async () => {
-    if (!activeResource) return;
-
-    setIsLoading(true);
-    try {
-      const config = resourceConfig[activeResource];
-      const response = await resourcesApi.getAll(config.apiEndpoint);
-      setItems(response.data);
-      setFilteredItems(response.data);
-    } catch (error) {
-      console.error('Error loading resources:', error);
-      showToast('Error loading resources', 'error');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Filter items based on search input
-  const filterItems = () => {
-    if (!activeResource || !items.length) {
-      setFilteredItems([]);
-      return;
-    }
-
-    if (!filterText.trim()) {
-      setFilteredItems(items);
-      return;
-    }
-
-    const config = resourceConfig[activeResource];
-    const searchableColumns = config.columns.filter((col: { type: string; searchable?: boolean }) => 
-      col.type !== 'hidden' && col.type !== 'password'
-    );
-
-    const filtered = items.filter(item => {
-      return searchableColumns.some((column: { field: string }) => {
-        const value = item[column.field];
-        if (value !== undefined && value !== null) {
-          return String(value).toLowerCase().includes(filterText.toLowerCase());
-        }
-        return false;
-      });
-    });
-
-    setFilteredItems(filtered);
-  };
-
-  // Clear filter
-  const clearFilter = () => {
-    setFilterText('');
-  };
-
-  // Show create modal
-  const showCreateModal = () => {
-    const emptyItem: ResourceItem = {};
-    
-    // Initialize with empty values or defaults
-    if (activeResource) {
-      const config = resourceConfig[activeResource];
-      config.columns.forEach((col: { type: string; field: string; options?: Array<{value: string | number}> }) => {
-        if (col.type === 'checkbox') {
-          emptyItem[col.field] = false;
-        } else if (col.type === 'select' && col.options && col.options.length > 0) {
-          emptyItem[col.field] = col.options[0].value;
-        } else {
-          emptyItem[col.field] = '';
-        }
-      });
-    }
-    
-    setCurrentItem(emptyItem);
-    setModalMode('create');
-    setShowModal(true);
-  };
-
-  // Show edit modal
-  const showEditModal = (item: ResourceItem) => {
-    setCurrentItem({...item});
-    setModalMode('edit');
-    setShowModal(true);
-  };
-
-  // Handle modal close
-  const handleModalClose = () => {
-    setShowModal(false);
-  };
-
-  // Handle resource saved
-  const handleResourceSaved = () => {
-    loadResources();
-    setShowModal(false);
-  };
-
-  // Delete resource
-  const deleteResource = async (item: ResourceItem) => {
-    if (!activeResource) return;
-    
-    if (!confirm(`Are you sure you want to delete this ${resourceConfig[activeResource].displayName}?`)) {
-      return;
-    }
-    
-    setIsLoading(true);
-    
-    try {
-      const config = resourceConfig[activeResource];
-      const itemId = item[config.idField] || item.id;
-      
-      await resourcesApi.delete(config.apiEndpoint, itemId);
-      
-      // Show success toast notification
-      showToast(`Successfully deleted ${config.displayName}`, 'success');
-      
-      loadResources();
-    } catch (error) {
-      console.error('Error deleting resource:', error);
-      showToast(`Error deleting ${resourceConfig[activeResource].displayName}`, 'error');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   // Handle resource type change
   const handleResourceTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -165,24 +74,40 @@ const Resources = () => {
     setFilterText('');
   };
 
-  // Render resource table
-  const renderResourceTable = () => {
-    if (!activeResource) return null;
-    
-    const config = resourceConfig[activeResource];
-    
-    if (filteredItems.length === 0) {
+  // Get current config safely
+  const currentConfig = getCurrentConfig();
+
+  // Render main content
+  const renderMainContent = () => {
+    if (showLoadingState) {
       return (
-        <div className="alert alert-info">
-          {filterText
-            ? 'No resources match your search criteria.'
-            : 'No resources available. Click "Add New" to create one.'}
+        <div className="text-center py-4">
+          <div className="spinner-border text-primary" role="status">
+            <span className="visually-hidden">Loading...</span>
+          </div>
+          <p className="mt-2">Loading resources...</p>
         </div>
       );
     }
-    
-    // Get visible columns (not hidden)
-    const visibleColumns = config.columns.filter((col: { type: string }) => col.type !== 'hidden');
+
+    if (showEmptyState) {
+      return (
+        <div className="alert alert-info">
+          {getEmptyStateMessage()}
+        </div>
+      );
+    }
+
+    if (showTableData) {
+      return renderResourceTable();
+    }
+
+    return null;
+  };
+
+  // Render resource table
+  const renderResourceTable = () => {
+    const visibleColumns = getVisibleColumns();
     
     return (
       <>
@@ -199,25 +124,11 @@ const Resources = () => {
             <tbody>
               {pagination.pageItems.map((item, idx) => (
                 <tr key={item.id || idx}>
-                  {visibleColumns.map((column: { field: string; type: string; options?: Array<{value: string | number; text: string}> }) => {
-                    let cellContent = item[column.field];
-                    
-                    // Format cell content based on type
-                    if (column.type === 'checkbox') {
-                      cellContent = cellContent ? '✅' : '❌';
-                    } else if (column.type === 'select' && column.options) {
-                      const option = column.options.find((opt: {value: string | number; text: string}) => opt.value === cellContent);
-                      cellContent = option ? option.text : cellContent;
-                    }
-                    
-                    return (
-                      <td key={column.field}>
-                        {cellContent !== undefined && cellContent !== null
-                          ? String(cellContent)
-                          : '-'}
-                      </td>
-                    );
-                  })}
+                  {visibleColumns.map((column: any) => (
+                    <td key={column.field}>
+                      {formatCellContent(item, column)}
+                    </td>
+                  ))}
                   <td className="text-end">
                     <button
                       className="btn btn-sm btn-outline-primary me-2"
@@ -312,8 +223,8 @@ const Resources = () => {
         
         <div className="mt-2">
           <small className="text-muted">
-            Showing {filteredItems.length === 0 ? 0 : pagination.startIndex + 1} to {pagination.endIndex} of {filteredItems.length} {config.displayName.toLowerCase()}s
-            {filterText && ` (filtered from ${items.length} total)`}
+            Showing {filteredItems.length === 0 ? 0 : pagination.startIndex + 1} to {pagination.endIndex} of {filteredItems.length} {currentConfig?.displayName.toLowerCase()}s
+            {getFilterSummary()}
           </small>
         </div>
       </>
@@ -336,7 +247,7 @@ const Resources = () => {
               onClick={showCreateModal}
               disabled={isLoading}
             >
-              <i className="bi bi-plus-circle"></i> Add New {resourceConfig[activeResource].displayName}
+              <i className="bi bi-plus-circle"></i> Add New {currentConfig?.displayName}
             </button>
           )}
         </div>
@@ -374,7 +285,7 @@ const Resources = () => {
                     value={filterText}
                     onChange={(e) => setFilterText(e.target.value)}
                   />
-                  {filterText && (
+                  {isFilterActive() && (
                     <button 
                       className="btn btn-outline-secondary" 
                       type="button"
@@ -389,24 +300,15 @@ const Resources = () => {
             )}
           </div>
           
-          {isLoading && !showModal ? (
-            <div className="text-center py-4">
-              <div className="spinner-border text-primary" role="status">
-                <span className="visually-hidden">Loading...</span>
-              </div>
-              <p className="mt-2">Loading resources...</p>
-            </div>
-          ) : (
-            renderResourceTable()
-          )}
+          {renderMainContent()}
         </div>
       </div>
 
       {/* Resource Modal */}
-      {activeResource && currentItem && showModal && (
+      {canShowModal() && currentItem && showModal && (
         <ResourceModal
           resourceType={activeResource}
-          resourceConfig={resourceConfig[activeResource]}
+          resourceConfig={currentConfig!}
           onClose={handleModalClose}
           onSave={handleResourceSaved}
           editingResource={modalMode === 'edit' ? currentItem : null}

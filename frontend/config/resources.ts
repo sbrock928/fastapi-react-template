@@ -47,10 +47,10 @@ const resourceConfig: Record<string, ResourceConfig> = {
       { field: 'full_name', header: 'Full Name', type: 'text', required: true, minLength: 2 },
       { field: 'subscription_tier', header: 'Subscription Tier', type: 'select', required: true,
         options: [
-          { value: 'free', text: 'Free' },
-          { value: 'basic', text: 'Basic' },
-          { value: 'premium', text: 'Premium' },
-          { value: 'enterprise', text: 'Enterprise' }
+          { value: 'FREE', text: 'Free' },
+          { value: 'BASIC', text: 'Basic' },
+          { value: 'PREMIUM', text: 'Premium' },
+          { value: 'ENTERPRISE', text: 'Enterprise' }
         ]
       },
       { field: 'signup_date', header: 'Signup Date', type: 'datetime-local', required: true },
