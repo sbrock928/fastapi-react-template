@@ -1,7 +1,12 @@
 import React, { useState } from 'react';
 import { reportingApi } from '@/services/api';
 import { useToast } from '@/context/ToastContext';
-import { useReportBuilderForm, useReportBuilderData, useReportBuilderValidation } from './hooks';
+import { 
+  useReportBuilderForm, 
+  useReportBuilderData, 
+  useReportBuilderValidation, 
+  useWizardNavigation 
+} from './hooks';
 import {
   ReportConfigurationStep,
   DealSelectionStep,
@@ -9,6 +14,7 @@ import {
   FieldSelectionStep,
   ReviewConfigurationStep
 } from './wizardSteps';
+import WizardNavigation from './WizardNavigation';
 import type { ReportConfig, Deal, TrancheReportSummary, AvailableField } from '@/types/reporting';
 
 interface ReportBuilderWizardProps {
@@ -25,8 +31,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
   const { showToast } = useToast();
   const isEditMode = mode === 'edit' && editingReport !== null;
 
-  // Wizard state
-  const [currentStep, setCurrentStep] = useState<number>(1);
+  // Component state
   const [loading, setLoading] = useState<boolean>(false);
 
   // Form state management
@@ -65,13 +70,35 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     selectedTranches,
     selectedFields
   };
+
+  // Start with step 1, will be updated by wizard navigation
+  const [currentWizardStep, setCurrentWizardStep] = useState<number>(1);
   
   const {
     canProceed,
     hasFieldError,
     getFieldErrorMessage,
     validateSpecificStep
-  } = useReportBuilderValidation({ formState, currentStep });
+  } = useReportBuilderValidation({ formState, currentStep: currentWizardStep });
+
+  // Wizard navigation management
+  const {
+    currentStep,
+    totalSteps,
+    displayStep,
+    nextStep,
+    prevStep,
+    resetToFirstStep
+  } = useWizardNavigation({
+    reportScope,
+    onValidationError: (message: string) => showToast(message, 'error'),
+    validateStep: validateSpecificStep
+  });
+
+  // Update wizard step state when navigation changes
+  React.useEffect(() => {
+    setCurrentWizardStep(currentStep);
+  }, [currentStep]);
 
   // Handle deal selection
   const handleDealToggle = (dlNbr: number) => {
@@ -119,39 +146,6 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       ...prev,
       [dlNbr]: allTrancheIds
     }));
-  };
-
-  // Wizard navigation
-  const nextStep = () => {
-    // Validate current step before proceeding
-    const validation = validateSpecificStep(currentStep);
-    if (!validation.isValid) {
-      // Show validation errors to user
-      validation.errors.forEach((error: any) => {
-        showToast(error.message, 'error');
-      });
-      return;
-    }
-
-    let nextStepNum = currentStep + 1;
-    
-    // Skip step 3 (tranche selection) for DEAL scope reports
-    if (currentStep === 2 && reportScope === 'DEAL') {
-      nextStepNum = 4; // Jump to field selection
-    }
-    
-    if (nextStepNum <= 5) setCurrentStep(nextStepNum);
-  };
-
-  const prevStep = () => {
-    let prevStepNum = currentStep - 1;
-    
-    // Skip step 3 (tranche selection) for DEAL scope reports when going backwards
-    if (currentStep === 4 && reportScope === 'DEAL') {
-      prevStepNum = 2; // Jump back to deal selection
-    }
-    
-    if (prevStepNum >= 1) setCurrentStep(prevStepNum);
   };
 
   // Save or update report configuration
@@ -205,7 +199,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       
       if (!isEditMode) {
         resetForm();
-        setCurrentStep(1);
+        resetToFirstStep();
       }
       
     } catch (error: any) {
@@ -324,83 +318,24 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     }
   };
 
-  // Determine if user can proceed to next step
-  // This is now handled by the validation hook via the 'canProceed' value
-
-  const totalSteps = reportScope === 'DEAL' ? 4 : 5;
-  const displayStep = reportScope === 'DEAL' && currentStep > 3 ? currentStep - 1 : currentStep;
-
   return (
     <div className="report-builder-wizard">
-      {/* Progress Bar */}
-      <div className="mb-4">
-        <div className="d-flex justify-content-between align-items-center mb-2">
-          <h4>{isEditMode ? 'Edit Report Configuration' : 'Create New Report'}</h4>
-          <span className="badge bg-primary">
-            Step {displayStep} of {totalSteps}
-          </span>
-        </div>
-        <div className="progress">
-          <div
-            className="progress-bar"
-            role="progressbar"
-            style={{ width: `${(displayStep / totalSteps) * 100}%` }}
-            aria-valuenow={(displayStep / totalSteps) * 100}
-            aria-valuemin={0}
-            aria-valuemax={100}
-          ></div>
-        </div>
-      </div>
+      {/* Wizard Navigation */}
+      <WizardNavigation
+        currentStep={displayStep}
+        totalSteps={totalSteps}
+        canProceed={canProceed}
+        isLoading={loading}
+        isEditMode={isEditMode}
+        onPreviousStep={prevStep}
+        onNextStep={nextStep}
+        onSave={saveReportConfig}
+        title={isEditMode ? 'Edit Report Configuration' : 'Create New Report'}
+      />
 
       {/* Step Content */}
       <div className="wizard-content mb-4">
         {renderWizardStep()}
-      </div>
-
-      {/* Navigation Buttons */}
-      <div className="d-flex justify-content-between">
-        <button
-          type="button"
-          className="btn btn-outline-secondary"
-          onClick={prevStep}
-          disabled={currentStep === 1}
-        >
-          <i className="bi bi-arrow-left me-2"></i>
-          Previous
-        </button>
-
-        <div>
-          {currentStep < 5 ? (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={nextStep}
-              disabled={!canProceed}
-            >
-              Next
-              <i className="bi bi-arrow-right ms-2"></i>
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="btn btn-success"
-              onClick={saveReportConfig}
-              disabled={loading || !canProceed}
-            >
-              {loading ? (
-                <>
-                  <span className="spinner-border spinner-border-sm me-2" role="status"></span>
-                  {isEditMode ? 'Updating...' : 'Saving...'}
-                </>
-              ) : (
-                <>
-                  <i className="bi bi-check-circle me-2"></i>
-                  {isEditMode ? 'Update Report' : 'Save Report'}
-                </>
-              )}
-            </button>
-          )}
-        </div>
       </div>
     </div>
   );

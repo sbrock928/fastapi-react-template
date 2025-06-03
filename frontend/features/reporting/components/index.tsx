@@ -8,3 +8,4 @@ export { default as ReportDropdown } from './ReportDropdown';
 export { default as ReportingTable } from './ReportingTable';
 export { default as ReportManagementCard } from './ReportManagementCard';
 export { default as RunReportsCard } from './RunReportsCard';
+export { default as WizardNavigation } from './WizardNavigation';
