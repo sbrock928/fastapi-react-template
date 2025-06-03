@@ -68,6 +68,7 @@ def create_all_tables():
     """Create tables in both databases."""
     # Import models to ensure they're registered with Base classes
     from app.reporting.models import Report  # noqa: F401
+    from app.calculations.models import Calculation  # noqa: F401
     from app.datawarehouse.models import Deal, Tranche, TrancheBal  # noqa: F401
 
     print("Creating config database tables...")
@@ -159,6 +160,7 @@ def create_sample_data():
                 tranche_data = {
                     "dl_nbr": deal.dl_nbr,
                     "tr_id": tr_id,
+                    "tr_cusip_id": f"{deal.issr_cde[:8]}{tr_id[:2]}{str(deal.dl_nbr)[-2:]}"  # Generate synthetic CUSIP
                 }
                 tranches_data.append(tranche_data)
 
@@ -172,17 +174,26 @@ def create_sample_data():
         dw_db.flush()        # Generate tranche balance records
         print("Generating tranche balance data...")
         
-        base_dates = ["2024-01-31", "2024-02-29", "2024-03-31"]  # Different cycle dates
+        base_cycles = [202401, 202402, 202403]  # Different cycle codes
         tranche_bal_data = []
         for tranche in created_tranches:
-            # Create 1-3 balance records per tranche with different cycle dates
+            # Create 1-3 balance records per tranche with different cycle codes
             num_records = random.randint(1, 3)
             
             for record_num in range(num_records):
                 bal_data = {
                     "dl_nbr": tranche.dl_nbr,
                     "tr_id": tranche.tr_id,
-                    "cycle_date": base_dates[record_num % len(base_dates)],
+                    "cycle_cde": base_cycles[record_num % len(base_cycles)],
+                    # Generate realistic financial data
+                    "tr_end_bal_amt": round(random.uniform(1000000, 50000000), 2),
+                    "tr_prin_rel_ls_amt": round(random.uniform(10000, 500000), 2),
+                    "tr_pass_thru_rte": round(random.uniform(0.02, 0.08), 4),
+                    "tr_accrl_days": random.randint(28, 31),
+                    "tr_int_dstrb_amt": round(random.uniform(5000, 100000), 2),
+                    "tr_prin_dstrb_amt": round(random.uniform(50000, 1000000), 2),
+                    "tr_int_accrl_amt": round(random.uniform(1000, 50000), 2),
+                    "tr_int_shtfl_amt": round(random.uniform(0, 10000), 2),
                 }
                 tranche_bal_data.append(bal_data)
 

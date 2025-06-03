@@ -8,6 +8,7 @@ from app.resources.router import router as resource_router
 from app.reporting.router import router as report_router
 from app.logging.router import router as log_router
 from app.documentation.router import router as documentation_router
+from app.calculations.router import router as calculation_router
 
 
 def register_routes(app: FastAPI) -> None:
@@ -22,3 +23,4 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(report_router, prefix="/api")
     app.include_router(log_router, prefix="/api")
     app.include_router(documentation_router, prefix="/api")
+    app.include_router(calculation_router, prefix="/api")
