@@ -6,4 +6,5 @@ export * from './resources';
 export * from './logging';
 export * from './documentation';
 export * from './reporting';
+export * from './calculations';
 export * from './common';
