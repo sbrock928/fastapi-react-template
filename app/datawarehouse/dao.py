@@ -54,7 +54,7 @@ class DatawarehouseDAO:
             stmt = select(TrancheBal).where(
                 TrancheBal.dl_nbr == dl_nbr, 
                 TrancheBal.tr_id == tr_id,
-                TrancheBal.cycle_date == cycle_date
+                TrancheBal.cycle_cde == cycle_date
             )
         else:
             # Get the most recent cycle data if no cycle date specified
