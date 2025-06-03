@@ -147,12 +147,12 @@ async def get_available_tranches(
     request: Dict[str, Any], service: ReportService = Depends(get_report_service)
 ) -> Dict[int, List[Dict[str, Any]]]:
     """Get available tranches for specific deals."""
-    deal_ids = request.get("deal_ids", [])
+    deal_ids = request.get("dl_nbrs", [])  # Fix: use "deal_ids" instead of "dl_nbrs"
     cycle_code = request.get("cycle_code")
 
     tranches_by_deal = await service.get_available_tranches_for_deals(deal_ids, cycle_code)
     return {
-        deal_id: [tranche.model_dump() for tranche in tranches]
+        int(deal_id): tranches  # Remove .model_dump() since tranches are already dictionaries
         for deal_id, tranches in tranches_by_deal.items()
     }
 
