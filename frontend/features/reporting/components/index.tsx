@@ -10,3 +10,4 @@ export { default as ReportingTable } from './ReportingTable';
 export { default as ReportManagementCard } from './ReportManagementCard';
 export { default as RunReportsCard } from './RunReportsCard';
 export { default as WizardNavigation } from './WizardNavigation';
+export { default as SQLPreviewModal } from './SQLPreviewModal';

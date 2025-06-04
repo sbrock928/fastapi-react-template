@@ -79,6 +79,13 @@ const reportingApi = {
     return apiClient.post(`/reports/run/${reportId}`, { cycle_code: cycleCode });
   },
 
+  // Preview SQL for a report (NEW)
+  previewReportSQL: (reportId: number, cycleCode: string): Promise<{ data: any }> => {
+    return apiClient.get(`/reports/${reportId}/preview-sql`, { 
+      params: { cycle_code: parseInt(cycleCode) } 
+    });
+  },
+
   // ===== STATISTICS AND METADATA =====
   
   // Get available cycles from data warehouse
