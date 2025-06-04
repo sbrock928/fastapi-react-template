@@ -90,7 +90,6 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     prevStep,
     resetToFirstStep
   } = useWizardNavigation({
-    reportScope,
     onValidationError: (message: string) => showToast(message, 'error'),
     validateStep: validateSpecificStep
   });
@@ -244,6 +243,33 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       setSelectedFields(defaultFields);
     }
   }, [availableFields, isEditMode, selectedFields.length, setSelectedFields]);
+
+  // Auto-select all tranches when they are loaded (only for new reports)
+  React.useEffect(() => {
+    if (!isEditMode && Object.keys(tranches).length > 0) {
+      const autoSelectedTranches: Record<number, string[]> = {};
+      
+      // Auto-select all tranches for each deal
+      Object.entries(tranches).forEach(([dealId, dealTranches]) => {
+        const dlNbr = parseInt(dealId);
+        if (selectedDeals.includes(dlNbr)) {
+          autoSelectedTranches[dlNbr] = dealTranches.map((t: TrancheReportSummary) => t.tr_id);
+        }
+      });
+      
+      // Only update if we don't already have selections for these deals
+      setSelectedTranches((prev: Record<number, string[]>) => {
+        const shouldUpdate = Object.keys(autoSelectedTranches).some(dealId => 
+          !prev[parseInt(dealId)] || prev[parseInt(dealId)].length === 0
+        );
+        
+        if (shouldUpdate) {
+          return { ...prev, ...autoSelectedTranches };
+        }
+        return prev;
+      });
+    }
+  }, [tranches, isEditMode, selectedDeals, setSelectedTranches]);
 
   // Render wizard step content
   const renderWizardStep = () => {

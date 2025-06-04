@@ -1,26 +1,24 @@
 import { useState } from 'react';
 
 interface UseWizardNavigationProps {
-  reportScope: 'DEAL' | 'TRANCHE' | '';
   onValidationError: (message: string) => void;
   validateStep: (step: number) => { isValid: boolean; errors: Array<{ message: string }> };
 }
 
 export const useWizardNavigation = ({ 
-  reportScope, 
   onValidationError,
   validateStep 
 }: UseWizardNavigationProps) => {
   const [currentStep, setCurrentStep] = useState<number>(1);
 
-  // Calculate total steps based on report scope
+  // Calculate total steps - always 5 steps now that tranche selection is required for both DEAL and TRANCHE reports
   const getTotalSteps = () => {
-    return reportScope === 'DEAL' ? 4 : 5;
+    return 5;
   };
 
-  // Calculate display step (adjust for skipped steps)
+  // Calculate display step - no adjustments needed since no steps are skipped
   const getDisplayStep = () => {
-    return reportScope === 'DEAL' && currentStep > 3 ? currentStep - 1 : currentStep;
+    return currentStep;
   };
 
   // Navigate to next step with validation
@@ -37,10 +35,7 @@ export const useWizardNavigation = ({
 
     let nextStepNum = currentStep + 1;
     
-    // Skip step 3 (tranche selection) for DEAL scope reports
-    if (currentStep === 2 && reportScope === 'DEAL') {
-      nextStepNum = 4; // Jump to field selection
-    }
+    // No longer skip step 3 for DEAL scope reports - tranches are now required for both
     
     if (nextStepNum <= 5) setCurrentStep(nextStepNum);
   };
@@ -49,10 +44,7 @@ export const useWizardNavigation = ({
   const prevStep = () => {
     let prevStepNum = currentStep - 1;
     
-    // Skip step 3 (tranche selection) for DEAL scope reports when going backwards
-    if (currentStep === 4 && reportScope === 'DEAL') {
-      prevStepNum = 2; // Jump back to deal selection
-    }
+    // No longer skip step 3 for DEAL scope reports - tranches are now required for both
     
     if (prevStepNum >= 1) setCurrentStep(prevStepNum);
   };

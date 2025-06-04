@@ -1,5 +1,5 @@
 // frontend/features/logging/hooks/useLogsAutoRefresh.ts
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 interface UseLogsAutoRefreshProps {
   onRefresh: () => void;
@@ -8,37 +8,44 @@ interface UseLogsAutoRefreshProps {
 export const useLogsAutoRefresh = ({ onRefresh }: UseLogsAutoRefreshProps) => {
   const [autoRefresh, setAutoRefresh] = useState<boolean>(false);
   const [refreshInterval, setRefreshInterval] = useState<number>(30); // seconds
-  const [refreshTimerId, setRefreshTimerId] = useState<number | null>(null);
+  const refreshTimerId = useRef<number | null>(null);
+  const onRefreshRef = useRef(onRefresh);
+
+  // Keep the callback reference up to date
+  useEffect(() => {
+    onRefreshRef.current = onRefresh;
+  }, [onRefresh]);
 
   // Auto-refresh functionality
   useEffect(() => {
+    // Clear any existing timer first
+    if (refreshTimerId.current) {
+      window.clearInterval(refreshTimerId.current);
+      refreshTimerId.current = null;
+    }
+
     if (autoRefresh) {
       const timerId = window.setInterval(() => {
         console.log('Auto-refreshing logs...');
-        onRefresh();
+        onRefreshRef.current();
       }, refreshInterval * 1000);
       
-      setRefreshTimerId(timerId as unknown as number);
+      refreshTimerId.current = timerId;
       
       return () => {
-        if (refreshTimerId) {
-          window.clearInterval(refreshTimerId);
-        }
+        window.clearInterval(timerId);
       };
-    } else if (refreshTimerId) {
-      window.clearInterval(refreshTimerId);
-      setRefreshTimerId(null);
     }
-  }, [autoRefresh, refreshInterval, onRefresh]);
+  }, [autoRefresh, refreshInterval]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (refreshTimerId) {
-        window.clearInterval(refreshTimerId);
+      if (refreshTimerId.current) {
+        window.clearInterval(refreshTimerId.current);
       }
     };
-  }, [refreshTimerId]);
+  }, []);
 
   const handleAutoRefreshChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setAutoRefresh(e.target.checked);

@@ -34,10 +34,10 @@ export const useReportBuilderData = ({ reportScope, selectedDeals, isEditMode }:
     }
   }, [reportScope, isEditMode]);
 
-  // Load tranches when deals are selected for TRANCHE scope
+  // Load tranches when deals are selected for both DEAL and TRANCHE scope
   useEffect(() => {
     const loadTranches = async () => {
-      if (selectedDeals.length > 0 && reportScope === 'TRANCHE') {
+      if (selectedDeals.length > 0 && (reportScope === 'TRANCHE' || reportScope === 'DEAL')) {
         setTranchesLoading(true);
         try {
           const response = await reportingApi.getTranches(selectedDeals);
