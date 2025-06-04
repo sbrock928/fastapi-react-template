@@ -30,8 +30,8 @@ const RunReportsCard: React.FC<RunReportsCardProps> = ({
   const [previewLoading, setPreviewLoading] = useState<boolean>(false);
 
   // Check if both report and cycle are selected
-  const canRunReport = selectedSavedReport && selectedCycle && selectedCycle.value !== '';
-  const canPreviewSQL = selectedSavedReport && selectedCycle && selectedCycle.value !== '';
+  const canRunReport = selectedSavedReport && selectedCycle && selectedCycle.value !== 0;
+  const canPreviewSQL = selectedSavedReport && selectedCycle && selectedCycle.value !== 0;
 
   // Handle SQL Preview
   const handlePreviewSQL = async () => {
@@ -170,14 +170,14 @@ const RunReportsCard: React.FC<RunReportsCardProps> = ({
               </div>
             )}
             
-            {selectedSavedReport && (!selectedCycle || selectedCycle.value === '') && (
+            {selectedSavedReport && (!selectedCycle || selectedCycle.value === 0) && (
               <div className={`alert alert-warning ${styles.warningAlert}`}>
                 <i className={`bi bi-exclamation-triangle ${styles.warningIcon}`}></i>
                 Please select a cycle to run the report.
               </div>
             )}
 
-            {selectedSavedReport && selectedCycle && selectedCycle.value !== '' && (
+            {selectedSavedReport && selectedCycle && selectedCycle.value !== 0 && (
               <div className={`alert alert-info ${styles.infoAlert}`}>
                 <i className={`bi bi-info-circle ${styles.infoIcon}`}></i>
                 Ready to run: <strong>{savedReports.find(r => r.id.toString() === selectedSavedReport)?.name}</strong> for cycle <strong>{selectedCycle.label}</strong>

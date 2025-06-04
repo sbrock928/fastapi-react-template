@@ -3,8 +3,10 @@ import { useCycleContext } from '@/context/CycleContext';
 
 const CycleDropdown: React.FC = () => {
   const { cycleCodes, selectedCycle, setSelectedCycle, loading, error } = useCycleContext();
+  
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const selected = cycleCodes.find(c => c.value === e.target.value);
+    const selectedValue = parseInt(e.target.value, 10);
+    const selected = cycleCodes.find(c => c.value === selectedValue);
     setSelectedCycle(selected || null);
   };
 
@@ -24,12 +26,12 @@ const CycleDropdown: React.FC = () => {
         id="cycleCode"
         name="cycle_code"
         className="form-select"
-        value={selectedCycle?.value || '' }
+        value={selectedCycle?.value || 0 }
         onChange={handleChange}
         disabled={loading}
       >
         {loading ? (
-          <option value="">Loading...</option>
+          <option value={0}>Loading...</option>
         ) : (
           cycleCodes.map(option => (
             <option key={option.value} value={option.value}>

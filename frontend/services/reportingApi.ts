@@ -75,14 +75,14 @@ const reportingApi = {
   },
 
   // Run report by ID with cycle parameter
-  runReportById: (reportId: number, cycleCode: string): Promise<{ data: DealReportRow[] | TrancheReportRow[] }> => {
+  runReportById: (reportId: number, cycleCode: number): Promise<{ data: DealReportRow[] | TrancheReportRow[] }> => {
     return apiClient.post(`/reports/run/${reportId}`, { cycle_code: cycleCode });
   },
 
   // Preview SQL for a report (NEW)
-  previewReportSQL: (reportId: number, cycleCode: string): Promise<{ data: any }> => {
+  previewReportSQL: (reportId: number, cycleCode: number): Promise<{ data: any }> => {
     return apiClient.get(`/reports/${reportId}/preview-sql`, { 
-      params: { cycle_code: parseInt(cycleCode) } 
+      params: { cycle_code: (cycleCode) } 
     });
   },
 

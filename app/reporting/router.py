@@ -182,7 +182,7 @@ async def get_available_tranches(
     }
 
 
-@router.get("/data/cycles", response_model=List[Dict[str, str]])
+@router.get("/data/cycles", response_model=List[Dict[str, Any]])
 async def get_available_cycles(
     service: ReportService = Depends(get_report_service),
 ) -> List[Dict[str, str]]:

@@ -71,7 +71,7 @@ const ReportingContent = () => {
       return;
     }
 
-    if (!selectedCycle || selectedCycle.value === '') {
+    if (!selectedCycle || selectedCycle.value === 0) {
       showToast('Please select a cycle', 'warning');
       return;
     }

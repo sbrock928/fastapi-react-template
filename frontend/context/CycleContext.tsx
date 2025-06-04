@@ -40,9 +40,9 @@ export const CycleProvider: React.FC<CycleProviderProps> = ({ children }) => {
         const response = await reportingApi.getAvailableCycles();
 
         const options = [
-          { value: '', label: 'Select a Cycle' },
+          { value: 0, label: 'Select a Cycle' },
           ...response.data.map((item: { label: string; value: string }) => ({
-            value: item.value,
+            value: parseInt(item.value, 10),
             label: item.label
           }))
         ];
