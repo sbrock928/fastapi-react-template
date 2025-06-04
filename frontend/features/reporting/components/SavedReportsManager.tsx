@@ -146,7 +146,7 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
           <option value="">Select a saved report...</option>
           {savedReports.map(report => (
             <option key={report.id} value={report.id.toString()}>
-              {report.name} ({report.scope} Level • {report.deal_count} deals • {report.field_count} fields
+              {report.name} ({report.scope} Level • {report.deal_count} deals • {report.calculation_count} calculations
               {report.scope === 'TRANCHE' && ` • ${report.tranche_count} tranches`})
             </option>
           ))}
@@ -173,7 +173,7 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
                         <strong>Deals:</strong> {selectedReport.deal_count}
                       </div>
                       <div className="col-sm-6">
-                        <strong>Fields:</strong> {selectedReport.field_count}
+                        <strong>Calculations:</strong> {selectedReport.calculation_count}
                       </div>
                       {selectedReport.scope === 'TRANCHE' && (
                         <div className="col-sm-6">
@@ -202,7 +202,9 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
             <i className="bi bi-info-circle me-2"></i>
             No saved reports found. Create your first report configuration to get started.
           </div>
-        )}      </div>      <div className="col-md-4">
+        )}      
+      </div>      
+      <div className="col-md-4">
         <div className="d-flex flex-column gap-2" style={{ paddingTop: '2rem' }}>
           <button
             type="button"

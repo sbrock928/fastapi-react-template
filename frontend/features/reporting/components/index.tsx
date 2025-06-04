@@ -1,6 +1,7 @@
 // Export all reporting components
 export { default as DealSelector } from './DealSelector';
 export { default as TrancheSelector } from './TrancheSelector';
+export { default as CalculationSelector } from './CalculationSelector'; // Added CalculationSelector
 export { default as ReportBuilderWizard } from './ReportBuilderWizard';
 export { default as SavedReportsManager } from './SavedReportsManager';
 export { default as CycleDropdown } from './CycleDropdown';

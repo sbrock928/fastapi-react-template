@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { reportingApi } from '@/services/api';
 import { useToast } from '@/context/ToastContext';
-import type { Deal, TrancheReportSummary, AvailableField } from '@/types/reporting';
+import type { Deal, TrancheReportSummary, AvailableCalculation } from '@/types/reporting';
 
 interface UseReportBuilderDataProps {
   reportScope: 'DEAL' | 'TRANCHE' | '';
@@ -15,22 +15,22 @@ export const useReportBuilderData = ({ reportScope, selectedDeals, isEditMode }:
   // Data state
   const [deals, setDeals] = useState<Deal[]>([]);
   const [tranches, setTranches] = useState<Record<string, TrancheReportSummary[]>>({});
-  const [availableFields, setAvailableFields] = useState<AvailableField[]>([]);
+  const [availableCalculations, setAvailableCalculations] = useState<AvailableCalculation[]>([]);
   
   // Loading states
   const [dealsLoading, setDealsLoading] = useState<boolean>(false);
   const [tranchesLoading, setTranchesLoading] = useState<boolean>(false);
-  const [fieldsLoading, setFieldsLoading] = useState<boolean>(false);
+  const [calculationsLoading, setCalculationsLoading] = useState<boolean>(false);
 
   // Load deals when hook initializes
   useEffect(() => {
     loadDeals();
   }, []);
 
-  // Load available fields when scope changes
+  // Load available calculations when scope changes
   useEffect(() => {
     if (reportScope === 'DEAL' || reportScope === 'TRANCHE') {
-      loadAvailableFields(reportScope);
+      loadAvailableCalculations(reportScope);
     }
   }, [reportScope, isEditMode]);
 
@@ -68,17 +68,17 @@ export const useReportBuilderData = ({ reportScope, selectedDeals, isEditMode }:
     }
   };
 
-  // Load available fields based on scope
-  const loadAvailableFields = async (scope: 'DEAL' | 'TRANCHE') => {
-    setFieldsLoading(true);
+  // Load available calculations based on scope
+  const loadAvailableCalculations = async (scope: 'DEAL' | 'TRANCHE') => {
+    setCalculationsLoading(true);
     try {
-      const response = await reportingApi.getAvailableFields(scope);
-      setAvailableFields(response.data);
+      const response = await reportingApi.getAvailableCalculations(scope);
+      setAvailableCalculations(response.data);
     } catch (error) {
-      console.error('Error loading available fields:', error);
-      showToast('Error loading available fields', 'error');
+      console.error('Error loading available calculations:', error);
+      showToast('Error loading available calculations', 'error');
     } finally {
-      setFieldsLoading(false);
+      setCalculationsLoading(false);
     }
   };
 
@@ -86,15 +86,15 @@ export const useReportBuilderData = ({ reportScope, selectedDeals, isEditMode }:
     // Data
     deals,
     tranches,
-    availableFields,
+    availableCalculations, // Changed from availableFields
     
     // Loading states
     dealsLoading,
     tranchesLoading,
-    fieldsLoading,
+    calculationsLoading, // Changed from fieldsLoading
     
     // Functions
     loadDeals,
-    loadAvailableFields
+    loadAvailableCalculations // Changed from loadAvailableFields
   };
 };

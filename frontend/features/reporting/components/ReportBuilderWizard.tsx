@@ -11,11 +11,11 @@ import {
   ReportConfigurationStep,
   DealSelectionStep,
   TrancheSelectionStep,
-  FieldSelectionStep,
+  CalculationSelectionStep, // Changed from FieldSelectionStep
   ReviewConfigurationStep
 } from './wizardSteps';
 import WizardNavigation from './WizardNavigation';
-import type { ReportConfig, Deal, TrancheReportSummary, AvailableField } from '@/types/reporting';
+import type { ReportConfig, Deal, TrancheReportSummary, AvailableCalculation } from '@/types/reporting'; // Changed from AvailableField
 
 interface ReportBuilderWizardProps {
   onReportSaved: () => void;
@@ -41,13 +41,13 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     reportScope,
     selectedDeals,
     selectedTranches,
-    selectedFields,
+    selectedCalculations, // Changed from selectedFields
     setReportName,
     setReportDescription,
     setReportScope,
     setSelectedDeals,
     setSelectedTranches,
-    setSelectedFields,
+    setSelectedCalculations, // Changed from setSelectedFields
     resetForm
   } = useReportBuilderForm({ editingReport, isEditMode });
 
@@ -55,10 +55,10 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
   const {
     deals,
     tranches,
-    availableFields,
+    availableCalculations, // Changed from availableFields
     dealsLoading,
     tranchesLoading,
-    fieldsLoading
+    calculationsLoading // Changed from fieldsLoading
   } = useReportBuilderData({ reportScope, selectedDeals, isEditMode });
 
   // Validation management
@@ -68,7 +68,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     reportScope,
     selectedDeals,
     selectedTranches,
-    selectedFields
+    selectedCalculations // Changed from selectedFields
   };
 
   // Start with step 1, will be updated by wizard navigation
@@ -175,7 +175,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
           description: reportDescription || undefined,
           scope: reportScope as 'DEAL' | 'TRANCHE',
           selected_deals: transformedSelectedDeals,
-          selected_fields: selectedFields
+          selected_calculations: selectedCalculations // Changed from selected_fields
         };
 
         await reportingApi.updateReport(editingReport.id, updateData);
@@ -187,7 +187,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
           scope: reportScope as 'DEAL' | 'TRANCHE',
           created_by: 'current_user',
           selected_deals: transformedSelectedDeals,
-          selected_fields: selectedFields
+          selected_calculations: selectedCalculations // Changed from selected_fields
         };
 
         await reportingApi.createReport(reportConfig);
@@ -229,20 +229,19 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     }
   };
 
-  // Auto-select default fields when fields are loaded (only for new reports)
+  // Auto-select default calculations when they are loaded (only for new reports)
   React.useEffect(() => {
-    if (availableFields.length > 0 && !isEditMode && selectedFields.length === 0) {
-      const defaultFields = availableFields
-        .filter((field: AvailableField) => field.is_default)
-        .map((field: AvailableField) => ({
-          field_name: field.field_name,
-          display_name: field.display_name,
-          field_type: field.field_type,
-          is_required: false
+    if (availableCalculations.length > 0 && !isEditMode && selectedCalculations.length === 0) {
+      const defaultCalculations = availableCalculations
+        .filter((calc: AvailableCalculation) => calc.is_default)
+        .map((calc: AvailableCalculation, index: number) => ({
+          calculation_id: calc.id,
+          display_order: index,
+          display_name: undefined
         }));
-      setSelectedFields(defaultFields);
+      setSelectedCalculations(defaultCalculations);
     }
-  }, [availableFields, isEditMode, selectedFields.length, setSelectedFields]);
+  }, [availableCalculations, isEditMode, selectedCalculations.length, setSelectedCalculations]);
 
   // Auto-select all tranches when they are loaded (only for new reports)
   React.useEffect(() => {
@@ -317,12 +316,12 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
 
       case 4:
         return (
-          <FieldSelectionStep
+          <CalculationSelectionStep
             reportScope={reportScope}
-            availableFields={availableFields}
-            selectedFields={selectedFields}
-            onFieldsChange={setSelectedFields}
-            loading={fieldsLoading}
+            availableCalculations={availableCalculations} // Changed from availableFields
+            selectedCalculations={selectedCalculations} // Changed from selectedFields
+            onCalculationsChange={setSelectedCalculations} // Changed from onFieldsChange
+            loading={calculationsLoading} // Changed from fieldsLoading
           />
         );
 
@@ -334,7 +333,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
             reportScope={reportScope}
             selectedDeals={selectedDeals}
             selectedTranches={selectedTranches}
-            selectedFields={selectedFields}
+            selectedCalculations={selectedCalculations} // Changed from selectedFields
             deals={deals}
           />
         );

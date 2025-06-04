@@ -8,10 +8,10 @@ import type {
   RunReportRequest,
   DealReportRow,
   TrancheReportRow,
-  AvailableField
+  AvailableCalculation // Changed from AvailableField
 } from '@/types/reporting';
 
-// Reporting API service
+// Reporting API service - Updated for calculation-based reporting
 const reportingApi = {
   // ===== DEAL & TRANCHE DATA ENDPOINTS =====
   
@@ -19,7 +19,9 @@ const reportingApi = {
   getDeals: (cycleCode?: number): Promise<{ data: Deal[] }> => {
     const params = cycleCode ? { cycle_code: cycleCode } : {};
     return apiClient.get('/reports/data/deals', { params });
-  },  // Get tranches for specific deals
+  },
+
+  // Get tranches for specific deals
   getTranches: (dlNbrs: number[], cycleCode?: number): Promise<{ data: Record<number, TrancheReportSummary[]> }> => {
     return apiClient.post('/reports/data/tranches', {
       dl_nbrs: dlNbrs,
@@ -78,6 +80,7 @@ const reportingApi = {
   },
 
   // ===== STATISTICS AND METADATA =====
+  
   // Get available cycles from data warehouse
   getAvailableCycles: (): Promise<{ data: Array<{ label: string; value: string }> }> => {
     return apiClient.get('/reports/data/cycles');
@@ -87,9 +90,9 @@ const reportingApi = {
   exportXlsx: (data: { reportType: string, data: ReportRow[], fileName: string }) => 
     apiClient.post('/reports/export-xlsx', data, { responseType: 'blob' }),
 
-  // Get available fields for report building
-  getAvailableFields: (scope: 'DEAL' | 'TRANCHE'): Promise<{ data: AvailableField[] }> => {
-    return apiClient.get('/reports/fields/available', {
+  // Get available calculations for report building (UPDATED)
+  getAvailableCalculations: (scope: 'DEAL' | 'TRANCHE'): Promise<{ data: AvailableCalculation[] }> => {
+    return apiClient.get('/reports/calculations/available', {
       params: { scope }
     });
   }

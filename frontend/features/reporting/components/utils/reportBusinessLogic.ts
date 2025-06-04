@@ -1,10 +1,10 @@
 import type { ReportBuilderFormState } from '../hooks/useReportBuilderForm';
 
 /**
- * Transform form state data into the format expected by the API
+ * Transform form state data into the format expected by the API (calculation-based)
  */
 export const transformFormDataForApi = (formState: ReportBuilderFormState) => {
-  const { selectedDeals, selectedTranches, selectedFields, reportName, reportDescription, reportScope } = formState;
+  const { selectedDeals, selectedTranches, selectedCalculations, reportName, reportDescription, reportScope } = formState;
 
   const transformedSelectedDeals = selectedDeals.map((dlNbr: number) => ({
     dl_nbr: dlNbr,
@@ -19,7 +19,11 @@ export const transformFormDataForApi = (formState: ReportBuilderFormState) => {
     description: reportDescription || undefined,
     scope: reportScope as 'DEAL' | 'TRANCHE',
     selected_deals: transformedSelectedDeals,
-    selected_fields: selectedFields
+    selected_calculations: selectedCalculations.map((calc, index) => ({
+      calculation_id: calc.calculation_id,
+      display_order: calc.display_order ?? index,
+      display_name: calc.display_name || undefined
+    }))
   };
 };
 
@@ -69,7 +73,7 @@ export const parseApiError = (error: any, operation: 'saving' | 'updating'): str
 };
 
 /**
- * Validate report configuration before save
+ * Validate report configuration before save (calculation-based)
  */
 export const validateReportBeforeSave = (formState: ReportBuilderFormState): { isValid: boolean; errors: string[] } => {
   const errors: string[] = [];
@@ -96,8 +100,8 @@ export const validateReportBeforeSave = (formState: ReportBuilderFormState): { i
     }
   }
 
-  if (formState.selectedFields.length === 0) {
-    errors.push('At least one field must be selected');
+  if (formState.selectedCalculations.length === 0) {
+    errors.push('At least one calculation must be selected');
   }
 
   return {

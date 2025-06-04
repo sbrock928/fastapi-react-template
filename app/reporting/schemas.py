@@ -1,4 +1,4 @@
-"""Pydantic schemas for the reporting module."""
+"""Pydantic schemas for the reporting module - Updated for calculation-based reporting."""
 
 from typing import Optional, List, Any
 from datetime import datetime
@@ -13,30 +13,20 @@ class ReportScope(str, Enum):
     TRANCHE = "TRANCHE"
 
 
-class FieldType(str, Enum):
-    """Enumeration of field types for reporting."""
-    
-    TEXT = "text"
-    NUMBER = "number"
-    DATE = "date"
-    PERCENTAGE = "percentage"
-
-
-class ReportFieldBase(BaseModel):
-    """Base schema for report field configurations."""
-    field_name: str
-    display_name: str
-    field_type: FieldType
-    is_required: bool = False
+class ReportCalculationBase(BaseModel):
+    """Base schema for report calculation associations."""
+    calculation_id: int
+    display_order: int = 0
+    display_name: Optional[str] = None
     
     model_config = ConfigDict(from_attributes=True)
 
 
-class ReportFieldCreate(ReportFieldBase):
+class ReportCalculationCreate(ReportCalculationBase):
     pass
 
 
-class ReportField(ReportFieldBase):
+class ReportCalculation(ReportCalculationBase):
     id: int
     report_id: int
 
@@ -93,9 +83,9 @@ class ReportBase(BaseModel):
 
 
 class ReportCreate(ReportBase):
-    """Create schema for reports with normalized structure."""
+    """Create schema for reports with calculation-based structure."""
     selected_deals: List[ReportDealCreate] = []
-    selected_fields: List[ReportFieldCreate] = []
+    selected_calculations: List[ReportCalculationCreate] = []
     
     @field_validator("selected_deals")
     @classmethod
@@ -110,50 +100,43 @@ class ReportCreate(ReportBase):
         
         return v
 
-    @field_validator("selected_fields")
+    @field_validator("selected_calculations")
     @classmethod
-    def validate_selected_fields(cls, v: List[ReportFieldCreate]) -> List[ReportFieldCreate]:
+    def validate_selected_calculations(cls, v: List[ReportCalculationCreate]) -> List[ReportCalculationCreate]:
         if not v:
-            raise ValueError("At least one field must be selected")
+            raise ValueError("At least one calculation must be selected")
         
-        # Check for duplicate field names
-        field_names = [field.field_name for field in v]
-        if len(set(field_names)) != len(field_names):
-            raise ValueError("Duplicate field names are not allowed")
+        # Check for duplicate calculation IDs
+        calc_ids = [calc.calculation_id for calc in v]
+        if len(set(calc_ids)) != len(calc_ids):
+            raise ValueError("Duplicate calculation IDs are not allowed")
         
         return v
 
-    @field_validator("selected_deals")
-    @classmethod
-    def validate_tranche_selections(cls, v: List[ReportDealCreate], info) -> List[ReportDealCreate]:
-        # Get scope from the data being validated
-        if hasattr(info, "data") and info.data and info.data.get("scope") == ReportScope.TRANCHE:
-            # For tranche-level reports, ensure at least one deal has tranches selected
-            has_tranches = any(deal.selected_tranches for deal in v)
+    @model_validator(mode='after')
+    def validate_tranche_selections(self):
+        # For tranche-level reports, ensure at least one deal has tranches selected
+        if self.scope == ReportScope.TRANCHE:
+            has_tranches = any(deal.selected_tranches for deal in self.selected_deals)
             if not has_tranches:
                 raise ValueError("Tranche-level reports must have at least one tranche selected")
-              # Check for duplicate tranche ID within each deal
-            for deal in v:
+              
+            # Check for duplicate tranche ID within each deal
+            for deal in self.selected_deals:
                 tranche_keys = [(tranche.dl_nbr, tranche.tr_id) for tranche in deal.selected_tranches]
                 if len(set(tranche_keys)) != len(tranche_keys):
                     raise ValueError(f"Duplicate tranche keys found for deal {deal.dl_nbr}")
 
-        return v
-
-    @model_validator(mode='after')
-    def validate_with_database_context(self):
-        """Placeholder for database validation - will be handled by service with dependency injection."""
-        # This validator can be extended to accept database context if needed in the future
         return self
 
 
 class ReportRead(ReportBase):
-    """Read schema for reports with normalized structure."""
+    """Read schema for reports with calculation-based structure."""
     id: int
     created_date: datetime
     updated_date: datetime
     selected_deals: List[ReportDeal] = []
-    selected_fields: List[ReportField] = []
+    selected_calculations: List[ReportCalculation] = []
 
 
 class ReportUpdate(BaseModel):
@@ -163,7 +146,7 @@ class ReportUpdate(BaseModel):
     description: Optional[str] = None
     scope: Optional[ReportScope] = None
     selected_deals: Optional[List[ReportDealCreate]] = None
-    selected_fields: Optional[List[ReportFieldCreate]] = None
+    selected_calculations: Optional[List[ReportCalculationCreate]] = None
     is_active: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
@@ -179,29 +162,21 @@ class ReportUpdate(BaseModel):
             return v.strip()
         return v
 
-    @model_validator(mode='after')
-    def validate_update_logic(self):
-        """Validate update-specific business rules."""
-        # If scope is being changed to TRANCHE, ensure deals have tranches
-        if (self.scope == ReportScope.TRANCHE and 
-            self.selected_deals is not None and 
-            self.selected_deals):
-            has_tranches = any(deal.selected_tranches for deal in self.selected_deals)
-            if not has_tranches:
-                raise ValueError("When changing to tranche-level scope, at least one tranche must be selected")
-        return self
 
-
-class AvailableField(BaseModel):
-    """Schema for available fields that can be selected for reports."""
+class AvailableCalculation(BaseModel):
+    """Schema for available calculations that can be selected for reports."""
     
-    field_name: str
-    display_name: str
-    field_type: FieldType
+    id: int
+    name: str
     description: Optional[str] = None
-    scope: ReportScope  # Which report scope this field is available for
-    category: str  # e.g., "Deal", "Tranche", "Cycle Data"
-    is_default: bool = False  # Whether this field should be selected by default
+    aggregation_function: str
+    source_model: str
+    source_field: str
+    group_level: str
+    weight_field: Optional[str] = None
+    scope: ReportScope  # Which report scope this calculation is available for
+    category: str  # e.g., "Balance", "Rates", "Distribution"
+    is_default: bool = False  # Whether this calculation should be selected by default
 
 
 class ReportSummary(BaseModel):
@@ -215,8 +190,12 @@ class ReportSummary(BaseModel):
     created_date: datetime
     deal_count: int
     tranche_count: int
-    field_count: int
+    calculation_count: int  # Changed from field_count
     is_active: bool
+    # Execution statistics
+    total_executions: int = 0
+    last_executed: Optional[datetime] = None
+    last_execution_success: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -229,3 +208,29 @@ class RunReportRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+
+class ReportExecutionLog(BaseModel):
+    """Schema for report execution logs."""
+    
+    id: int
+    report_id: int
+    cycle_code: int
+    executed_by: Optional[str] = None
+    execution_time_ms: Optional[float] = None
+    row_count: Optional[int] = None
+    success: bool
+    error_message: Optional[str] = None
+    executed_at: datetime
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ReportExecutionSummary(BaseModel):
+    """Summary schema for report execution history."""
+    
+    total_executions: int
+    successful_executions: int
+    failed_executions: int
+    avg_execution_time_ms: Optional[float] = None
+    last_execution: Optional[ReportExecutionLog] = None
+    recent_executions: List[ReportExecutionLog] = []

@@ -1,5 +1,4 @@
-# filepath: c:\Users\steph\fastapi-react-template\app\reporting\service.py
-"""Service layer for the reporting module."""
+"""Service layer for the reporting module - Updated for calculation-based reporting."""
 
 from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
@@ -7,13 +6,17 @@ from decimal import Decimal
 from pydantic import ValidationError
 
 from app.reporting.dao import ReportDAO
-from app.reporting.models import Report, ReportDeal, ReportTranche, ReportField
+from app.reporting.models import Report, ReportDeal, ReportTranche, ReportCalculation
 from app.reporting.schemas import (
     ReportRead, ReportCreate, ReportUpdate, ReportSummary, ReportScope,
-    ReportDealCreate, ReportTrancheCreate, ReportFieldCreate, AvailableField, FieldType
+    ReportDealCreate, ReportTrancheCreate, ReportCalculationCreate, AvailableCalculation
 )
 from app.datawarehouse.dao import DatawarehouseDAO
 from app.datawarehouse.schemas import DealRead, TrancheRead
+from app.calculations.repository import CalculationRepository
+from app.calculations.models import Calculation
+from app.shared.query_engine import QueryEngine
+import time
 
 
 class ReportService:
@@ -23,127 +26,75 @@ class ReportService:
         self,
         report_dao: ReportDAO,
         dw_dao: DatawarehouseDAO,
+        query_engine: QueryEngine = None,
     ):
         self.report_dao = report_dao
         self.dw_dao = dw_dao
+        self.query_engine = query_engine
 
-    async def get_available_fields(self, scope: ReportScope) -> List[AvailableField]:
-        """Get available fields for report configuration based on scope."""
-        fields = []
+    async def get_available_calculations(self, scope: ReportScope) -> List[AvailableCalculation]:
+        """Get available calculations for report configuration based on scope."""
         
-        if scope == ReportScope.DEAL:
-            # Deal-level fields
-            fields.extend([
-                AvailableField(
-                    field_name="dl_nbr",
-                    display_name="Deal Number",
-                    field_type=FieldType.NUMBER,
-                    description="Unique deal identifier",
-                    scope=scope,
-                    category="Deal",
-                    is_default=True
-                ),
-                AvailableField(
-                    field_name="issr_cde",
-                    display_name="Issuer Code",
-                    field_type=FieldType.TEXT,
-                    description="Issuer identification code",
-                    scope=scope,
-                    category="Deal",
-                    is_default=True
-                ),
-                AvailableField(
-                    field_name="cdi_file_nme",
-                    display_name="CDI File Name",
-                    field_type=FieldType.TEXT,
-                    description="CDI file name for the deal",
-                    scope=scope,
-                    category="Deal",
-                    is_default=True
-                ),
-                AvailableField(
-                    field_name="CDB_cdi_file_nme",
-                    display_name="CDB CDI File Name",
-                    field_type=FieldType.TEXT,
-                    description="CDB CDI file name for the deal",
-                    scope=scope,
-                    category="Deal",
-                    is_default=False
-                ),
-                AvailableField(
-                    field_name="tranche_count",
-                    display_name="Tranche Count",
-                    field_type=FieldType.NUMBER,
-                    description="Number of tranches in the deal",
-                    scope=scope,
-                    category="Aggregated",
-                    is_default=True
-                )
-            ])
+        # Get calculations from the config database using query engine
+        if not self.query_engine:
+            raise HTTPException(status_code=500, detail="Query engine not available")
             
-        elif scope == ReportScope.TRANCHE:
-            # Tranche-level fields include deal fields plus tranche-specific fields
-            fields.extend([
-                # Deal information
-                AvailableField(
-                    field_name="dl_nbr",
-                    display_name="Deal Number",
-                    field_type=FieldType.NUMBER,
-                    description="Deal number for this tranche",
-                    scope=scope,
-                    category="Deal",
-                    is_default=True
-                ),
-                AvailableField(
-                    field_name="deal_issr_cde",
-                    display_name="Deal Issuer Code",
-                    field_type=FieldType.TEXT,
-                    description="Issuer code for the deal",
-                    scope=scope,
-                    category="Deal",
-                    is_default=True
-                ),
-                AvailableField(
-                    field_name="deal_cdi_file_nme",
-                    display_name="Deal CDI File Name",
-                    field_type=FieldType.TEXT,
-                    description="CDI file name for the deal",
-                    scope=scope,
-                    category="Deal",
-                    is_default=True
-                ),
-                AvailableField(
-                    field_name="deal_CDB_cdi_file_nme",
-                    display_name="Deal CDB CDI File Name",
-                    field_type=FieldType.TEXT,
-                    description="CDB CDI file name for the deal",
-                    scope=scope,
-                    category="Deal",
-                    is_default=False
-                ),
-                # Tranche information
-                AvailableField(
-                    field_name="tr_id",
-                    display_name="Tranche ID",
-                    field_type=FieldType.TEXT,
-                    description="Tranche identifier",
-                    scope=scope,
-                    category="Tranche",
-                    is_default=True
-                ),
-                # Cycle data (from TrancheBal) - these would be available when cycle is selected
-                AvailableField(
-                    field_name="cycle_date",
-                    display_name="Cycle Date",
-                    field_type=FieldType.DATE,
-                    description="Cycle date for the data",
-                    scope=scope,
-                    category="Cycle Data",
-                    is_default=False
-                )
-            ])
+        calc_repo = CalculationRepository(self.query_engine.config_db)
         
-        return fields
+        # Filter calculations by group level (deal/tranche) based on scope
+        if scope == ReportScope.DEAL:
+            calculations = calc_repo.get_all_calculations(group_level="deal")
+        else:
+            calculations = calc_repo.get_all_calculations(group_level="tranche")
+        
+        # Convert to AvailableCalculation format
+        available_calculations = []
+        for calc in calculations:
+            # Determine category based on source model and field
+            category = self._get_calculation_category(calc)
+            
+            # Determine if this should be a default calculation
+            is_default = calc.name in ["Total Ending Balance", "Average Pass Through Rate"]
+            
+            available_calc = AvailableCalculation(
+                id=calc.id,
+                name=calc.name,
+                description=calc.description,
+                aggregation_function=calc.aggregation_function.value,
+                source_model=calc.source_model.value,
+                source_field=calc.source_field,
+                group_level=calc.group_level.value,
+                weight_field=calc.weight_field,
+                scope=scope,
+                category=category,
+                is_default=is_default
+            )
+            available_calculations.append(available_calc)
+        
+        return available_calculations
+
+    def _get_calculation_category(self, calc: Calculation) -> str:
+        """Determine the category for a calculation based on its properties."""
+        source_model = calc.source_model.value
+        source_field = calc.source_field
+        
+        if source_model == "Deal":
+            return "Deal Information"
+        elif source_model == "Tranche":
+            return "Tranche Structure"
+        elif source_model == "TrancheBal":
+            if "bal" in source_field.lower():
+                return "Balance Data"
+            elif "rte" in source_field.lower() or "rate" in source_field.lower():
+                return "Rate Data"
+            elif "dstrb" in source_field.lower() or "distribution" in source_field.lower():
+                return "Distribution Data"
+            elif "accrl" in source_field.lower() or "accrual" in source_field.lower():
+                return "Accrual Data"
+            else:
+                return "Performance Data"
+        else:
+            return "Other"
 
     async def _validate_database_constraints(
         self, 
@@ -200,17 +151,23 @@ class ReportService:
                         missing_keys_str = [f"({dl_nbr}, {tr_id})" for dl_nbr, tr_id in sorted(missing_tranche_keys)]
                         errors.append(f"Tranche keys not found in data warehouse: {missing_keys_str}")
 
-        # Validate field selections
-        if hasattr(report_data, 'selected_fields') and report_data.selected_fields:
-            if hasattr(report_data, 'scope') and report_data.scope:
-                available_fields = await self.get_available_fields(report_data.scope)
-                available_field_names = {field.field_name for field in available_fields}
+        # Validate calculation selections
+        if hasattr(report_data, 'selected_calculations') and report_data.selected_calculations:
+            if self.query_engine:
+                calc_repo = CalculationRepository(self.query_engine.config_db)
+                calc_ids = [calc.calculation_id for calc in report_data.selected_calculations]
                 
-                selected_field_names = {field.field_name for field in report_data.selected_fields}
-                invalid_fields = selected_field_names - available_field_names
+                existing_calculations = []
+                for calc_id in calc_ids:
+                    calc = calc_repo.get_by_id(calc_id)
+                    if calc:
+                        existing_calculations.append(calc)
                 
-                if invalid_fields:
-                    errors.append(f"Invalid field names for {report_data.scope} scope: {sorted(invalid_fields)}")
+                existing_calc_ids = {calc.id for calc in existing_calculations}
+                missing_calc_ids = set(calc_ids) - existing_calc_ids
+                
+                if missing_calc_ids:
+                    errors.append(f"Calculation IDs not found: {sorted(missing_calc_ids)}")
 
         if errors:
             raise HTTPException(status_code=422, detail={"errors": errors})
@@ -228,14 +185,23 @@ class ReportService:
         return ReportRead.model_validate(report)
 
     async def get_all_summaries(self) -> List[ReportSummary]:
-        """Get all reports with summary information."""
+        """Get all reports with summary information including execution statistics."""
         reports = await self.report_dao.get_all()
         summaries = []
 
         for report in reports:
             deal_count = len(report.selected_deals)
             tranche_count = sum(len(deal.selected_tranches) for deal in report.selected_deals)
-            field_count = len(report.selected_fields)
+            calculation_count = len(report.selected_calculations)
+            
+            # Get execution statistics
+            from app.reporting.models import ReportExecutionLog
+            
+            execution_stats = self.query_engine.config_db.query(ReportExecutionLog)\
+                .filter(ReportExecutionLog.report_id == report.id)
+            
+            total_executions = execution_stats.count()
+            last_execution = execution_stats.order_by(ReportExecutionLog.executed_at.desc()).first()
 
             summary = ReportSummary(
                 id=report.id,
@@ -245,15 +211,18 @@ class ReportService:
                 created_date=report.created_date,
                 deal_count=deal_count,
                 tranche_count=tranche_count,
-                field_count=field_count,
+                calculation_count=calculation_count,
                 is_active=report.is_active,
+                total_executions=total_executions,
+                last_executed=last_execution.executed_at if last_execution else None,
+                last_execution_success=last_execution.success if last_execution else None
             )
             summaries.append(summary)
 
         return summaries
 
     async def create(self, report_data: ReportCreate) -> ReportRead:
-        """Create a new report with simplified validation."""
+        """Create a new report with calculation-based validation."""
         # Pydantic already handled structural validation
         # Only validate database constraints
         await self._validate_database_constraints(report_data)
@@ -263,19 +232,19 @@ class ReportService:
         report_dict['scope'] = report_data.scope.value  # Convert enum to string
         
         # Create main report
-        report = Report(**{k: v for k, v in report_dict.items() if k not in ['selected_deals', 'selected_fields']})
+        report = Report(**{k: v for k, v in report_dict.items() if k not in ['selected_deals', 'selected_calculations']})
         
         # Add deals and tranches
         self._populate_deals_and_tranches(report, report_data.selected_deals)
         
-        # Add fields
-        self._populate_fields(report, report_data.selected_fields)
+        # Add calculations
+        self._populate_calculations(report, report_data.selected_calculations)
         
         created_report = await self.report_dao.create(report)
         return ReportRead.model_validate(created_report)
 
     async def update(self, report_id: int, report_data: ReportUpdate) -> Optional[ReportRead]:
-        """Update a report with simplified validation."""
+        """Update a report with calculation-based validation."""
         report = await self.report_dao.get_by_id(report_id)
         if not report:
             return None
@@ -285,7 +254,7 @@ class ReportService:
         await self._validate_database_constraints(report_data, existing_report_id=report_id)
 
         # Update basic fields using Pydantic's model_dump
-        update_data = report_data.model_dump(exclude_unset=True, exclude={'selected_deals', 'selected_fields'})
+        update_data = report_data.model_dump(exclude_unset=True, exclude={'selected_deals', 'selected_calculations'})
         
         # Handle scope enum conversion
         if "scope" in update_data and update_data["scope"]:
@@ -299,10 +268,10 @@ class ReportService:
             report.selected_deals.clear()
             self._populate_deals_and_tranches(report, report_data.selected_deals)
 
-        # Handle fields update if provided
-        if report_data.selected_fields is not None:
-            report.selected_fields.clear()
-            self._populate_fields(report, report_data.selected_fields)
+        # Handle calculations update if provided
+        if report_data.selected_calculations is not None:
+            report.selected_calculations.clear()
+            self._populate_calculations(report, report_data.selected_calculations)
 
         updated_report = await self.report_dao.update(report)
         return ReportRead.model_validate(updated_report)
@@ -312,13 +281,86 @@ class ReportService:
         return await self.report_dao.delete(report_id)
 
     async def run_saved_report(self, report_id: int, cycle_code: int) -> List[Dict[str, Any]]:
-        """Run a saved report by fetching config and querying data warehouse."""
-        report = await self._get_validated_report(report_id)
+        """Run a saved report using the QueryEngine with calculations and execution logging."""
+        if not self.query_engine:
+            raise HTTPException(status_code=500, detail="Query engine not available")
+            
+        start_time = time.time()
         
-        if report.scope == "DEAL":
-            return await self._run_deal_level_report(report, cycle_code)
-        else:
-            return await self._run_tranche_level_report(report, cycle_code)
+        try:
+            report = await self._get_validated_report(report_id)
+            
+            # Get report configuration
+            deal_numbers = [rd.dl_nbr for rd in report.selected_deals]
+            tranche_ids = []
+            
+            # Collect all tranche IDs from selected deals
+            for deal in report.selected_deals:
+                tranche_ids.extend([rt.tr_id for rt in deal.selected_tranches])
+            
+            # If no specific tranches selected, get all tranches for selected deals
+            if not tranche_ids:
+                for dl_nbr in deal_numbers:
+                    deal_tranches = self.dw_dao.get_tranches_by_dl_nbr(dl_nbr)
+                    tranche_ids.extend([t.tr_id for t in deal_tranches])
+            
+            # Get calculations for this report
+            calculations = []
+            calc_repo = CalculationRepository(self.query_engine.config_db)
+            
+            for report_calc in report.selected_calculations:
+                calc = calc_repo.get_by_id(report_calc.calculation_id)
+                if calc:
+                    calculations.append(calc)
+            
+            if not calculations:
+                raise HTTPException(status_code=400, detail="No valid calculations found for report")
+            
+            # Execute using QueryEngine
+            results = self.query_engine.execute_report_query(
+                deal_numbers=deal_numbers,
+                tranche_ids=tranche_ids,
+                cycle_code=cycle_code,
+                calculations=calculations,
+                aggregation_level=report.scope.lower()
+            )
+            
+            # Process results
+            processed_results = self.query_engine.process_report_results(
+                results=results,
+                calculations=calculations,
+                aggregation_level=report.scope.lower()
+            )
+            
+            execution_time = (time.time() - start_time) * 1000
+            
+            # Log successful execution
+            await self._log_execution(
+                report_id=report_id,
+                cycle_code=cycle_code,
+                executed_by="api_user",  # Could be made dynamic
+                execution_time_ms=execution_time,
+                row_count=len(processed_results),
+                success=True
+            )
+            
+            return processed_results
+            
+        except Exception as e:
+            execution_time = (time.time() - start_time) * 1000
+            
+            # Log failed execution
+            await self._log_execution(
+                report_id=report_id,
+                cycle_code=cycle_code,
+                executed_by="api_user",
+                execution_time_ms=execution_time,
+                row_count=0,
+                success=False,
+                error_message=str(e)
+            )
+            
+            raise e
 
     async def _get_validated_report(self, report_id: int) -> Report:
         """Get and validate report configuration."""
@@ -328,98 +370,6 @@ class ReportService:
         if not report.is_active:
             raise HTTPException(status_code=400, detail="Report is inactive")
         return report
-
-    async def _run_deal_level_report(self, report: Report, cycle_code: int) -> List[Dict[str, Any]]:
-        """Generate deal-level report with dynamic field selection."""
-        results = []
-        selected_field_names = [field.field_name for field in report.selected_fields]
-        
-        for report_deal in report.selected_deals:
-            deal_data = await self._get_deal_data_with_fields(report_deal.dl_nbr, selected_field_names)
-            if deal_data:
-                results.append(deal_data)
-        return results
-
-    async def _run_tranche_level_report(self, report: Report, cycle_code: int) -> List[Dict[str, Any]]:
-        """Generate tranche-level report with dynamic field selection."""
-        results = []
-        selected_field_names = [field.field_name for field in report.selected_fields]
-        
-        for report_deal in report.selected_deals:
-            deal = self.dw_dao.get_deal_by_dl_nbr(report_deal.dl_nbr)
-            if not deal:
-                continue
-                
-            for report_tranche in report_deal.selected_tranches:
-                tranche_data = await self._get_tranche_data_with_fields(
-                    deal, report_tranche.dl_nbr, report_tranche.tr_id, selected_field_names, cycle_code
-                )
-                if tranche_data:
-                    results.append(tranche_data)
-        return results
-
-    async def _get_deal_data_with_fields(self, dl_nbr: int, selected_fields: List[str]) -> Optional[Dict[str, Any]]:
-        """Get deal data with only selected fields."""
-        deal = self.dw_dao.get_deal_by_dl_nbr(dl_nbr)
-        if not deal:
-            return None
-
-        # Build the result dict with only selected fields
-        result = {}
-        
-        # Available deal fields
-        available_data = {
-            "dl_nbr": deal.dl_nbr,
-            "issr_cde": deal.issr_cde,
-            "cdi_file_nme": deal.cdi_file_nme,
-            "CDB_cdi_file_nme": deal.CDB_cdi_file_nme,
-        }
-        
-        # Add tranche count if requested
-        if "tranche_count" in selected_fields:
-            tranches = self.dw_dao.get_tranches_by_dl_nbr(dl_nbr)
-            available_data["tranche_count"] = len(tranches)
-        
-        # Only include requested fields
-        for field_name in selected_fields:
-            if field_name in available_data:
-                result[field_name] = available_data[field_name]
-                
-        return result
-
-    async def _get_tranche_data_with_fields(
-        self, deal, dl_nbr: int, tr_id: str, selected_fields: List[str], cycle_code: int
-    ) -> Optional[Dict[str, Any]]:
-        """Get tranche data with only selected fields."""
-        tranche = self.dw_dao.get_tranche_by_keys(dl_nbr, tr_id)
-        if not tranche:
-            return None
-        
-        # Build the result dict with only selected fields
-        result = {}
-        
-        # Available tranche fields
-        available_data = {
-            "dl_nbr": deal.dl_nbr,
-            "deal_issr_cde": deal.issr_cde,
-            "deal_cdi_file_nme": deal.cdi_file_nme,
-            "deal_CDB_cdi_file_nme": deal.CDB_cdi_file_nme,
-            "tr_id": tranche.tr_id,
-        }
-        
-        # Add cycle data if requested
-        if "cycle_date" in selected_fields:
-            # Get cycle data from TrancheBal
-            tranche_bal = self.dw_dao.get_tranchebal_by_keys(dl_nbr, tr_id, cycle_code)
-            if tranche_bal:
-                available_data["cycle_date"] = tranche_bal.cycle_date
-        
-        # Only include requested fields
-        for field_name in selected_fields:
-            if field_name in available_data:
-                result[field_name] = available_data[field_name]
-                
-        return result
 
     async def get_available_deals(self, cycle_code: Optional[int] = None) -> List[DealRead]:
         """Get available deals for report building."""
@@ -472,13 +422,108 @@ class ReportService:
             
             report.selected_deals.append(report_deal)
 
-    def _populate_fields(self, report: Report, selected_fields_data: List) -> None:
-        """Helper method to populate fields for a report."""
-        for field_data in selected_fields_data:
-            report_field = ReportField(
-                field_name=field_data.field_name,
-                display_name=field_data.display_name,
-                field_type=field_data.field_type.value,
-                is_required=field_data.is_required
+    def _populate_calculations(self, report: Report, selected_calculations_data: List) -> None:
+        """Helper method to populate calculations for a report."""
+        for i, calc_data in enumerate(selected_calculations_data):
+            report_calculation = ReportCalculation(
+                calculation_id=calc_data.calculation_id,
+                display_order=calc_data.display_order if hasattr(calc_data, 'display_order') else i,
+                display_name=calc_data.display_name if hasattr(calc_data, 'display_name') else None
             )
-            report.selected_fields.append(report_field)
+            report.selected_calculations.append(report_calculation)
+
+    async def preview_report_sql(self, report_id: int, cycle_code: int) -> Dict[str, Any]:
+        """Preview SQL that would be generated for a report."""
+        if not self.query_engine:
+            raise HTTPException(status_code=500, detail="Query engine not available")
+            
+        report = await self._get_validated_report(report_id)
+        
+        # Get report configuration
+        deal_numbers = [rd.dl_nbr for rd in report.selected_deals]
+        tranche_ids = []
+        
+        # Collect all tranche IDs from selected deals
+        for deal in report.selected_deals:
+            tranche_ids.extend([rt.tr_id for rt in deal.selected_tranches])
+        
+        # If no specific tranches selected, get sample tranches for preview
+        if not tranche_ids:
+            for dl_nbr in deal_numbers[:3]:  # Limit to first 3 deals for preview
+                deal_tranches = self.dw_dao.get_tranches_by_dl_nbr(dl_nbr)
+                tranche_ids.extend([t.tr_id for t in deal_tranches[:2]])  # First 2 tranches per deal
+        
+        # Get calculations for this report
+        calculations = []
+        calc_repo = CalculationRepository(self.query_engine.config_db)
+        
+        for report_calc in report.selected_calculations:
+            calc = calc_repo.get_by_id(report_calc.calculation_id)
+            if calc:
+                calculations.append(calc)
+        
+        if not calculations:
+            raise HTTPException(status_code=400, detail="No valid calculations found for report")
+        
+        # Use QueryEngine to preview SQL
+        return self.query_engine.preview_report_sql(
+            report_name=report.name,
+            aggregation_level=report.scope.lower(),
+            deal_numbers=deal_numbers[:3],  # Limit for preview
+            tranche_ids=tranche_ids[:6],    # Limit for preview
+            cycle_code=cycle_code,
+            calculations=calculations
+        )
+
+    async def get_execution_logs(self, report_id: int, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get execution logs for a report."""
+        report = await self._get_validated_report(report_id)
+        
+        # Import here to avoid circular imports
+        from app.reporting.models import ReportExecutionLog
+        
+        logs = self.query_engine.config_db.query(ReportExecutionLog)\
+            .filter(ReportExecutionLog.report_id == report_id)\
+            .order_by(ReportExecutionLog.executed_at.desc())\
+            .limit(limit).all()
+        
+        return [
+            {
+                "id": log.id,
+                "cycle_code": log.cycle_code,
+                "executed_by": log.executed_by,
+                "execution_time_ms": log.execution_time_ms,
+                "row_count": log.row_count,
+                "success": log.success,
+                "error_message": log.error_message,
+                "executed_at": log.executed_at
+            }
+            for log in logs
+        ]
+
+    async def _log_execution(
+        self,
+        report_id: int,
+        cycle_code: int,
+        executed_by: str,
+        execution_time_ms: float,
+        row_count: int,
+        success: bool,
+        error_message: str = None
+    ) -> None:
+        """Log report execution."""
+        # Import here to avoid circular imports
+        from app.reporting.models import ReportExecutionLog
+        
+        log_entry = ReportExecutionLog(
+            report_id=report_id,
+            cycle_code=cycle_code,
+            executed_by=executed_by,
+            execution_time_ms=execution_time_ms,
+            row_count=row_count,
+            success=success,
+            error_message=error_message
+        )
+        
+        self.query_engine.config_db.add(log_entry)
+        self.query_engine.config_db.commit()

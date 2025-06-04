@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { ReportConfig, ReportField } from '@/types/reporting';
+import type { ReportConfig, ReportCalculation } from '@/types/reporting';
 
 export interface ReportBuilderFormState {
   reportName: string;
@@ -7,7 +7,7 @@ export interface ReportBuilderFormState {
   reportScope: 'DEAL' | 'TRANCHE' | '';
   selectedDeals: number[];
   selectedTranches: Record<number, string[]>;
-  selectedFields: ReportField[];
+  selectedCalculations: ReportCalculation[]; // Changed from selectedFields
 }
 
 interface UseReportBuilderFormProps {
@@ -22,7 +22,7 @@ export const useReportBuilderForm = ({ editingReport, isEditMode }: UseReportBui
     reportScope: '',
     selectedDeals: [],
     selectedTranches: {},
-    selectedFields: []
+    selectedCalculations: [] // Changed from selectedFields
   });
 
   // Initialize form with editing data if in edit mode
@@ -39,7 +39,7 @@ export const useReportBuilderForm = ({ editingReport, isEditMode }: UseReportBui
           }
           return acc;
         }, {} as Record<number, string[]>) || {},
-        selectedFields: editingReport.selected_fields || []
+        selectedCalculations: editingReport.selected_calculations || [] // Changed from selected_fields
       });
     } else {
       // Reset form for new report
@@ -49,7 +49,7 @@ export const useReportBuilderForm = ({ editingReport, isEditMode }: UseReportBui
         reportScope: '',
         selectedDeals: [],
         selectedTranches: {},
-        selectedFields: []
+        selectedCalculations: [] // Changed from selectedFields
       });
     }
   }, [isEditMode, editingReport]);
@@ -83,8 +83,8 @@ export const useReportBuilderForm = ({ editingReport, isEditMode }: UseReportBui
     }
   };
 
-  const setSelectedFields = (fields: ReportField[]) => {
-    setFormState(prev => ({ ...prev, selectedFields: fields }));
+  const setSelectedCalculations = (calculations: ReportCalculation[]) => {
+    setFormState(prev => ({ ...prev, selectedCalculations: calculations }));
   };
 
   // Reset form
@@ -95,7 +95,7 @@ export const useReportBuilderForm = ({ editingReport, isEditMode }: UseReportBui
       reportScope: '',
       selectedDeals: [],
       selectedTranches: {},
-      selectedFields: []
+      selectedCalculations: [] // Changed from selectedFields
     });
   };
 
@@ -106,7 +106,7 @@ export const useReportBuilderForm = ({ editingReport, isEditMode }: UseReportBui
     reportScope: formState.reportScope,
     selectedDeals: formState.selectedDeals,
     selectedTranches: formState.selectedTranches,
-    selectedFields: formState.selectedFields,
+    selectedCalculations: formState.selectedCalculations, // Changed from selectedFields
     
     // State setters
     setReportName,
@@ -114,7 +114,7 @@ export const useReportBuilderForm = ({ editingReport, isEditMode }: UseReportBui
     setReportScope,
     setSelectedDeals,
     setSelectedTranches,
-    setSelectedFields,
+    setSelectedCalculations, // Changed from setSelectedFields
     
     // Utility functions
     resetForm

@@ -1,5 +1,5 @@
 import React from 'react';
-import type { Deal, ReportField } from '@/types/reporting';
+import type { Deal, ReportCalculation } from '@/types/reporting'; // Changed from ReportField
 
 interface ReviewConfigurationStepProps {
   reportName: string;
@@ -7,7 +7,7 @@ interface ReviewConfigurationStepProps {
   reportScope: 'DEAL' | 'TRANCHE' | '';
   selectedDeals: number[];
   selectedTranches: Record<number, string[]>;
-  selectedFields: ReportField[];
+  selectedCalculations: ReportCalculation[]; // Changed from selectedFields
   deals: Deal[];
 }
 
@@ -17,7 +17,7 @@ const ReviewConfigurationStep: React.FC<ReviewConfigurationStepProps> = ({
   reportScope,
   selectedDeals,
   selectedTranches,
-  selectedFields,
+  selectedCalculations, // Changed from selectedFields
   deals
 }) => {
   const stepNumber = reportScope === 'DEAL' ? '4' : '5';
@@ -51,13 +51,13 @@ const ReviewConfigurationStep: React.FC<ReviewConfigurationStepProps> = ({
               )}
             </div>
             
-            {/* Selected Fields Summary */}
+            {/* Selected Calculations Summary */}
             <div className="mt-3">
-              <strong>Selected Fields ({selectedFields.length}):</strong>
+              <strong>Selected Calculations ({selectedCalculations.length}):</strong>
               <div className="mt-2">
-                {selectedFields.map((field: ReportField) => (
-                  <span key={field.field_name} className="badge bg-info me-1 mb-1">
-                    {field.display_name}
+                {selectedCalculations.map((calc: ReportCalculation) => (
+                  <span key={calc.calculation_id} className="badge bg-info me-1 mb-1">
+                    {calc.display_name || `Calculation ${calc.calculation_id}`}
                   </span>
                 ))}
               </div>

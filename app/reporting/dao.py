@@ -1,9 +1,9 @@
-"""Data Access Objects for the reporting module."""
+"""Data Access Objects for the reporting module - Updated with execution logging."""
 
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, func
 from typing import List, Optional
-from app.reporting.models import Report, ReportDeal, ReportTranche, ReportField
+from app.reporting.models import Report, ReportDeal, ReportTranche, ReportCalculation
 
 
 class ReportDAO:
@@ -18,7 +18,7 @@ class ReportDAO:
             select(Report)
             .options(
                 selectinload(Report.selected_deals).selectinload(ReportDeal.selected_tranches),
-                selectinload(Report.selected_fields)
+                selectinload(Report.selected_calculations)
             )
             .where(Report.is_active == True)
         )
@@ -31,7 +31,7 @@ class ReportDAO:
             select(Report)
             .options(
                 selectinload(Report.selected_deals).selectinload(ReportDeal.selected_tranches),
-                selectinload(Report.selected_fields)
+                selectinload(Report.selected_calculations)
             )
             .where(Report.id == report_id)
         )
@@ -45,7 +45,8 @@ class ReportDAO:
             .where(Report.created_by == created_by, Report.is_active == True)
             .order_by(Report.created_date.desc())
             .options(
-                selectinload(Report.selected_deals).selectinload(ReportDeal.selected_tranches)
+                selectinload(Report.selected_deals).selectinload(ReportDeal.selected_tranches),
+                selectinload(Report.selected_calculations)
             )
         )
         result = self.db.execute(stmt)
@@ -84,7 +85,7 @@ class ReportDAO:
         return False
 
     async def hard_delete(self, report_id: int) -> bool:
-        """Hard delete a report by ID (cascade will handle deals, tranches, and fields)"""
+        """Hard delete a report by ID (cascade will handle deals, tranches, and calculations)"""
         report = await self.get_by_id(report_id)
         if report:
             self.db.delete(report)
@@ -106,7 +107,8 @@ class ReportDAO:
             .where(Report.scope == scope, Report.is_active == True)
             .order_by(Report.created_date.desc())
             .options(
-                selectinload(Report.selected_deals).selectinload(ReportDeal.selected_tranches)
+                selectinload(Report.selected_deals).selectinload(ReportDeal.selected_tranches),
+                selectinload(Report.selected_calculations)
             )
         )
         result = self.db.execute(stmt)
@@ -115,7 +117,7 @@ class ReportDAO:
     # Helper methods for granular operations
     async def add_deal_to_report(self, report_id: int, deal_id: int) -> Optional[ReportDeal]:
         """Add a deal to a report"""
-        report_deal = ReportDeal(report_id=report_id, deal_id=deal_id)
+        report_deal = ReportDeal(report_id=report_id, dl_nbr=deal_id)
         self.db.add(report_deal)
         self.db.commit()
         self.db.refresh(report_deal)
@@ -125,7 +127,7 @@ class ReportDAO:
         """Remove a deal from a report (cascade will handle tranches)"""
         stmt = select(ReportDeal).where(
             ReportDeal.report_id == report_id,
-            ReportDeal.deal_id == deal_id
+            ReportDeal.dl_nbr == deal_id
         )
         result = self.db.execute(stmt)
         report_deal = result.scalars().first()
@@ -136,25 +138,38 @@ class ReportDAO:
             return True
         return False
 
-    async def add_tranche_to_deal(self, report_deal_id: int, tranche_id: int) -> Optional[ReportTranche]:
-        """Add a tranche to a report deal"""
-        report_tranche = ReportTranche(report_deal_id=report_deal_id, tranche_id=tranche_id)
-        self.db.add(report_tranche)
+    async def add_calculation_to_report(self, report_id: int, calculation_id: int, display_order: int = 0) -> Optional[ReportCalculation]:
+        """Add a calculation to a report"""
+        report_calculation = ReportCalculation(
+            report_id=report_id, 
+            calculation_id=calculation_id,
+            display_order=display_order
+        )
+        self.db.add(report_calculation)
         self.db.commit()
-        self.db.refresh(report_tranche)
-        return report_tranche
+        self.db.refresh(report_calculation)
+        return report_calculation
 
-    async def remove_tranche_from_deal(self, report_deal_id: int, tranche_id: int) -> bool:
-        """Remove a tranche from a report deal"""
-        stmt = select(ReportTranche).where(
-            ReportTranche.report_deal_id == report_deal_id,
-            ReportTranche.tranche_id == tranche_id
+    async def remove_calculation_from_report(self, report_id: int, calculation_id: int) -> bool:
+        """Remove a calculation from a report"""
+        stmt = select(ReportCalculation).where(
+            ReportCalculation.report_id == report_id,
+            ReportCalculation.calculation_id == calculation_id
         )
         result = self.db.execute(stmt)
-        report_tranche = result.scalars().first()
+        report_calculation = result.scalars().first()
         
-        if report_tranche:
-            self.db.delete(report_tranche)
+        if report_calculation:
+            self.db.delete(report_calculation)
             self.db.commit()
             return True
         return False
+
+    def get_execution_logs(self, report_id: int, limit: int = 50):
+        """Get recent execution logs for a report"""
+        from app.reporting.models import ReportExecutionLog
+        
+        return self.db.query(ReportExecutionLog)\
+            .filter(ReportExecutionLog.report_id == report_id)\
+            .order_by(ReportExecutionLog.executed_at.desc())\
+            .limit(limit).all()

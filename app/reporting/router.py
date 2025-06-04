@@ -1,4 +1,4 @@
-"""API router for the reporting module."""
+"""API router for the reporting module - Updated for calculation-based reporting."""
 
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,11 +13,12 @@ from app.reporting.schemas import (
     ReportUpdate,
     ReportSummary,
     RunReportRequest,
-    AvailableField,
+    AvailableCalculation,
     ReportScope,
 )
-from app.core.dependencies import SessionDep, DWSessionDep
+from app.core.dependencies import SessionDep, DWSessionDep, get_query_engine
 from app.datawarehouse.dao import DatawarehouseDAO
+from app.shared.query_engine import QueryEngine
 
 
 router = APIRouter(prefix="/reports", tags=["reporting"])
@@ -35,8 +36,9 @@ async def get_dw_dao(db: DWSessionDep) -> DatawarehouseDAO:
 async def get_report_service(
     report_dao: ReportDAO = Depends(get_report_dao),
     dw_dao: DatawarehouseDAO = Depends(get_dw_dao),
+    query_engine: QueryEngine = Depends(get_query_engine),
 ) -> ReportService:
-    return ReportService(report_dao, dw_dao)
+    return ReportService(report_dao, dw_dao, query_engine)
 
 
 # ===== REPORT CONFIGURATION ENDPOINTS =====
@@ -119,15 +121,38 @@ async def run_report_by_id(
     return await service.run_saved_report(report_id, cycle_code)
 
 
-# ===== FIELD CONFIGURATION ENDPOINTS =====
+# ===== PREVIEW AND EXECUTION LOG ENDPOINTS =====
 
 
-@router.get("/fields/available", response_model=List[AvailableField])
-async def get_available_fields(
+@router.get("/{report_id}/preview-sql")
+async def preview_report_sql(
+    report_id: int, 
+    cycle_code: int = 202404,
+    service: ReportService = Depends(get_report_service)
+) -> Dict[str, Any]:
+    """Preview SQL that would be generated for a report."""
+    return await service.preview_report_sql(report_id, cycle_code)
+
+
+@router.get("/{report_id}/execution-logs")
+async def get_report_execution_logs(
+    report_id: int,
+    limit: int = 50,
+    service: ReportService = Depends(get_report_service)
+) -> List[Dict[str, Any]]:
+    """Get execution logs for a report."""
+    return await service.get_execution_logs(report_id, limit)
+
+
+# ===== CALCULATION CONFIGURATION ENDPOINTS (UPDATED) =====
+
+
+@router.get("/calculations/available", response_model=List[AvailableCalculation])
+async def get_available_calculations(
     scope: ReportScope, service: ReportService = Depends(get_report_service)
-) -> List[AvailableField]:
-    """Get available fields for report configuration based on scope."""
-    return await service.get_available_fields(scope)
+) -> List[AvailableCalculation]:
+    """Get available calculations for report configuration based on scope."""
+    return await service.get_available_calculations(scope)
 
 
 # ===== DATA ENDPOINTS (for report building) =====
@@ -147,12 +172,12 @@ async def get_available_tranches(
     request: Dict[str, Any], service: ReportService = Depends(get_report_service)
 ) -> Dict[int, List[Dict[str, Any]]]:
     """Get available tranches for specific deals."""
-    deal_ids = request.get("dl_nbrs", [])  # Fix: use "deal_ids" instead of "dl_nbrs"
+    deal_ids = request.get("dl_nbrs", [])
     cycle_code = request.get("cycle_code")
 
     tranches_by_deal = await service.get_available_tranches_for_deals(deal_ids, cycle_code)
     return {
-        int(deal_id): tranches  # Remove .model_dump() since tranches are already dictionaries
+        int(deal_id): tranches
         for deal_id, tranches in tranches_by_deal.items()
     }
 

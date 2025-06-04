@@ -1,4 +1,14 @@
-import type { ReportBuilderFormState } from '../hooks/useReportBuilderForm';
+import type { ReportCalculation } from '@/types/reporting';
+
+// Updated form state interface for calculations
+export interface ReportBuilderFormState {
+  reportName: string;
+  reportDescription: string;
+  reportScope: 'DEAL' | 'TRANCHE' | '';
+  selectedDeals: number[];
+  selectedTranches: Record<number, string[]>;
+  selectedCalculations: ReportCalculation[]; // Changed from selectedFields
+}
 
 export interface ValidationError {
   field: string;
@@ -83,10 +93,10 @@ export const validationRules = {
   step4: (formState: ReportBuilderFormState): ValidationResult => {
     const errors: ValidationError[] = [];
 
-    if (formState.selectedFields.length === 0) {
+    if (formState.selectedCalculations.length === 0) {
       errors.push({
-        field: 'selectedFields',
-        message: 'At least one field must be selected'
+        field: 'selectedCalculations', // Changed from selectedFields
+        message: 'At least one calculation must be selected'
       });
     }
 
