@@ -304,6 +304,10 @@ class ReportService:
                     deal_tranches = self.dw_dao.get_tranches_by_dl_nbr(dl_nbr)
                     tranche_ids.extend([t.tr_id for t in deal_tranches])
             
+            print(f"DEBUG: Report execution - Deal numbers: {deal_numbers}")
+            print(f"DEBUG: Report execution - Tranche IDs: {tranche_ids}")
+            print(f"DEBUG: Report execution - Cycle code: {cycle_code}")
+            
             # Get calculations for this report
             calculations = []
             calc_repo = CalculationRepository(self.query_engine.config_db)
@@ -312,9 +316,12 @@ class ReportService:
                 calc = calc_repo.get_by_id(report_calc.calculation_id)
                 if calc:
                     calculations.append(calc)
+                    print(f"DEBUG: Added calculation: {calc.name} (ID: {calc.id})")
             
             if not calculations:
                 raise HTTPException(status_code=400, detail="No valid calculations found for report")
+            
+            print(f"DEBUG: Total calculations: {len(calculations)}")
             
             # Execute using QueryEngine
             results = self.query_engine.execute_report_query(
@@ -324,6 +331,11 @@ class ReportService:
                 calculations=calculations,
                 aggregation_level=report.scope.lower()
             )
+            
+            print(f"DEBUG: Raw query returned {len(results)} results")
+            if results:
+                print(f"DEBUG: First result attributes: {dir(results[0])}")
+                print(f"DEBUG: First result: {results[0]}")
             
             # Process results
             processed_results = self.query_engine.process_report_results(

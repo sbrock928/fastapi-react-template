@@ -67,16 +67,40 @@ class DatawarehouseDAO:
         return result.scalars().first()
 
     def get_available_cycles(self) -> List[Dict[str, Any]]:
-
-        """Get available cycle codes from the data warehouse.
-        
-        Returns dummy cycle data for now since cycle functionality is not yet implemented.
-        """
-        # Return dummy cycle data with string values to match API response model
-        return [
-            {"label": "2024 Q1", "value": 20241},
-            {"label": "2024 Q2", "value": 20242},
-            {"label": "2024 Q3", "value": 20243},
-            {"label": "2024 Q4", "value": 20244},
-            {"label": "2025 Q1", "value": 20251},
-        ]
+        """Get available cycle codes from the data warehouse."""
+        try:
+            # Get distinct cycle codes from TrancheBal table
+            stmt = select(TrancheBal.cycle_cde).distinct().order_by(TrancheBal.cycle_cde.desc())
+            result = self.db.execute(stmt)
+            cycle_codes = result.scalars().all()
+            
+            # Convert to the expected format with both label and value
+            cycles = []
+            for cycle_code in cycle_codes:
+                # Format the cycle code for display (e.g., 202401 -> "2024 Q1")
+                year = str(cycle_code)[:4]
+                quarter_month = str(cycle_code)[4:]
+                
+                if quarter_month == "01":
+                    label = f"{year} Q1"
+                elif quarter_month == "02":
+                    label = f"{year} Q2"
+                elif quarter_month == "03":
+                    label = f"{year} Q3"
+                elif quarter_month == "04":
+                    label = f"{year} Q4"
+                else:
+                    # For other formats, just show the raw cycle code
+                    label = f"Cycle {cycle_code}"
+                
+                cycles.append({
+                    "label": label,
+                    "value": cycle_code  # Use the actual cycle code from the database
+                })
+            
+            return cycles
+            
+        except Exception as e:
+            print(f"Error fetching cycles from database: {e}")
+            # Return empty list instead of dummy data
+            return []

@@ -313,28 +313,34 @@ class QueryEngine:
     ) -> List[Dict[str, Any]]:
         """Process raw query results into structured report data"""
         
+        print(f"DEBUG: Processing {len(results)} raw results")
+        if results:
+            print(f"DEBUG: First result attributes: {[attr for attr in dir(results[0]) if not attr.startswith('_')]}")
+        
         data = []
         for result in results:
-            # Extract base fields
-            deal_nbr = result.deal_number
-            cycle = result.cycle_code
-            
-            # Extract calculation values
-            values = {}
-            for calc in calculations:
-                calc_value = getattr(result, calc.name, None)
-                values[calc.name] = calc_value
-            
+            # Start with base fields
             row_data = {
-                "dl_nbr": deal_nbr,
-                "cycle_cde": cycle,
-                "values": values
+                "dl_nbr": result.deal_number,
+                "cycle_cde": result.cycle_code,
             }
             
             # Add tranche info for tranche-level reports
             if aggregation_level == "tranche":
                 row_data["tr_id"] = result.tranche_id
             
+            # Add calculation values directly to the row (flatten structure)
+            for calc in calculations:
+                calc_value = getattr(result, calc.name, None)
+                # Use calculation name as column name directly
+                row_data[calc.name] = calc_value
+                print(f"DEBUG: Added calculation '{calc.name}' with value: {calc_value}")
+            
             data.append(row_data)
+        
+        print(f"DEBUG: Processed results: {len(data)} rows")
+        if data:
+            print(f"DEBUG: First processed row keys: {list(data[0].keys())}")
+            print(f"DEBUG: First processed row: {data[0]}")
         
         return data
