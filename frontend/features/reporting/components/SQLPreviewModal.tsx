@@ -1,6 +1,6 @@
 import React from 'react';
 import useModal from '@/hooks/useModal';
-import styles from '@/styles/components/RunReportsCard.module.css';
+import styles from '@/styles/components/SQLPreview.module.css';
 
 interface SQLPreviewModalProps {
   show: boolean;
@@ -60,7 +60,7 @@ const SQLPreviewModal: React.FC<SQLPreviewModalProps> = ({
                 <div className={`spinner-border text-primary ${styles.previewLoadingSpinner}`} role="status">
                   <span className="visually-hidden">Loading...</span>
                 </div>
-                <span className="text-muted">Generating SQL preview...</span>
+                <span className={styles.previewLoadingText}>Generating SQL preview...</span>
               </div>
             ) : previewData ? (
               <div>
@@ -99,8 +99,8 @@ const SQLPreviewModal: React.FC<SQLPreviewModalProps> = ({
 
                 {/* SQL Query */}
                 <div className="mb-3">
-                  <div className="d-flex justify-content-between align-items-center mb-2">
-                    <h6 className="text-muted mb-0">Generated SQL Query</h6>
+                  <div className={styles.sqlSectionHeader}>
+                    <h6 className={styles.sqlSectionTitle}>Generated SQL Query</h6>
                     <button
                       className={`btn btn-sm btn-outline-secondary ${styles.copyButton}`}
                       onClick={handleCopySQL}
@@ -115,9 +115,9 @@ const SQLPreviewModal: React.FC<SQLPreviewModalProps> = ({
                       <code>{previewData.sql_query}</code>
                     </pre>
                   </div>
-                  <small className="text-muted">
+                  <div className={styles.sqlNote}>
                     This is the exact SQL that will execute when the report runs.
-                  </small>
+                  </div>
                 </div>
 
                 {/* Additional Info */}
