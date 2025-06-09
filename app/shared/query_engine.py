@@ -1,8 +1,8 @@
 # app/shared/query_engine.py
-"""Unified query engine for calculations and reports - Updated with raw field support"""
+"""Unified query engine for calculations and reports - Updated with CTE-based optimization"""
 
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, text
+from sqlalchemy import and_, text, select, func
 from typing import List, Dict, Any, Optional, Tuple, Union, TYPE_CHECKING
 
 # Use TYPE_CHECKING to avoid circular imports
@@ -13,7 +13,7 @@ from app.datawarehouse.models import Deal, Tranche, TrancheBal
 
 
 class QueryEngine:
-    """Unified engine for all ORM query operations, execution, and SQL preview with raw field support"""
+    """Unified engine for all ORM query operations, execution, and SQL preview with CTE-based optimization"""
     
     def __init__(self, dw_db: Session, config_db: Session):
         self.dw_db = dw_db
@@ -28,33 +28,96 @@ class QueryEngine:
         calculations: List["Calculation"], 
         aggregation_level: str
     ):
-        """Build the consolidated ORM query for both execution and preview - supports raw fields"""
+        """Build the consolidated query using CTEs for optimal performance"""
         
         # Separate raw fields from aggregated calculations
         raw_calculations = [calc for calc in calculations if calc.is_raw_field()]
         aggregated_calculations = [calc for calc in calculations if not calc.is_raw_field()]
         
-        # Start with base query structure including raw fields
-        base_columns = []
+        # If we have no calculations, return empty result
+        if not calculations:
+            return self.dw_db.query().filter(False)  # Empty query
         
-        # Add standard columns
-        base_columns.append(Deal.dl_nbr.label('deal_number'))
-        base_columns.append(TrancheBal.cycle_cde.label('cycle_code'))
+        # Build base CTE with all required fields
+        base_cte = self._build_base_cte(
+            deal_numbers, tranche_ids, cycle_code, calculations, aggregation_level
+        )
+        
+        # If we only have raw fields, return the base CTE directly
+        if not aggregated_calculations:
+            return self._build_raw_fields_query(base_cte, raw_calculations, aggregation_level)
+        
+        # Build calculation CTEs for aggregated calculations
+        calculation_ctes = {}
+        for calc in aggregated_calculations:
+            calc_cte = self._build_calculation_cte(base_cte, calc, aggregation_level)
+            calculation_ctes[calc.name] = calc_cte
+        
+        # Build final query that joins base CTE with calculation CTEs
+        return self._build_final_cte_query(
+            base_cte, calculation_ctes, raw_calculations, aggregated_calculations, aggregation_level
+        )
+    
+    def _build_base_cte(
+        self,
+        deal_numbers: List[int],
+        tranche_ids: List[str], 
+        cycle_code: int,
+        calculations: List["Calculation"],
+        aggregation_level: str
+    ):
+        """Build the base CTE with filtered dataset and all required fields"""
+        
+        # Determine which models we need based on calculations
+        required_models = set()
+        for calc in calculations:
+            required_models.update(calc.get_required_models())
+        
+        # Start with base columns
+        base_columns = [
+            Deal.dl_nbr.label('deal_number'),
+            TrancheBal.cycle_cde.label('cycle_code')
+        ]
         
         if aggregation_level == "tranche":
             base_columns.append(Tranche.tr_id.label('tranche_id'))
         
-        # Add raw fields directly to base query
-        for calc in raw_calculations:
-            raw_field = calc.get_sqlalchemy_function()  # This returns the field without aggregation
-            base_columns.append(raw_field.label(calc.name))
+        # Add all fields that calculations will need (for both raw and aggregated)
+        fields_needed = set()
+        for calc in calculations:
+            # Get the source model value (handle enum)
+            source_model_value = calc.source_model.value if hasattr(calc.source_model, 'value') else calc.source_model
+            # Add the main source field
+            fields_needed.add((source_model_value, calc.source_field))
+            # Add weight field if needed
+            if calc.weight_field:
+                fields_needed.add((source_model_value, calc.weight_field))
+        
+        # Map source models to SQLAlchemy models
+        model_map = {
+            'Deal': Deal,
+            'Tranche': Tranche, 
+            'TrancheBal': TrancheBal
+        }
+        
+        # Add the required fields to base columns
+        for source_model, field_name in fields_needed:
+            model_class = model_map.get(source_model)
+            if model_class and hasattr(model_class, field_name):
+                field = getattr(model_class, field_name)
+                base_columns.append(field.label(f"{source_model}_{field_name}"))
         
         # Build base query
         base_query = self.dw_db.query(*base_columns)
         
-        base_query = base_query.select_from(Deal)\
-            .join(Tranche, Deal.dl_nbr == Tranche.dl_nbr)\
-            .join(TrancheBal, and_(
+        # Add joins based on required models
+        base_query = base_query.select_from(Deal)
+        
+        if Tranche in required_models:
+            base_query = base_query.join(Tranche, Deal.dl_nbr == Tranche.dl_nbr)
+        
+        if TrancheBal in required_models:
+            base_query = base_query.join(TrancheBal, and_(
                 Tranche.dl_nbr == TrancheBal.dl_nbr,
                 Tranche.tr_id == TrancheBal.tr_id
             ))
@@ -64,97 +127,160 @@ class QueryEngine:
             .filter(Tranche.tr_id.in_(tranche_ids))\
             .filter(TrancheBal.cycle_cde == cycle_code)
         
-        # If we only have raw fields, no grouping needed - return individual rows
-        if not aggregated_calculations:
-            return base_query.distinct()
+        return base_query.cte('base_data')
+    
+    def _build_calculation_cte(self, base_cte, calc: "Calculation", aggregation_level: str):
+        """Build a CTE for a single aggregated calculation"""
         
-        # If we have aggregated calculations, add them as subqueries
-        for calc in aggregated_calculations:
-            calc_subquery = self._build_calculation_subquery(
-                calc, deal_numbers, tranche_ids, cycle_code, aggregation_level
-            )
+        # Get the source model value (handle enum)
+        source_model_value = calc.source_model.value if hasattr(calc.source_model, 'value') else calc.source_model
+        
+        # Get the field reference from the base CTE
+        field_name = f"{source_model_value}_{calc.source_field}"
+        
+        # Check if the field exists in the base CTE
+        if not hasattr(base_cte.c, field_name):
+            available_fields = [col.name for col in base_cte.c]
+            raise ValueError(f"Field '{field_name}' not found in base CTE. Available fields: {available_fields}")
+        
+        field = getattr(base_cte.c, field_name)
+        
+        # Build aggregation function
+        agg_func_value = calc.aggregation_function.value if hasattr(calc.aggregation_function, 'value') else calc.aggregation_function
+        
+        if agg_func_value == 'SUM':
+            agg_field = func.sum(field)
+        elif agg_func_value == 'AVG':
+            agg_field = func.avg(field)
+        elif agg_func_value == 'COUNT':
+            agg_field = func.count(field)
+        elif agg_func_value == 'MIN':
+            agg_field = func.min(field)
+        elif agg_func_value == 'MAX':
+            agg_field = func.max(field)
+        elif agg_func_value == 'WEIGHTED_AVG':
+            if not calc.weight_field:
+                raise ValueError(f"Weighted average calculation '{calc.name}' requires weight_field")
+            weight_field_name = f"{source_model_value}_{calc.weight_field}"
+            if not hasattr(base_cte.c, weight_field_name):
+                available_fields = [col.name for col in base_cte.c]
+                raise ValueError(f"Weight field '{weight_field_name}' not found in base CTE. Available fields: {available_fields}")
+            weight_field = getattr(base_cte.c, weight_field_name)
+            agg_field = func.sum(field * weight_field) / func.nullif(func.sum(weight_field), 0)
+        else:
+            raise ValueError(f"Unsupported aggregation function: {agg_func_value}")
+        
+        # Build group by columns
+        if aggregation_level == "tranche":
+            group_columns = [
+                base_cte.c.deal_number,
+                base_cte.c.tranche_id
+            ]
+            select_columns = [
+                base_cte.c.deal_number.label('calc_deal_nbr'),
+                base_cte.c.tranche_id.label('calc_tranche_id'),
+                agg_field.label(self._get_calc_column_name(calc))
+            ]
+        else:
+            group_columns = [base_cte.c.deal_number]
+            select_columns = [
+                base_cte.c.deal_number.label('calc_deal_nbr'),
+                agg_field.label(self._get_calc_column_name(calc))
+            ]
+        
+        # Build calculation query
+        calc_query = self.dw_db.query(*select_columns)\
+            .select_from(base_cte)\
+            .group_by(*group_columns)
+        
+        return calc_query.cte(f'calc_{self._get_calc_column_name(calc)}')
+    
+    def _build_raw_fields_query(self, base_cte, raw_calculations: List["Calculation"], aggregation_level: str):
+        """Build query for raw fields only (no aggregation needed)"""
+        
+        # Start with base columns
+        select_columns = [
+            base_cte.c.deal_number,
+            base_cte.c.cycle_code
+        ]
+        
+        if aggregation_level == "tranche":
+            select_columns.append(base_cte.c.tranche_id)
+        
+        # Add raw field columns
+        for calc in raw_calculations:
+            source_model_value = calc.source_model.value if hasattr(calc.source_model, 'value') else calc.source_model
+            field_name = f"{source_model_value}_{calc.source_field}"
             
-            # LEFT JOIN this calculation to the base query
-            if aggregation_level == "tranche":
-                base_query = base_query.outerjoin(
-                    calc_subquery, 
-                    and_(
-                        Deal.dl_nbr == calc_subquery.c.calc_deal_nbr,
-                        Tranche.tr_id == calc_subquery.c.calc_tranche_id
-                    )
-                )
-            else:
-                base_query = base_query.outerjoin(
-                    calc_subquery, 
-                    Deal.dl_nbr == calc_subquery.c.calc_deal_nbr
-                )
+            if not hasattr(base_cte.c, field_name):
+                available_fields = [col.name for col in base_cte.c]
+                raise ValueError(f"Raw field '{field_name}' not found in base CTE. Available fields: {available_fields}")
+            
+            field = getattr(base_cte.c, field_name)
+            select_columns.append(field.label(calc.name))
+        
+        return self.dw_db.query(*select_columns).select_from(base_cte).distinct()
+    
+    def _build_final_cte_query(
+        self, 
+        base_cte, 
+        calculation_ctes: Dict[str, Any], 
+        raw_calculations: List["Calculation"],
+        aggregated_calculations: List["Calculation"], 
+        aggregation_level: str
+    ):
+        """Build the final query that joins base CTE with calculation CTEs"""
+        
+        # Start with base columns
+        select_columns = [
+            base_cte.c.deal_number,
+            base_cte.c.cycle_code
+        ]
+        
+        if aggregation_level == "tranche":
+            select_columns.append(base_cte.c.tranche_id)
+        
+        # Add raw field columns
+        for calc in raw_calculations:
+            source_model_value = calc.source_model.value if hasattr(calc.source_model, 'value') else calc.source_model
+            field_name = f"{source_model_value}_{calc.source_field}"
+            
+            if not hasattr(base_cte.c, field_name):
+                available_fields = [col.name for col in base_cte.c]
+                raise ValueError(f"Raw field '{field_name}' not found in base CTE. Available fields: {available_fields}")
+            
+            field = getattr(base_cte.c, field_name)
+            select_columns.append(field.label(calc.name))
+        
+        # Start with base query
+        final_query = self.dw_db.query(*select_columns).select_from(base_cte)
+        
+        # Add calculation columns and joins
+        for calc in aggregated_calculations:
+            calc_cte = calculation_ctes[calc.name]
             
             # Add the calculation column
             column_name = self._get_calc_column_name(calc)
-            base_query = base_query.add_columns(calc_subquery.c[column_name].label(calc.name))
-        
-        # For mixed queries (raw + aggregated), don't group the outer query
-        # The aggregated values will be the same for all matching rows due to the LEFT JOIN
-        # This preserves the individual row nature that raw fields require
-        if raw_calculations:
-            # When we have raw fields, we want individual rows, so no outer grouping
-            return base_query.distinct()
-        else:
-            # When we have only aggregated calculations, group appropriately
-            if aggregation_level == "tranche":
-                base_query = base_query.group_by(Deal.dl_nbr, Tranche.tr_id, TrancheBal.cycle_cde)
-            else:
-                base_query = base_query.group_by(Deal.dl_nbr, TrancheBal.cycle_cde)
+            final_query = final_query.add_columns(
+                getattr(calc_cte.c, column_name).label(calc.name)
+            )
             
-            return base_query.distinct()
-    
-    def _build_calculation_subquery(
-        self, 
-        calc: "Calculation", 
-        deal_numbers: List[int], 
-        tranche_ids: List[str], 
-        cycle_code: int, 
-        aggregation_level: str
-    ):
-        """Build subquery for a single aggregated calculation (not for raw fields)"""
+            # Add LEFT JOIN to the calculation CTE
+            if aggregation_level == "tranche":
+                final_query = final_query.outerjoin(
+                    calc_cte,
+                    and_(
+                        base_cte.c.deal_number == calc_cte.c.calc_deal_nbr,
+                        base_cte.c.tranche_id == calc_cte.c.calc_tranche_id
+                    )
+                )
+            else:
+                final_query = final_query.outerjoin(
+                    calc_cte,
+                    base_cte.c.deal_number == calc_cte.c.calc_deal_nbr
+                )
         
-        if aggregation_level == "tranche":
-            calc_subquery = self.dw_db.query(
-                Deal.dl_nbr.label('calc_deal_nbr'),
-                Tranche.tr_id.label('calc_tranche_id'),
-                calc.get_sqlalchemy_function().label(self._get_calc_column_name(calc))
-            )
-        else:
-            calc_subquery = self.dw_db.query(
-                Deal.dl_nbr.label('calc_deal_nbr'),
-                calc.get_sqlalchemy_function().label(self._get_calc_column_name(calc))
-            )
-        
-        calc_subquery = calc_subquery.select_from(Deal)
-        
-        # Add required joins based on calculation's source model
-        required_models = calc.get_required_models()
-        
-        if Tranche in required_models:
-            calc_subquery = calc_subquery.join(Tranche, Deal.dl_nbr == Tranche.dl_nbr)
-        
-        if TrancheBal in required_models:
-            calc_subquery = calc_subquery.join(TrancheBal, and_(
-                Tranche.dl_nbr == TrancheBal.dl_nbr,
-                Tranche.tr_id == TrancheBal.tr_id
-            ))
-        
-        # Apply filters and group by
-        calc_subquery = calc_subquery.filter(Deal.dl_nbr.in_(deal_numbers))\
-            .filter(Tranche.tr_id.in_(tranche_ids))\
-            .filter(TrancheBal.cycle_cde == cycle_code)
-        
-        if aggregation_level == "tranche":
-            calc_subquery = calc_subquery.group_by(Deal.dl_nbr, Tranche.tr_id)
-        else:
-            calc_subquery = calc_subquery.group_by(Deal.dl_nbr)
-        
-        return calc_subquery.subquery()
+        return final_query.distinct()
     
     def _get_calc_column_name(self, calc: "Calculation") -> str:
         """Get normalized column name for calculation"""
