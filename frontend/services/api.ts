@@ -6,13 +6,15 @@ import resourcesApi from './resourcesApi';
 import loggingApi from './loggingApi';
 import documentationApi from './documentationApi';
 import reportingApi from './reportingApi';
+import { calculationsApi } from './calculationsApi';  // Add this import
 
 // Re-export the feature-specific APIs
 export { 
   resourcesApi,
   loggingApi,
   documentationApi,
-  reportingApi
+  reportingApi,
+  calculationsApi  // Add this export
 };
 
 // Export the base apiClient as the default export
