@@ -155,11 +155,11 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     setLoading(true);
     
     try {
+      // Updated payload structure - removed redundant dl_nbr from tranches
       const transformedSelectedDeals = selectedDeals.map((dlNbr: number) => ({
         dl_nbr: dlNbr,
         selected_tranches: (selectedTranches[dlNbr] || []).map((trId: string) => ({
-          dl_nbr: dlNbr,
-          tr_id: trId
+          tr_id: trId  // Removed dl_nbr - backend will populate from parent deal
         }))
       }));
 
@@ -169,7 +169,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
           description: reportDescription || undefined,
           scope: reportScope as 'DEAL' | 'TRANCHE',
           selected_deals: transformedSelectedDeals,
-          selected_calculations: selectedCalculations // Changed from selected_fields
+          selected_calculations: selectedCalculations
         };
 
         await reportingApi.updateReport(editingReport.id, updateData);
@@ -181,7 +181,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
           scope: reportScope as 'DEAL' | 'TRANCHE',
           created_by: 'current_user',
           selected_deals: transformedSelectedDeals,
-          selected_calculations: selectedCalculations // Changed from selected_fields
+          selected_calculations: selectedCalculations
         };
 
         await reportingApi.createReport(reportConfig);
@@ -225,30 +225,35 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
 
   // Auto-select all tranches when they are loaded (only for new reports)
   React.useEffect(() => {
+    // Only auto-select for new reports, not when editing
     if (!isEditMode && Object.keys(tranches).length > 0) {
-      const autoSelectedTranches: Record<number, string[]> = {};
-      
-      // Auto-select all tranches for each deal
-      Object.entries(tranches).forEach(([dealId, dealTranches]) => {
-        const dlNbr = parseInt(dealId);
-        if (selectedDeals.includes(dlNbr)) {
-          autoSelectedTranches[dlNbr] = dealTranches.map((t: TrancheReportSummary) => t.tr_id);
-        }
-      });
-      
-      // Only update if we don't already have selections for these deals
       setSelectedTranches((prev: Record<number, string[]>) => {
-        const shouldUpdate = Object.keys(autoSelectedTranches).some(dealId => 
-          !prev[parseInt(dealId)] || prev[parseInt(dealId)].length === 0
-        );
+        const autoSelectedTranches: Record<number, string[]> = {};
+        let hasChanges = false;
         
-        if (shouldUpdate) {
+        // Auto-select all tranches for each deal only if no selections exist yet
+        Object.entries(tranches).forEach(([dealId, dealTranches]) => {
+          const dlNbr = parseInt(dealId);
+          if (selectedDeals.includes(dlNbr)) {
+            // Only auto-select if this deal has no existing tranche selections
+            if (!prev[dlNbr] || prev[dlNbr].length === 0) {
+              autoSelectedTranches[dlNbr] = dealTranches.map((t: TrancheReportSummary) => t.tr_id);
+              hasChanges = true;
+            } else {
+              // Keep existing selections
+              autoSelectedTranches[dlNbr] = prev[dlNbr];
+            }
+          }
+        });
+        
+        // Only update if there are actual changes
+        if (hasChanges) {
           return { ...prev, ...autoSelectedTranches };
         }
         return prev;
       });
     }
-  }, [tranches, isEditMode, selectedDeals, setSelectedTranches]);
+  }, [tranches, isEditMode, selectedDeals]);
 
   // Render wizard step content
   const renderWizardStep = () => {

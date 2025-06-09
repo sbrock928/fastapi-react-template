@@ -64,7 +64,8 @@ class QueryEngine:
         tranche_ids: List[str], 
         cycle_code: int,
         calculations: List["Calculation"],
-        aggregation_level: str
+        aggregation_level: str,
+        deal_tranche_map: Optional[Dict[int, List[str]]] = None
     ):
         """Build the base CTE with filtered dataset and all required fields"""
         
@@ -122,10 +123,32 @@ class QueryEngine:
                 Tranche.tr_id == TrancheBal.tr_id
             ))
         
-        # Apply filters
-        base_query = base_query.filter(Deal.dl_nbr.in_(deal_numbers))\
-            .filter(Tranche.tr_id.in_(tranche_ids))\
-            .filter(TrancheBal.cycle_cde == cycle_code)
+        # Apply filters with proper deal-tranche relationships
+        base_query = base_query.filter(TrancheBal.cycle_cde == cycle_code)
+        
+        # Build deal-specific tranche filters
+        if deal_tranche_map and Tranche in required_models:
+            # Create OR conditions for each deal and its specific tranches
+            deal_tranche_conditions = []
+            for dl_nbr, selected_tranches in deal_tranche_map.items():
+                if selected_tranches:  # Only if there are selected tranches for this deal
+                    deal_condition = and_(
+                        Deal.dl_nbr == dl_nbr,
+                        Tranche.tr_id.in_(selected_tranches)
+                    )
+                    deal_tranche_conditions.append(deal_condition)
+            
+            if deal_tranche_conditions:
+                from sqlalchemy import or_
+                base_query = base_query.filter(or_(*deal_tranche_conditions))
+            else:
+                # Fallback to simple filtering if no specific tranches
+                base_query = base_query.filter(Deal.dl_nbr.in_(deal_numbers))
+        else:
+            # Simple filtering when no deal-tranche mapping provided (backward compatibility)
+            base_query = base_query.filter(Deal.dl_nbr.in_(deal_numbers))
+            if Tranche in required_models:
+                base_query = base_query.filter(Tranche.tr_id.in_(tranche_ids))
         
         return base_query.cte('base_data')
     
@@ -382,6 +405,78 @@ class QueryEngine:
             deal_numbers, tranche_ids, cycle_code, [calculation], aggregation_level
         )
     
+    # Execution Methods with deal-tranche mapping support
+    def execute_report_query_with_mapping(
+        self,
+        deal_tranche_map: Dict[int, List[str]],
+        cycle_code: int,
+        calculations: List["Calculation"],
+        aggregation_level: str
+    ) -> List[Any]:
+        """Execute consolidated report query with proper deal-tranche mapping"""
+        # Extract all deal numbers and tranche IDs for backward compatibility
+        deal_numbers = list(deal_tranche_map.keys())
+        all_tranche_ids = []
+        for tranches in deal_tranche_map.values():
+            all_tranche_ids.extend(tranches)
+        
+        # Build query with proper deal-tranche mapping
+        query = self.build_consolidated_query_with_mapping(
+            deal_tranche_map=deal_tranche_map,
+            cycle_code=cycle_code,
+            calculations=calculations,
+            aggregation_level=aggregation_level
+        )
+        return query.all()
+
+    def build_consolidated_query_with_mapping(
+        self, 
+        deal_tranche_map: Dict[int, List[str]],
+        cycle_code: int, 
+        calculations: List["Calculation"], 
+        aggregation_level: str
+    ):
+        """Build the consolidated query using CTEs with deal-tranche mapping"""
+        
+        # Separate raw fields from aggregated calculations
+        raw_calculations = [calc for calc in calculations if calc.is_raw_field()]
+        aggregated_calculations = [calc for calc in calculations if not calc.is_raw_field()]
+        
+        # If we have no calculations, return empty result
+        if not calculations:
+            return self.dw_db.query().filter(False)  # Empty query
+        
+        # Extract for backward compatibility
+        deal_numbers = list(deal_tranche_map.keys())
+        all_tranche_ids = []
+        for tranches in deal_tranche_map.values():
+            all_tranche_ids.extend(tranches)
+        
+        # Build base CTE with deal-tranche mapping
+        base_cte = self._build_base_cte(
+            deal_numbers=deal_numbers,
+            tranche_ids=all_tranche_ids, 
+            cycle_code=cycle_code, 
+            calculations=calculations, 
+            aggregation_level=aggregation_level,
+            deal_tranche_map=deal_tranche_map  # Pass the mapping
+        )
+        
+        # If we only have raw fields, return the base CTE directly
+        if not aggregated_calculations:
+            return self._build_raw_fields_query(base_cte, raw_calculations, aggregation_level)
+        
+        # Build calculation CTEs for aggregated calculations
+        calculation_ctes = {}
+        for calc in aggregated_calculations:
+            calc_cte = self._build_calculation_cte(base_cte, calc, aggregation_level)
+            calculation_ctes[calc.name] = calc_cte
+        
+        # Build final query that joins base CTE with calculation CTEs
+        return self._build_final_cte_query(
+            base_cte, calculation_ctes, raw_calculations, aggregated_calculations, aggregation_level
+        )
+
     # Preview Methods
     def preview_calculation_sql(
         self,
@@ -414,25 +509,33 @@ class QueryEngine:
             }
         }
     
-    def preview_report_sql(
+    def preview_report_sql_with_mapping(
         self,
         report_name: str,
-        aggregation_level: str,
-        deal_numbers: List[int],
-        tranche_ids: List[str],
+        deal_tranche_map: Dict[int, List[str]],
         cycle_code: int,
-        calculations: List["Calculation"]
+        calculations: List["Calculation"],
+        aggregation_level: str
     ) -> Dict[str, Any]:
-        """Generate raw SQL preview for a full report (handles mixed raw and aggregated)"""
+        """Generate raw SQL preview for a full report with proper deal-tranche mapping"""
         
-        # Build and compile query (identical to execution)
-        query = self.build_consolidated_query(
-            deal_numbers, tranche_ids, cycle_code, calculations, aggregation_level
+        # Build and compile query using the mapping (identical to execution)
+        query = self.build_consolidated_query_with_mapping(
+            deal_tranche_map=deal_tranche_map,
+            cycle_code=cycle_code,
+            calculations=calculations,
+            aggregation_level=aggregation_level
         )
         
         # Analyze the calculations
         raw_count = sum(1 for calc in calculations if calc.is_raw_field())
         aggregated_count = len(calculations) - raw_count
+        
+        # Extract deal numbers and tranche IDs for the response
+        deal_numbers = list(deal_tranche_map.keys())
+        all_tranche_ids = []
+        for tranches in deal_tranche_map.values():
+            all_tranche_ids.extend(tranches)
         
         return {
             "template_name": report_name,
@@ -442,14 +545,15 @@ class QueryEngine:
                 "raw_fields": raw_count,
                 "aggregated_calculations": aggregated_count
             },
+            "deal_tranche_mapping": deal_tranche_map,  # Include the mapping in response
             "sql_query": self._compile_query_to_sql(query),
             "parameters": {
                 "cycle_code": cycle_code,
                 "deal_numbers": deal_numbers,
-                "tranche_ids": tranche_ids
+                "tranche_ids": all_tranche_ids
             }
         }
-    
+
     # Utility Methods (unchanged)
     def _compile_query_to_sql(self, query) -> str:
         """Compile SQLAlchemy query to raw SQL string"""

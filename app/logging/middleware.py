@@ -69,12 +69,18 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         # --- Read request body ---
         body_bytes = await request.body()
         request_body = body_bytes.decode("utf-8", errors="ignore")
+        
+        # Store request body in request state for exception handlers
+        request.state.body = request_body
 
         # Reconstruct stream
         async def receive() -> dict:
             return {"type": "http.request", "body": body_bytes}
 
         request = Request(request.scope, receive=receive)
+        
+        # Make sure the body is still available in the new request object
+        request.state.body = request_body
 
         # --- Proceed with original response ---
         response = await call_next(request)

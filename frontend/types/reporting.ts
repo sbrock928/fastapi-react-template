@@ -59,16 +59,13 @@ export interface TrancheBal {
 
 // Report summary types for listing tranches
 export interface TrancheReportSummary {
-  dl_nbr: number;
   tr_id: string;
-  deal_issr_cde: string;
 }
 
 // Report Configuration Types (Updated to use calculations instead of fields)
 export interface ReportTranche {
   id?: number;
   report_deal_id?: number;
-  dl_nbr: number;
   tr_id: string;
 }
 

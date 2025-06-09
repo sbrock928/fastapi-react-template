@@ -48,7 +48,7 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
           trancheList.push({
             ...tranche,
             deal,
-            dlNbr: tranche.dl_nbr
+            dlNbr: dlNbr // Get from the key since it's no longer in tranche object
           });
         });
       }
@@ -64,7 +64,7 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
       const search = searchTerm.toLowerCase();
       filtered = filtered.filter(tranche => 
         tranche.tr_id.toLowerCase().includes(search) ||
-        tranche.dl_nbr.toString().includes(search) ||
+        tranche.dlNbr.toString().includes(search) ||
         tranche.deal.issr_cde.toLowerCase().includes(search) ||
         tranche.deal.cdi_file_nme?.toLowerCase().includes(search) ||
         tranche.deal.CDB_cdi_file_nme?.toLowerCase().includes(search)
@@ -286,9 +286,11 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
             ) : (
               paginatedTranches.map((tranche) => {
                 const isSelected = (selectedTranches[tranche.dlNbr] || []).includes(tranche.tr_id);
+                const uniqueKey = `${tranche.dlNbr}-${tranche.tr_id}`;
+                
                 return (
                   <tr
-                    key={`${tranche.dlNbr}-${tranche.tr_id}`}
+                    key={uniqueKey}
                     className={isSelected ? 'table-primary' : ''}
                     onClick={() => onTrancheToggle(tranche.dlNbr, tranche.tr_id)}
                     style={{ cursor: 'pointer' }}
@@ -298,8 +300,12 @@ const TrancheSelector: React.FC<TrancheSelectorProps> = ({
                         type="checkbox"
                         className="form-check-input"
                         checked={isSelected}
-                        onChange={() => onTrancheToggle(tranche.dlNbr, tranche.tr_id)}
-                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          onTrancheToggle(tranche.dlNbr, tranche.tr_id);
+                        }}
+                        // Add unique id to prevent any potential checkbox conflicts
+                        id={`tranche-checkbox-${uniqueKey}`}
                       />
                     </td>
                     <td>

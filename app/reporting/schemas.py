@@ -33,8 +33,8 @@ class ReportCalculation(ReportCalculationBase):
 
 class ReportTrancheBase(BaseModel):
     """Base schema for report tranche associations."""
-    dl_nbr: int
     tr_id: str
+    dl_nbr: Optional[int] = None  # Make optional for backwards compatibility
 
 class ReportTrancheCreate(ReportTrancheBase):
     pass
@@ -115,13 +115,19 @@ class ReportCreate(ReportBase):
 
     @model_validator(mode='after')
     def validate_tranche_selections(self):
+        # Auto-populate dl_nbr in tranches if missing
+        for deal in self.selected_deals:
+            for tranche in deal.selected_tranches:
+                if tranche.dl_nbr is None:
+                    tranche.dl_nbr = deal.dl_nbr
+        
         # For tranche-level reports, ensure at least one deal has tranches selected
         if self.scope == ReportScope.TRANCHE:
             has_tranches = any(deal.selected_tranches for deal in self.selected_deals)
             if not has_tranches:
                 raise ValueError("Tranche-level reports must have at least one tranche selected")
               
-            # Check for duplicate tranche ID within each deal
+            # Check for duplicate tranche keys within each deal
             for deal in self.selected_deals:
                 tranche_keys = [(tranche.dl_nbr, tranche.tr_id) for tranche in deal.selected_tranches]
                 if len(set(tranche_keys)) != len(tranche_keys):

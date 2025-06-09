@@ -164,7 +164,7 @@ async def get_available_deals(
 ) -> List[Dict[str, Any]]:
     """Get available deals for report building."""
     deals = await service.get_available_deals()
-    return [deal.model_dump() for deal in deals]
+    return deals  # Service already returns dictionaries, no need for model_dump()
 
 
 @router.post("/data/tranches", response_model=Dict[int, List[Dict[str, Any]]])

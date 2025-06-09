@@ -1,6 +1,6 @@
 """FastAPI application entry point for the Vibez application."""
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,6 +8,13 @@ from app.logging.middleware import LoggingMiddleware
 from app.core.router import register_routes
 from app.core.database import init_db
 from typing import Any
+from fastapi.exceptions import ResponseValidationError, RequestValidationError
+from app.logging.exception_handlers import (
+    response_validation_exception_handler,
+    request_validation_exception_handler,
+    general_exception_handler,
+    http_exception_handler
+)
 
 
 def create_app() -> FastAPI:
@@ -17,6 +24,12 @@ def create_app() -> FastAPI:
 
     # Add request logger middleware
     app.add_middleware(LoggingMiddleware)
+
+    # Register the custom handler -- capture 500 response validation errors (these aren't captured by middleware)
+    app.add_exception_handler(ResponseValidationError, response_validation_exception_handler)
+    app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
+    app.add_exception_handler(Exception, general_exception_handler)
+    app.add_exception_handler(HTTPException, http_exception_handler)
 
     # Add CORS middleware
     app.add_middleware(

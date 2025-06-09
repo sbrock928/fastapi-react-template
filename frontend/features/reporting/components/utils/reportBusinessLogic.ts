@@ -1,16 +1,16 @@
 import type { ReportBuilderFormState } from '../hooks/useReportBuilderForm';
 
 /**
- * Transform form state data into the format expected by the API (calculation-based)
+ * Transform form state data into the format expected by the API (simplified structure)
  */
 export const transformFormDataForApi = (formState: ReportBuilderFormState) => {
   const { selectedDeals, selectedTranches, selectedCalculations, reportName, reportDescription, reportScope } = formState;
 
+  // Updated to remove redundant dl_nbr from tranches
   const transformedSelectedDeals = selectedDeals.map((dlNbr: number) => ({
     dl_nbr: dlNbr,
     selected_tranches: (selectedTranches[dlNbr] || []).map((trId: string) => ({
-      dl_nbr: dlNbr,
-      tr_id: trId
+      tr_id: trId  // Removed dl_nbr - backend will infer from parent deal
     }))
   }));
 
@@ -26,7 +26,6 @@ export const transformFormDataForApi = (formState: ReportBuilderFormState) => {
     }))
   };
 };
-
 /**
  * Create new report configuration payload
  */

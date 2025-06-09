@@ -25,34 +25,36 @@ export const useReportBuilderForm = ({ editingReport, isEditMode }: UseReportBui
     selectedCalculations: [] // Changed from selectedFields
   });
 
-  // Initialize form with editing data if in edit mode
-  useEffect(() => {
-    if (isEditMode && editingReport) {
-      setFormState({
-        reportName: editingReport.name,
-        reportDescription: editingReport.description || '',
-        reportScope: editingReport.scope,
-        selectedDeals: editingReport.selected_deals?.map(deal => deal.dl_nbr) || [],
-        selectedTranches: editingReport.selected_deals?.reduce((acc, deal) => {
-          if (deal.selected_tranches && deal.selected_tranches.length > 0) {
-            acc[deal.dl_nbr] = deal.selected_tranches.map(tranche => tranche.tr_id);
-          }
-          return acc;
-        }, {} as Record<number, string[]>) || {},
-        selectedCalculations: editingReport.selected_calculations || [] // Changed from selected_fields
-      });
-    } else {
-      // Reset form for new report
-      setFormState({
-        reportName: '',
-        reportDescription: '',
-        reportScope: '',
-        selectedDeals: [],
-        selectedTranches: {},
-        selectedCalculations: [] // Changed from selectedFields
-      });
-    }
-  }, [isEditMode, editingReport]);
+// Initialize form with editing data if in edit mode
+useEffect(() => {
+  if (isEditMode && editingReport) {
+    setFormState({
+      reportName: editingReport.name,
+      reportDescription: editingReport.description || '',
+      reportScope: editingReport.scope,
+      selectedDeals: editingReport.selected_deals?.map(deal => deal.dl_nbr) || [],
+      // Updated to handle simplified tranche structure
+      selectedTranches: editingReport.selected_deals?.reduce((acc, deal) => {
+        if (deal.selected_tranches && deal.selected_tranches.length > 0) {
+          // Since tranches no longer have dl_nbr, we use the parent deal's dl_nbr
+          acc[deal.dl_nbr] = deal.selected_tranches.map(tranche => tranche.tr_id);
+        }
+        return acc;
+      }, {} as Record<number, string[]>) || {},
+      selectedCalculations: editingReport.selected_calculations || []
+    });
+  } else {
+    // Reset form for new report
+    setFormState({
+      reportName: '',
+      reportDescription: '',
+      reportScope: '',
+      selectedDeals: [],
+      selectedTranches: {},
+      selectedCalculations: []
+    });
+  }
+}, [isEditMode, editingReport]);
 
   // Individual state setters for backward compatibility
   const setReportName = (name: string) => {
