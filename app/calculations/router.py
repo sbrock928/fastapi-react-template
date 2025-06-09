@@ -24,37 +24,49 @@ def get_calculation_service_with_preview(query_engine: QueryEngine = Depends(get
 async def get_calculation_configuration():
     """Get comprehensive calculation configuration including fields, functions, models, and levels"""
     
-    # Aggregation functions available in the system
+    # Aggregation functions available in the system (including RAW for non-aggregated fields)
     aggregation_functions = [
         {
             "value": "SUM",
             "label": "SUM - Total amount",
-            "description": "Add all values together"
+            "description": "Add all values together",
+            "category": "aggregated"
         },
         {
             "value": "AVG", 
             "label": "AVG - Average",
-            "description": "Calculate average value"
+            "description": "Calculate average value",
+            "category": "aggregated"
         },
         {
             "value": "COUNT",
             "label": "COUNT - Count records", 
-            "description": "Count number of records"
+            "description": "Count number of records",
+            "category": "aggregated"
         },
         {
             "value": "MIN",
             "label": "MIN - Minimum value",
-            "description": "Find minimum value"
+            "description": "Find minimum value",
+            "category": "aggregated"
         },
         {
             "value": "MAX",
             "label": "MAX - Maximum value", 
-            "description": "Find maximum value"
+            "description": "Find maximum value",
+            "category": "aggregated"
         },
         {
             "value": "WEIGHTED_AVG",
             "label": "WEIGHTED_AVG - Weighted average",
-            "description": "Calculate weighted average using specified weight field"
+            "description": "Calculate weighted average using specified weight field",
+            "category": "aggregated"
+        },
+        {
+            "value": "RAW",
+            "label": "RAW - Individual field value",
+            "description": "Show the actual field value for each row without aggregation",
+            "category": "raw"
         }
     ]
     

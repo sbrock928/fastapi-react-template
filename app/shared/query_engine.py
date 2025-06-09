@@ -1,5 +1,5 @@
 # app/shared/query_engine.py
-"""Unified query engine for calculations and reports - combines execution and preview"""
+"""Unified query engine for calculations and reports - Updated with raw field support"""
 
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, text
@@ -13,7 +13,7 @@ from app.datawarehouse.models import Deal, Tranche, TrancheBal
 
 
 class QueryEngine:
-    """Unified engine for all ORM query operations, execution, and SQL preview"""
+    """Unified engine for all ORM query operations, execution, and SQL preview with raw field support"""
     
     def __init__(self, dw_db: Session, config_db: Session):
         self.dw_db = dw_db
@@ -28,20 +28,29 @@ class QueryEngine:
         calculations: List["Calculation"], 
         aggregation_level: str
     ):
-        """Build the consolidated ORM query for both execution and preview"""
+        """Build the consolidated ORM query for both execution and preview - supports raw fields"""
         
-        # Start with base query structure
+        # Separate raw fields from aggregated calculations
+        raw_calculations = [calc for calc in calculations if calc.is_raw_field()]
+        aggregated_calculations = [calc for calc in calculations if not calc.is_raw_field()]
+        
+        # Start with base query structure including raw fields
+        base_columns = []
+        
+        # Add standard columns
+        base_columns.append(Deal.dl_nbr.label('deal_number'))
+        base_columns.append(TrancheBal.cycle_cde.label('cycle_code'))
+        
         if aggregation_level == "tranche":
-            base_query = self.dw_db.query(
-                Deal.dl_nbr.label('deal_number'),
-                Tranche.tr_id.label('tranche_id'),
-                TrancheBal.cycle_cde.label('cycle_code')
-            )
-        else:
-            base_query = self.dw_db.query(
-                Deal.dl_nbr.label('deal_number'),
-                TrancheBal.cycle_cde.label('cycle_code')
-            )
+            base_columns.append(Tranche.tr_id.label('tranche_id'))
+        
+        # Add raw fields directly to base query
+        for calc in raw_calculations:
+            raw_field = calc.get_sqlalchemy_function()  # This returns the field without aggregation
+            base_columns.append(raw_field.label(calc.name))
+        
+        # Build base query
+        base_query = self.dw_db.query(*base_columns)
         
         base_query = base_query.select_from(Deal)\
             .join(Tranche, Deal.dl_nbr == Tranche.dl_nbr)\
@@ -50,8 +59,17 @@ class QueryEngine:
                 Tranche.tr_id == TrancheBal.tr_id
             ))
         
-        # Add each calculation as a column using subquery approach
-        for calc in calculations:
+        # Apply filters
+        base_query = base_query.filter(Deal.dl_nbr.in_(deal_numbers))\
+            .filter(Tranche.tr_id.in_(tranche_ids))\
+            .filter(TrancheBal.cycle_cde == cycle_code)
+        
+        # If we only have raw fields, no grouping needed - return individual rows
+        if not aggregated_calculations:
+            return base_query.distinct()
+        
+        # If we have aggregated calculations, add them as subqueries
+        for calc in aggregated_calculations:
             calc_subquery = self._build_calculation_subquery(
                 calc, deal_numbers, tranche_ids, cycle_code, aggregation_level
             )
@@ -75,17 +93,20 @@ class QueryEngine:
             column_name = self._get_calc_column_name(calc)
             base_query = base_query.add_columns(calc_subquery.c[column_name].label(calc.name))
         
-        # Apply filters and grouping
-        final_query = base_query.filter(Deal.dl_nbr.in_(deal_numbers))\
-            .filter(Tranche.tr_id.in_(tranche_ids))\
-            .filter(TrancheBal.cycle_cde == cycle_code)
-        
-        if aggregation_level == "tranche":
-            final_query = final_query.group_by(Deal.dl_nbr, Tranche.tr_id, TrancheBal.cycle_cde)
+        # For mixed queries (raw + aggregated), don't group the outer query
+        # The aggregated values will be the same for all matching rows due to the LEFT JOIN
+        # This preserves the individual row nature that raw fields require
+        if raw_calculations:
+            # When we have raw fields, we want individual rows, so no outer grouping
+            return base_query.distinct()
         else:
-            final_query = final_query.group_by(Deal.dl_nbr, TrancheBal.cycle_cde)
-        
-        return final_query.distinct()
+            # When we have only aggregated calculations, group appropriately
+            if aggregation_level == "tranche":
+                base_query = base_query.group_by(Deal.dl_nbr, Tranche.tr_id, TrancheBal.cycle_cde)
+            else:
+                base_query = base_query.group_by(Deal.dl_nbr, TrancheBal.cycle_cde)
+            
+            return base_query.distinct()
     
     def _build_calculation_subquery(
         self, 
@@ -95,7 +116,7 @@ class QueryEngine:
         cycle_code: int, 
         aggregation_level: str
     ):
-        """Build subquery for a single calculation"""
+        """Build subquery for a single aggregated calculation (not for raw fields)"""
         
         if aggregation_level == "tranche":
             calc_subquery = self.dw_db.query(
@@ -147,22 +168,38 @@ class QueryEngine:
         cycle_code: int,
         aggregation_level: str
     ):
-        """Build a clean, direct query for single calculation preview (no duplication)"""
+        """Build a clean, direct query for single calculation preview (handles both raw and aggregated)"""
         
-        # Build base query with calculation
-        if aggregation_level == "tranche":
-            query = self.dw_db.query(
-                Deal.dl_nbr.label('deal_number'),
-                Tranche.tr_id.label('tranche_id'),
-                TrancheBal.cycle_cde.label('cycle_code'),
-                calculation.get_sqlalchemy_function().label(calculation.name)
-            )
+        # For raw fields, build a simple select query
+        if calculation.is_raw_field():
+            if aggregation_level == "tranche":
+                query = self.dw_db.query(
+                    Deal.dl_nbr.label('deal_number'),
+                    Tranche.tr_id.label('tranche_id'),
+                    TrancheBal.cycle_cde.label('cycle_code'),
+                    calculation.get_sqlalchemy_function().label(calculation.name)
+                )
+            else:
+                query = self.dw_db.query(
+                    Deal.dl_nbr.label('deal_number'),
+                    TrancheBal.cycle_cde.label('cycle_code'),
+                    calculation.get_sqlalchemy_function().label(calculation.name)
+                )
         else:
-            query = self.dw_db.query(
-                Deal.dl_nbr.label('deal_number'),
-                TrancheBal.cycle_cde.label('cycle_cde'),
-                calculation.get_sqlalchemy_function().label(calculation.name)
-            )
+            # For aggregated fields, build aggregated query
+            if aggregation_level == "tranche":
+                query = self.dw_db.query(
+                    Deal.dl_nbr.label('deal_number'),
+                    Tranche.tr_id.label('tranche_id'),
+                    TrancheBal.cycle_cde.label('cycle_code'),
+                    calculation.get_sqlalchemy_function().label(calculation.name)
+                )
+            else:
+                query = self.dw_db.query(
+                    Deal.dl_nbr.label('deal_number'),
+                    TrancheBal.cycle_cde.label('cycle_code'),
+                    calculation.get_sqlalchemy_function().label(calculation.name)
+                )
         
         # Add required joins based on calculation's source model
         query = query.select_from(Deal)
@@ -182,15 +219,16 @@ class QueryEngine:
             .filter(Tranche.tr_id.in_(tranche_ids))\
             .filter(TrancheBal.cycle_cde == cycle_code)
         
-        # Group by appropriate level
-        if aggregation_level == "tranche":
-            query = query.group_by(Deal.dl_nbr, Tranche.tr_id, TrancheBal.cycle_cde)
-        else:
-            query = query.group_by(Deal.dl_nbr, TrancheBal.cycle_cde)
+        # Group by appropriate level only for aggregated calculations
+        if not calculation.is_raw_field():
+            if aggregation_level == "tranche":
+                query = query.group_by(Deal.dl_nbr, Tranche.tr_id, TrancheBal.cycle_cde)
+            else:
+                query = query.group_by(Deal.dl_nbr, TrancheBal.cycle_cde)
         
         return query
     
-    # Execution Methods
+    # Execution Methods (unchanged)
     def execute_report_query(
         self,
         deal_numbers: List[int],
@@ -218,7 +256,7 @@ class QueryEngine:
             deal_numbers, tranche_ids, cycle_code, [calculation], aggregation_level
         )
     
-    # Preview Methods - Simplified to show raw execution SQL only
+    # Preview Methods
     def preview_calculation_sql(
         self,
         calculation: "Calculation",
@@ -227,14 +265,13 @@ class QueryEngine:
         sample_tranches: List[str] = None,
         sample_cycle: int = None
     ) -> Dict[str, Any]:
-        """Generate raw SQL preview for a single calculation using simplified query"""
+        """Generate raw SQL preview for a single calculation (handles both raw and aggregated)"""
         
         # Use defaults if not provided
         sample_deals = sample_deals or [101, 102, 103]
         sample_tranches = sample_tranches or ["A", "B"]
         sample_cycle = sample_cycle or 202404
         
-        # For single calculation preview, use simplified direct query instead of consolidated approach
         query = self._build_single_calculation_query(
             calculation, sample_deals, sample_tranches, sample_cycle, aggregation_level
         )
@@ -242,6 +279,7 @@ class QueryEngine:
         return {
             "calculation_name": calculation.name,
             "aggregation_level": aggregation_level,
+            "calculation_type": "Raw Field" if calculation.is_raw_field() else "Aggregated Calculation",
             "generated_sql": self._compile_query_to_sql(query),
             "sample_parameters": {
                 "deals": sample_deals,
@@ -259,16 +297,25 @@ class QueryEngine:
         cycle_code: int,
         calculations: List["Calculation"]
     ) -> Dict[str, Any]:
-        """Generate raw SQL preview for a full report"""
+        """Generate raw SQL preview for a full report (handles mixed raw and aggregated)"""
         
         # Build and compile query (identical to execution)
         query = self.build_consolidated_query(
             deal_numbers, tranche_ids, cycle_code, calculations, aggregation_level
         )
         
+        # Analyze the calculations
+        raw_count = sum(1 for calc in calculations if calc.is_raw_field())
+        aggregated_count = len(calculations) - raw_count
+        
         return {
             "template_name": report_name,
             "aggregation_level": aggregation_level,
+            "calculation_summary": {
+                "total_calculations": len(calculations),
+                "raw_fields": raw_count,
+                "aggregated_calculations": aggregated_count
+            },
             "sql_query": self._compile_query_to_sql(query),
             "parameters": {
                 "cycle_code": cycle_code,
@@ -277,7 +324,7 @@ class QueryEngine:
             }
         }
     
-    # Utility Methods
+    # Utility Methods (unchanged)
     def _compile_query_to_sql(self, query) -> str:
         """Compile SQLAlchemy query to raw SQL string"""
         return str(query.statement.compile(
@@ -285,10 +332,9 @@ class QueryEngine:
             compile_kwargs={"literal_binds": True}
         ))
     
-    # Data Warehouse Access Methods
+    # Data Warehouse Access Methods (unchanged)
     def get_calculations_by_names(self, names: List[str]) -> List["Calculation"]:
         """Get calculations by names from config database"""
-        # Import here to avoid circular imports
         from app.calculations.models import Calculation
         return self.config_db.query(Calculation).filter(
             Calculation.name.in_(names),
@@ -297,14 +343,13 @@ class QueryEngine:
     
     def get_calculation_by_id(self, calc_id: int) -> Optional["Calculation"]:
         """Get calculation by ID from config database"""
-        # Import here to avoid circular imports
         from app.calculations.models import Calculation
         return self.config_db.query(Calculation).filter(
             Calculation.id == calc_id,
             Calculation.is_active == True
         ).first()
 
-    # Result Processing
+    # Result Processing (unchanged)
     def process_report_results(
         self, 
         results: List[Any], 
@@ -332,9 +377,8 @@ class QueryEngine:
             # Add calculation values directly to the row (flatten structure)
             for calc in calculations:
                 calc_value = getattr(result, calc.name, None)
-                # Use calculation name as column name directly
                 row_data[calc.name] = calc_value
-                print(f"DEBUG: Added calculation '{calc.name}' with value: {calc_value}")
+                print(f"DEBUG: Added {'raw field' if calc.is_raw_field() else 'calculation'} '{calc.name}' with value: {calc_value}")
             
             data.append(row_data)
         

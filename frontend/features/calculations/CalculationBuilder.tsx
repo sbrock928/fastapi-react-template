@@ -83,12 +83,13 @@ const CalculationBuilder: React.FC = () => {
       });
       
       setAggregationFunctions([
-        { value: 'SUM', label: 'SUM - Total amount', description: 'Add all values together' },
-        { value: 'AVG', label: 'AVG - Average', description: 'Calculate average value' },
-        { value: 'COUNT', label: 'COUNT - Count records', description: 'Count number of records' },
-        { value: 'MIN', label: 'MIN - Minimum value', description: 'Find minimum value' },
-        { value: 'MAX', label: 'MAX - Maximum value', description: 'Find maximum value' },
-        { value: 'WEIGHTED_AVG', label: 'WEIGHTED_AVG - Weighted average', description: 'Calculate weighted average using specified weight field' }
+        { value: 'SUM', label: 'SUM - Total amount', description: 'Add all values together', category: 'aggregated' },
+        { value: 'AVG', label: 'AVG - Average', description: 'Calculate average value', category: 'aggregated' },
+        { value: 'COUNT', label: 'COUNT - Count records', description: 'Count number of records', category: 'aggregated' },
+        { value: 'MIN', label: 'MIN - Minimum value', description: 'Find minimum value', category: 'aggregated' },
+        { value: 'MAX', label: 'MAX - Maximum value', description: 'Find maximum value', category: 'aggregated' },
+        { value: 'WEIGHTED_AVG', label: 'WEIGHTED_AVG - Weighted average', description: 'Calculate weighted average using specified weight field', category: 'aggregated' },
+        { value: 'RAW', label: 'RAW - Individual field value', description: 'Show the actual field value for each row without aggregation', category: 'raw' }
       ]);
       
       setSourceModels([
@@ -243,7 +244,7 @@ const CalculationBuilder: React.FC = () => {
         const response = await calculationsApi.createCalculation(payload);
         savedCalculation = response.data;
       }
-
+      
       showToast(`Calculation "${savedCalculation.name}" ${editingCalculation ? 'updated' : 'saved'} successfully!`, 'success');
       
       // Close modal and refresh calculations list
@@ -251,7 +252,22 @@ const CalculationBuilder: React.FC = () => {
       fetchCalculations();
     } catch (error: any) {
       console.error('Error saving calculation:', error);
-      setError(error.message);
+      
+      // Extract detailed error message from API response
+      let errorMessage = 'Error saving calculation';
+      
+      if (error.response?.data?.detail) {
+        // Backend sends detailed error in 'detail' field
+        errorMessage = error.response.data.detail;
+      } else if (error.response?.data?.message) {
+        // Alternative error message field
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        // Fallback to generic error message
+        errorMessage = error.message;
+      }
+      
+      setError(errorMessage);
     } finally {
       setIsSaving(false);
     }

@@ -15,7 +15,7 @@ import {
   ReviewConfigurationStep
 } from './wizardSteps';
 import WizardNavigation from './WizardNavigation';
-import type { ReportConfig, Deal, TrancheReportSummary, AvailableCalculation } from '@/types/reporting'; // Changed from AvailableField
+import type { ReportConfig, Deal, TrancheReportSummary } from '@/types/reporting';
 
 interface ReportBuilderWizardProps {
   onReportSaved: () => void;
@@ -33,7 +33,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
 
   // Component state
   const [loading, setLoading] = useState<boolean>(false);
-
+  
   // Form state management
   const {
     reportName,
@@ -228,20 +228,6 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       setLoading(false);
     }
   };
-
-  // Auto-select default calculations when they are loaded (only for new reports)
-  React.useEffect(() => {
-    if (availableCalculations.length > 0 && !isEditMode && selectedCalculations.length === 0) {
-      const defaultCalculations = availableCalculations
-        .filter((calc: AvailableCalculation) => calc.is_default)
-        .map((calc: AvailableCalculation, index: number) => ({
-          calculation_id: calc.id,
-          display_order: index,
-          display_name: undefined
-        }));
-      setSelectedCalculations(defaultCalculations);
-    }
-  }, [availableCalculations, isEditMode, selectedCalculations.length, setSelectedCalculations]);
 
   // Auto-select all tranches when they are loaded (only for new reports)
   React.useEffect(() => {

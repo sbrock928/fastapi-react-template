@@ -1,5 +1,5 @@
 # app/calculations/models.py
-"""Refactored database models for calculations using ORM functions"""
+"""Refactored database models for calculations using ORM functions - Updated with RAW field support"""
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Enum as SQLEnum
 from sqlalchemy.orm import relationship, Mapped, mapped_column
@@ -8,13 +8,14 @@ from app.core.database import Base
 import enum
 
 class AggregationFunction(str, enum.Enum):
-    """Available aggregation functions"""
+    """Available aggregation functions including RAW for non-aggregated fields"""
     SUM = "SUM"
     AVG = "AVG"
     COUNT = "COUNT"
     MIN = "MIN"
     MAX = "MAX"
     WEIGHTED_AVG = "WEIGHTED_AVG"
+    RAW = "RAW"  # New: for non-aggregated fields
 
 class SourceModel(str, enum.Enum):
     """Available source models for calculations"""
@@ -28,7 +29,7 @@ class GroupLevel(str, enum.Enum):
     TRANCHE = "tranche"
 
 class Calculation(Base):
-    """ORM-based calculation definitions"""
+    """ORM-based calculation definitions including raw fields"""
     __tablename__ = "calculations"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -64,6 +65,10 @@ class Calculation(Base):
         source_model_class = model_map[self.source_model]
         field = getattr(source_model_class, self.source_field)
         
+        # Handle RAW fields (no aggregation)
+        if self.aggregation_function == AggregationFunction.RAW:
+            return field  # Return the field directly without aggregation
+        
         # Map aggregation function to SQLAlchemy func
         if self.aggregation_function == AggregationFunction.SUM:
             return func.sum(field)
@@ -83,6 +88,10 @@ class Calculation(Base):
             return func.sum(field * weight) / func.nullif(func.sum(weight), 0)
         else:
             raise ValueError(f"Unsupported aggregation function: {self.aggregation_function}")
+
+    def is_raw_field(self) -> bool:
+        """Check if this is a raw (non-aggregated) field"""
+        return self.aggregation_function == AggregationFunction.RAW
 
     def get_required_models(self):
         """Get the models required for this calculation"""
