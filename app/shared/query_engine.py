@@ -358,10 +358,6 @@ class QueryEngine:
     ) -> List[Dict[str, Any]]:
         """Process raw query results into structured report data"""
         
-        print(f"DEBUG: Processing {len(results)} raw results")
-        if results:
-            print(f"DEBUG: First result attributes: {[attr for attr in dir(results[0]) if not attr.startswith('_')]}")
-        
         data = []
         for result in results:
             # Start with base fields
@@ -378,13 +374,7 @@ class QueryEngine:
             for calc in calculations:
                 calc_value = getattr(result, calc.name, None)
                 row_data[calc.name] = calc_value
-                print(f"DEBUG: Added {'raw field' if calc.is_raw_field() else 'calculation'} '{calc.name}' with value: {calc_value}")
             
             data.append(row_data)
-        
-        print(f"DEBUG: Processed results: {len(data)} rows")
-        if data:
-            print(f"DEBUG: First processed row keys: {list(data[0].keys())}")
-            print(f"DEBUG: First processed row: {data[0]}")
         
         return data
