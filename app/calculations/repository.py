@@ -27,8 +27,16 @@ class CalculationRepository:
             Calculation.is_active == True
         ).first()
     
+    def get_by_name_and_group_level(self, name: str, group_level: GroupLevel) -> Optional[Calculation]:
+        """Get calculation by name and group level"""
+        return self.db.query(Calculation).filter(
+            Calculation.name == name,
+            Calculation.group_level == group_level,
+            Calculation.is_active == True
+        ).first()
+    
     def get_by_name(self, name: str) -> Optional[Calculation]:
-        """Get calculation by name"""
+        """Get calculation by name (for backward compatibility)"""
         return self.db.query(Calculation).filter(
             Calculation.name == name,
             Calculation.is_active == True

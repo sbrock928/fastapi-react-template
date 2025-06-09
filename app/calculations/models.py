@@ -1,7 +1,7 @@
 # app/calculations/models.py
 """Refactored database models for calculations using ORM functions - Updated with RAW field support"""
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Enum as SQLEnum, UniqueConstraint
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -33,7 +33,7 @@ class Calculation(Base):
     __tablename__ = "calculations"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)  # Removed unique=True
     description: Mapped[str] = mapped_column(Text, nullable=True)
     
     # ORM-based calculation definition
@@ -49,6 +49,11 @@ class Calculation(Base):
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     created_by: Mapped[str] = mapped_column(String(100), nullable=True)
+
+    # Add composite unique constraint for name + group_level
+    __table_args__ = (
+        UniqueConstraint('name', 'group_level', 'is_active', name='uq_calculation_name_group_level_active'),
+    )
 
     def get_sqlalchemy_function(self):
         """Get the appropriate SQLAlchemy function for this calculation"""

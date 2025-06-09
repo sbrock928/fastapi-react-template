@@ -54,10 +54,10 @@ class CalculationService:
 
     async def create_calculation(self, request: CalculationCreateRequest, user_id: str = "api_user") -> CalculationResponse:
         """Create a new calculation"""
-        # Check if calculation name already exists
-        existing = self.repository.get_by_name(request.name)
+        # Check if calculation name already exists at this group level
+        existing = self.repository.get_by_name_and_group_level(request.name, request.group_level)
         if existing:
-            raise CalculationAlreadyExistsError(f"Calculation with name '{request.name}' already exists")
+            raise CalculationAlreadyExistsError(f"Calculation with name '{request.name}' already exists at {request.group_level} level")
         
         # Validate weighted average has weight field
         if request.aggregation_function == AggregationFunction.WEIGHTED_AVG and not request.weight_field:
@@ -84,11 +84,17 @@ class CalculationService:
         if not calculation:
             raise CalculationNotFoundError(f"Calculation with ID {calc_id} not found")
         
+        # Check if another calculation with the same name exists at this group level (excluding current one)
+        existing = self.repository.get_by_name_and_group_level(request.name, request.group_level)
+        if existing and existing.id != calc_id:
+            raise CalculationAlreadyExistsError(f"Another calculation with name '{request.name}' already exists at {request.group_level} level")
+        
         # Validate weighted average has weight field
         if request.aggregation_function == AggregationFunction.WEIGHTED_AVG and not request.weight_field:
             raise InvalidCalculationError("Weighted average calculations require a weight_field")
         
         # Update fields
+        calculation.name = request.name
         calculation.description = request.description
         calculation.aggregation_function = request.aggregation_function
         calculation.source_model = request.source_model
