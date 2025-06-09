@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { reportingApi } from '@/services/api';
 import { useToast } from '@/context/ToastContext';
-import type { Deal, TrancheReportSummary, AvailableCalculation } from '@/types/reporting';
+import { useReportContext } from '@/context/ReportContext'; // Added import for context
+import type { TrancheReportSummary, AvailableCalculation } from '@/types/reporting';
 
 interface UseReportBuilderDataProps {
   reportScope: 'DEAL' | 'TRANCHE' | '';
@@ -11,21 +12,20 @@ interface UseReportBuilderDataProps {
 
 export const useReportBuilderData = ({ reportScope, selectedDeals, isEditMode }: UseReportBuilderDataProps) => {
   const { showToast } = useToast();
+  const { deals, dealsLoading, loadDealsOnce } = useReportContext(); // Use context for deals
   
-  // Data state
-  const [deals, setDeals] = useState<Deal[]>([]);
+  // Data state (removed deals state since it comes from context)
   const [tranches, setTranches] = useState<Record<string, TrancheReportSummary[]>>({});
   const [availableCalculations, setAvailableCalculations] = useState<AvailableCalculation[]>([]);
   
-  // Loading states
-  const [dealsLoading, setDealsLoading] = useState<boolean>(false);
+  // Loading states (removed dealsLoading since it comes from context)
   const [tranchesLoading, setTranchesLoading] = useState<boolean>(false);
   const [calculationsLoading, setCalculationsLoading] = useState<boolean>(false);
 
-  // Load deals when hook initializes
+  // Load deals once when hook initializes (only if not already loaded)
   useEffect(() => {
-    loadDeals();
-  }, []);
+    loadDealsOnce();
+  }, [loadDealsOnce]);
 
   // Load available calculations when scope changes
   useEffect(() => {
@@ -54,20 +54,6 @@ export const useReportBuilderData = ({ reportScope, selectedDeals, isEditMode }:
     loadTranches();
   }, [selectedDeals, reportScope, showToast]);
 
-  // Load available deals
-  const loadDeals = async () => {
-    setDealsLoading(true);
-    try {
-      const response = await reportingApi.getDeals();
-      setDeals(response.data);
-    } catch (error) {
-      console.error('Error loading deals:', error);
-      showToast('Error loading deals', 'error');
-    } finally {
-      setDealsLoading(false);
-    }
-  };
-
   // Load available calculations based on scope
   const loadAvailableCalculations = async (scope: 'DEAL' | 'TRANCHE') => {
     setCalculationsLoading(true);
@@ -83,18 +69,17 @@ export const useReportBuilderData = ({ reportScope, selectedDeals, isEditMode }:
   };
 
   return {
-    // Data
+    // Data (deals now comes from context)
     deals,
     tranches,
-    availableCalculations, // Changed from availableFields
+    availableCalculations,
     
-    // Loading states
+    // Loading states (dealsLoading now comes from context)
     dealsLoading,
     tranchesLoading,
-    calculationsLoading, // Changed from fieldsLoading
+    calculationsLoading,
     
-    // Functions
-    loadDeals,
-    loadAvailableCalculations // Changed from loadAvailableFields
+    // Functions (removed loadDeals since it's handled by context)
+    loadAvailableCalculations
   };
 };

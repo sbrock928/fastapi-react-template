@@ -1,12 +1,15 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { reportingApi } from '@/services/api';
-import type { ReportSummary } from '@/types';
+import type { ReportSummary, Deal } from '@/types'; // Added Deal import
 
 interface ReportContextType {
   savedReports: ReportSummary[];
+  deals: Deal[]; // Added deals to context
   loading: boolean;
+  dealsLoading: boolean; // Added separate loading state for deals
   error: string | null;
   refreshReports: () => Promise<void>;
+  loadDealsOnce: () => Promise<void>; // Added function to load deals once
 }
 
 const ReportContext = createContext<ReportContextType | undefined>(undefined);
@@ -17,36 +20,73 @@ interface ReportProviderProps {
 
 export const ReportProvider: React.FC<ReportProviderProps> = ({ children }) => {
   const [savedReports, setSavedReports] = useState<ReportSummary[]>([]);
+  const [deals, setDeals] = useState<Deal[]>([]); // Added deals state
   const [loading, setLoading] = useState<boolean>(false);
+  const [dealsLoading, setDealsLoading] = useState<boolean>(false); // Added deals loading state
   const [error, setError] = useState<string | null>(null);
+  const [dealsLoaded, setDealsLoaded] = useState<boolean>(false); // Track if deals have been loaded
+  const [reportsLoaded, setReportsLoaded] = useState<boolean>(false); // Track if reports have been loaded
 
-  const refreshReports = async () => {
-    if (loading) return; // Prevent concurrent calls
+  const refreshReports = useCallback(async () => {
+    if (loading || reportsLoaded) {
+      console.log('Reports already loaded or loading, skipping API call');
+      return; // Prevent loading if already loaded or loading
+    }
     
+    console.log('Loading reports for the first time...');
     setLoading(true);
     setError(null);
     
     try {
       const response = await reportingApi.getReportsSummary();
       setSavedReports(response.data);
+      setReportsLoaded(true);
+      console.log(`✅ Loaded ${response.data.length} reports (cached for session)`);
     } catch (err) {
       console.error('Error loading saved reports:', err);
       setError('Failed to load saved reports');
     } finally {
       setLoading(false);
     }
-  };
+  }, [loading, reportsLoaded]); // Memoize based on loading states
+
+  // Load deals only once per session
+  const loadDealsOnce = useCallback(async () => {
+    if (dealsLoaded || dealsLoading) {
+      console.log('Deals already loaded or loading, skipping API call');
+      return; // Prevent loading if already loaded or loading
+    }
+    
+    console.log('Loading deals for the first time...');
+    setDealsLoading(true);
+    setError(null);
+    
+    try {
+      const response = await reportingApi.getDeals();
+      setDeals(response.data);
+      setDealsLoaded(true);
+      console.log(`✅ Loaded ${response.data.length} deals (cached for session)`);
+    } catch (err) {
+      console.error('Error loading deals:', err);
+      setError('Failed to load deals');
+    } finally {
+      setDealsLoading(false);
+    }
+  }, [dealsLoaded, dealsLoading]); // Memoize based on loading states
 
   // Load reports on mount
   useEffect(() => {
     refreshReports();
-  }, []);
+  }, [refreshReports]);
 
   const value: ReportContextType = {
     savedReports,
+    deals, // Added deals to context value
     loading,
+    dealsLoading, // Added deals loading to context value
     error,
-    refreshReports
+    refreshReports,
+    loadDealsOnce // Added deals loading function to context value
   };
 
   return (
