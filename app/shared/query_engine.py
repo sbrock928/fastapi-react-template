@@ -124,7 +124,7 @@ class QueryEngine:
             ))
         
         # Apply filters with proper deal-tranche relationships
-        base_query = base_query.filter(TrancheBal.cycle_cde == cycle_code)
+        filter_conditions = [TrancheBal.cycle_cde == cycle_code]
         
         # Build deal-specific tranche filters
         if deal_tranche_map and Tranche in required_models:
@@ -140,15 +140,19 @@ class QueryEngine:
             
             if deal_tranche_conditions:
                 from sqlalchemy import or_
-                base_query = base_query.filter(or_(*deal_tranche_conditions))
+                # Add the properly grouped OR condition to filter conditions
+                filter_conditions.append(or_(*deal_tranche_conditions))
             else:
                 # Fallback to simple filtering if no specific tranches
-                base_query = base_query.filter(Deal.dl_nbr.in_(deal_numbers))
+                filter_conditions.append(Deal.dl_nbr.in_(deal_numbers))
         else:
             # Simple filtering when no deal-tranche mapping provided (backward compatibility)
-            base_query = base_query.filter(Deal.dl_nbr.in_(deal_numbers))
+            filter_conditions.append(Deal.dl_nbr.in_(deal_numbers))
             if Tranche in required_models:
-                base_query = base_query.filter(Tranche.tr_id.in_(tranche_ids))
+                filter_conditions.append(Tranche.tr_id.in_(tranche_ids))
+        
+        # Apply all filter conditions together using and_()
+        base_query = base_query.filter(and_(*filter_conditions))
         
         return base_query.cte('base_data')
     
