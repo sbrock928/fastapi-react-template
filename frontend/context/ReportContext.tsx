@@ -8,7 +8,7 @@ interface ReportContextType {
   loading: boolean;
   dealsLoading: boolean; // Added separate loading state for deals
   error: string | null;
-  refreshReports: () => Promise<void>;
+  refreshReports: (force?: boolean) => Promise<void>; // Updated to accept force parameter
   loadDealsOnce: () => Promise<void>; // Added function to load deals once
 }
 
@@ -27,13 +27,18 @@ export const ReportProvider: React.FC<ReportProviderProps> = ({ children }) => {
   const [dealsLoaded, setDealsLoaded] = useState<boolean>(false); // Track if deals have been loaded
   const [reportsLoaded, setReportsLoaded] = useState<boolean>(false); // Track if reports have been loaded
 
-  const refreshReports = useCallback(async () => {
-    if (loading || reportsLoaded) {
+  const refreshReports = useCallback(async (force: boolean = false) => {
+    if (!force && (loading || reportsLoaded)) {
       console.log('Reports already loaded or loading, skipping API call');
       return; // Prevent loading if already loaded or loading
     }
     
-    console.log('Loading reports for the first time...');
+    if (force) {
+      console.log('Force refreshing reports...');
+    } else {
+      console.log('Loading reports for the first time...');
+    }
+    
     setLoading(true);
     setError(null);
     
@@ -41,7 +46,7 @@ export const ReportProvider: React.FC<ReportProviderProps> = ({ children }) => {
       const response = await reportingApi.getReportsSummary();
       setSavedReports(response.data);
       setReportsLoaded(true);
-      console.log(`✅ Loaded ${response.data.length} reports (cached for session)`);
+      console.log(`✅ Loaded ${response.data.length} reports ${force ? '(force refresh)' : '(cached for session)'}`);
     } catch (err) {
       console.error('Error loading saved reports:', err);
       setError('Failed to load saved reports');

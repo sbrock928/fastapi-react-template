@@ -5,7 +5,6 @@ interface DealSelectorProps {
   deals: Deal[];
   selectedDeals: number[];
   onDealToggle: (dlNbr: number) => void;
-  onSelectAllDeals: () => void;
   loading?: boolean;
 }
 
@@ -13,7 +12,6 @@ const DealSelector: React.FC<DealSelectorProps> = ({
   deals,
   selectedDeals,
   onDealToggle,
-  onSelectAllDeals,
   loading = false
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -29,6 +27,7 @@ const DealSelector: React.FC<DealSelectorProps> = ({
     const issuers = Array.from(new Set(deals.map(deal => deal.issr_cde))).sort();
     return issuers;
   }, [deals]);
+
   // Filter and sort deals
   const filteredAndSortedDeals = useMemo(() => {
     let filtered = deals.filter(deal => {
@@ -88,6 +87,19 @@ const DealSelector: React.FC<DealSelectorProps> = ({
     return filteredAndSortedDeals.slice(startIndex, startIndex + itemsPerPage);
   }, [filteredAndSortedDeals, currentPage, itemsPerPage]);
 
+  // Check if all filtered deals are selected
+  const filteredDealNumbers = useMemo(() => {
+    return filteredAndSortedDeals.map(deal => deal.dl_nbr);
+  }, [filteredAndSortedDeals]);
+
+  const selectedFilteredDeals = useMemo(() => {
+    return filteredDealNumbers.filter(dlNbr => selectedDeals.includes(dlNbr));
+  }, [filteredDealNumbers, selectedDeals]);
+
+  const allFilteredDealsSelected = useMemo(() => {
+    return filteredDealNumbers.length > 0 && selectedFilteredDeals.length === filteredDealNumbers.length;
+  }, [filteredDealNumbers, selectedFilteredDeals]);
+
   // Update master checkbox state
   useEffect(() => {
     if (masterCheckboxRef.current) {
@@ -143,6 +155,24 @@ const DealSelector: React.FC<DealSelectorProps> = ({
         }
       });
     }
+  };
+
+  // Handle selecting all filtered deals
+  const handleSelectAllFiltered = () => {
+    filteredDealNumbers.forEach(dlNbr => {
+      if (!selectedDeals.includes(dlNbr)) {
+        onDealToggle(dlNbr);
+      }
+    });
+  };
+
+  // Handle unselecting all filtered deals
+  const handleUnselectAllFiltered = () => {
+    filteredDealNumbers.forEach(dlNbr => {
+      if (selectedDeals.includes(dlNbr)) {
+        onDealToggle(dlNbr);
+      }
+    });
   };
 
   // Handle pagination
@@ -241,13 +271,23 @@ const DealSelector: React.FC<DealSelectorProps> = ({
               >
                 Clear Filters
               </button>
-              <button
-                className="btn btn-outline-primary"
-                onClick={onSelectAllDeals}
-                disabled={deals.length === 0}
-              >
-                Select All
-              </button>
+              {allFilteredDealsSelected ? (
+                <button
+                  className="btn btn-outline-danger"
+                  onClick={handleUnselectAllFiltered}
+                  disabled={filteredAndSortedDeals.length === 0}
+                >
+                  Unselect All
+                </button>
+              ) : (
+                <button
+                  className="btn btn-outline-primary"
+                  onClick={handleSelectAllFiltered}
+                  disabled={filteredAndSortedDeals.length === 0}
+                >
+                  Select All
+                </button>
+              )}
             </div>
           </div>
         </div>

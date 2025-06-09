@@ -37,7 +37,7 @@ const ReportingContent = () => {
     setReportBuilderMode(false);
     setEditingReport(null);
     setWizardMode('create');
-    refreshReports();
+    refreshReports(true); // Force refresh when a report is saved
   };
 
   const handleCreateNewReport = () => {

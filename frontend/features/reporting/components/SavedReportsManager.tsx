@@ -72,8 +72,8 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
       await reportingApi.deleteReport(reportId);
       showToast(`Successfully deleted report "${reportName}"`, 'success');
       
-      // Refresh reports using context
-      await refreshReports();
+      // Refresh reports using context with force flag
+      await refreshReports(true);
       
       // Clear selection if the deleted report was selected
       if (selectedReportId === reportId.toString()) {

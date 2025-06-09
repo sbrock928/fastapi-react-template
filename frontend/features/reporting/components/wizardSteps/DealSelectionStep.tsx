@@ -6,7 +6,6 @@ interface DealSelectionStepProps {
   deals: Deal[];
   selectedDeals: number[];
   onDealToggle: (dlNbr: number) => void;
-  onSelectAllDeals: () => void;
   loading: boolean;
 }
 
@@ -14,7 +13,6 @@ const DealSelectionStep: React.FC<DealSelectionStepProps> = ({
   deals,
   selectedDeals,
   onDealToggle,
-  onSelectAllDeals,
   loading
 }) => {
   return (
@@ -24,7 +22,6 @@ const DealSelectionStep: React.FC<DealSelectionStepProps> = ({
         deals={deals}
         selectedDeals={selectedDeals}
         onDealToggle={onDealToggle}
-        onSelectAllDeals={onSelectAllDeals}
         loading={loading}
       />
     </div>

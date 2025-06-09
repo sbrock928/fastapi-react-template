@@ -15,7 +15,7 @@ import {
   ReviewConfigurationStep
 } from './wizardSteps';
 import WizardNavigation from './WizardNavigation';
-import type { ReportConfig, Deal, TrancheReportSummary } from '@/types/reporting';
+import type { ReportConfig, TrancheReportSummary } from '@/types/reporting';
 
 interface ReportBuilderWizardProps {
   onReportSaved: () => void;
@@ -130,12 +130,6 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
         [dlNbr]: newDealTranches
       };
     });
-  };
-
-  // Handle select all deals
-  const handleSelectAllDeals = () => {
-    const allDealNumbers = deals.map((deal: Deal) => deal.dl_nbr);
-    setSelectedDeals(allDealNumbers);
   };
 
   // Handle select all tranches for a deal
@@ -281,7 +275,6 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
             deals={deals}
             selectedDeals={selectedDeals}
             onDealToggle={handleDealToggle}
-            onSelectAllDeals={handleSelectAllDeals}
             loading={dealsLoading}
           />
         );
