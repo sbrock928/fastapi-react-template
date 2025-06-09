@@ -24,6 +24,21 @@ const Dashboard = () => {
 
         <div className={styles.dashboardCard}>
           <div className={styles.cardHeader}>
+            <div className={`${styles.icon} ${styles.green}`}>
+              <i className="bi bi-calculator fs-1"></i>
+            </div>
+            <div className={styles.cardContent}>
+              <h5 className={styles.cardTitle}>Calculations</h5>
+              <p className={styles.cardDescription}>Define and manage calculation formulas</p>
+            </div>
+          </div>
+          <Link to="/calculations" className={`${styles.dashboardButton} ${styles.green}`}>
+            Manage Calculations
+          </Link>
+        </div>
+
+        <div className={styles.dashboardCard}>
+          <div className={styles.cardHeader}>
             <div className={`${styles.icon} ${styles.blue}`}>
               <i className="bi bi-bar-chart fs-1"></i>
             </div>

@@ -9,7 +9,7 @@ from app.core.exceptions import CalculationNotFoundError, CalculationAlreadyExis
 if TYPE_CHECKING:
     from app.shared.query_engine import QueryEngine
 
-from .repository import CalculationRepository
+from .dao import CalculationDAO
 from .models import Calculation, AggregationFunction, SourceModel, GroupLevel
 from .schemas import CalculationCreateRequest, CalculationResponse
 
@@ -19,12 +19,12 @@ class CalculationService:
     def __init__(self, config_db: Session, query_engine: "QueryEngine" = None):
         self.config_db = config_db
         self.query_engine = query_engine
-        self.repository = CalculationRepository(config_db)
+        self.dao = CalculationDAO(config_db)
     
     async def get_available_calculations(self, group_level: Optional[str] = None) -> List[CalculationResponse]:
         """Get list of available calculations, optionally filtered by group level"""
         group_level_enum = GroupLevel(group_level) if group_level else None
-        calculations = self.repository.get_all_calculations(group_level_enum)
+        calculations = self.dao.get_all_calculations(group_level_enum)
         
         return [CalculationResponse.model_validate(calc) for calc in calculations]
     
@@ -55,7 +55,7 @@ class CalculationService:
     async def create_calculation(self, request: CalculationCreateRequest, user_id: str = "api_user") -> CalculationResponse:
         """Create a new calculation"""
         # Check if calculation name already exists at this group level
-        existing = self.repository.get_by_name_and_group_level(request.name, request.group_level)
+        existing = self.dao.get_by_name_and_group_level(request.name, request.group_level)
         if existing:
             raise CalculationAlreadyExistsError(f"Calculation with name '{request.name}' already exists at {request.group_level} level")
         
@@ -75,17 +75,17 @@ class CalculationService:
             created_by=user_id
         )
         
-        calculation = self.repository.create(calculation)
+        calculation = self.dao.create(calculation)
         return CalculationResponse.model_validate(calculation)
     
     async def update_calculation(self, calc_id: int, request: CalculationCreateRequest) -> CalculationResponse:
         """Update an existing calculation"""
-        calculation = self.repository.get_by_id(calc_id)
+        calculation = self.dao.get_by_id(calc_id)
         if not calculation:
             raise CalculationNotFoundError(f"Calculation with ID {calc_id} not found")
         
         # Check if another calculation with the same name exists at this group level (excluding current one)
-        existing = self.repository.get_by_name_and_group_level(request.name, request.group_level)
+        existing = self.dao.get_by_name_and_group_level(request.name, request.group_level)
         if existing and existing.id != calc_id:
             raise CalculationAlreadyExistsError(f"Another calculation with name '{request.name}' already exists at {request.group_level} level")
         
@@ -102,14 +102,14 @@ class CalculationService:
         calculation.group_level = request.group_level
         calculation.weight_field = request.weight_field
         
-        calculation = self.repository.update(calculation)
+        calculation = self.dao.update(calculation)
         return CalculationResponse.model_validate(calculation)
     
     async def delete_calculation(self, calc_id: int) -> dict:
         """Delete a calculation (soft delete)"""
-        calculation = self.repository.get_by_id(calc_id)
+        calculation = self.dao.get_by_id(calc_id)
         if not calculation:
             raise CalculationNotFoundError(f"Calculation with ID {calc_id} not found")
         
-        self.repository.soft_delete(calculation)
+        self.dao.soft_delete(calculation)
         return {"message": f"Calculation '{calculation.name}' deleted successfully"}

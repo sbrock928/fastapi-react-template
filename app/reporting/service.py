@@ -13,7 +13,7 @@ from app.reporting.schemas import (
 )
 from app.datawarehouse.dao import DatawarehouseDAO
 from app.datawarehouse.schemas import DealRead, TrancheRead
-from app.calculations.repository import CalculationRepository
+from app.calculations.dao import CalculationDAO
 from app.calculations.models import Calculation
 from app.shared.query_engine import QueryEngine
 import time
@@ -39,7 +39,7 @@ class ReportService:
         if not self.query_engine:
             raise HTTPException(status_code=500, detail="Query engine not available")
             
-        calc_repo = CalculationRepository(self.query_engine.config_db)
+        calc_repo = CalculationDAO(self.query_engine.config_db)
         
         # Filter calculations by group level (deal/tranche) based on scope
         if scope == ReportScope.DEAL:
@@ -154,7 +154,7 @@ class ReportService:
         # Validate calculation selections
         if hasattr(report_data, 'selected_calculations') and report_data.selected_calculations:
             if self.query_engine:
-                calc_repo = CalculationRepository(self.query_engine.config_db)
+                calc_repo = CalculationDAO(self.query_engine.config_db)
                 calc_ids = [calc.calculation_id for calc in report_data.selected_calculations]
                 
                 existing_calculations = []
@@ -310,7 +310,7 @@ class ReportService:
             
             # Get calculations for this report
             calculations = []
-            calc_repo = CalculationRepository(self.query_engine.config_db)
+            calc_repo = CalculationDAO(self.query_engine.config_db)
             
             for report_calc in report.selected_calculations:
                 calc = calc_repo.get_by_id(report_calc.calculation_id)
@@ -467,7 +467,7 @@ class ReportService:
         
         # Get calculations for this report
         calculations = []
-        calc_repo = CalculationRepository(self.query_engine.config_db)
+        calc_repo = CalculationDAO(self.query_engine.config_db)
         
         for report_calc in report.selected_calculations:
             calc = calc_repo.get_by_id(report_calc.calculation_id)

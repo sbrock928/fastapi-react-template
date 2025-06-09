@@ -4,7 +4,7 @@
 from .models import Calculation, AggregationFunction, SourceModel, GroupLevel
 from .schemas import CalculationCreateRequest, CalculationResponse
 from .service import CalculationService
-from .repository import CalculationRepository
+from .dao import CalculationDAO
 
 __all__ = [
     "Calculation",
@@ -14,5 +14,5 @@ __all__ = [
     "CalculationCreateRequest",
     "CalculationResponse", 
     "CalculationService",
-    "CalculationRepository"
+    "CalculationDAO"
 ]
