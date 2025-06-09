@@ -322,7 +322,7 @@ const CalculationBuilder: React.FC = () => {
 
       {/* Filter Section */}
       <div className="card mb-4">
-        <div className="card-header">
+        <div className="card-header bg-primary">
           <h5 className="card-title mb-0">Filter Calculations</h5>
         </div>
         <div className="card-body">
@@ -346,7 +346,7 @@ const CalculationBuilder: React.FC = () => {
 
       {/* Available Calculations List */}
       <div className="card">
-        <div className="card-header">
+        <div className="card-header bg-primary">
           <h5 className="card-title mb-0">Available Calculations</h5>
         </div>
         <div className="card-body">
@@ -452,13 +452,13 @@ const CalculationBuilder: React.FC = () => {
         <div className="modal show d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <div className="modal-dialog modal-xl modal-dialog-scrollable">
             <div className="modal-content">
-              <div className="modal-header">
+              <div className="modal-header bg-primary">
                 <h5 className="modal-title">
                   {editingCalculation ? 'Edit Calculation' : 'Create New Calculation'}
                 </h5>
                 <button
                   type="button"
-                  className="btn-close"
+                  className="btn-close btn-close-white"
                   onClick={handleCloseModal}
                 ></button>
               </div>
@@ -691,12 +691,7 @@ const CalculationBuilder: React.FC = () => {
           <div className="modal-dialog modal-xl modal-dialog-scrollable">
             <div className="modal-content" style={{ borderRadius: '12px', overflow: 'hidden' }}>
               <div 
-                className="modal-header"
-                style={{ 
-                  backgroundColor: '#28a745', 
-                  color: 'white', 
-                  borderBottom: 'none' 
-                }}
+                className="modal-header bg-primary"
               >
                 <h5 className="modal-title">
                   <i className="bi bi-code-square me-2"></i>

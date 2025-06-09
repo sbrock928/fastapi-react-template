@@ -4,7 +4,7 @@
 }
 
 .reportHeader {
-  background-color: #28a745 !important;
+  background-color: var(--primary, #28a745) !important;
   color: white;
   display: flex;
   justify-content: between;

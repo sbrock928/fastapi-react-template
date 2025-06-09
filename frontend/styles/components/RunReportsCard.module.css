@@ -1,18 +1,24 @@
 /* Run Reports Card styles */
+.runReportsCard {
+  margin-bottom: 2rem;
+}
+
 .cardHeader {
-  background-color: #28a745 !important;
+  background-color: var(--primary, #28a745) !important;
   color: white;
+  border-bottom: none;
 }
 
 .runButton {
-  background-color: #28a745;
+  background-color: var(--primary, #28a745);
+  border-color: var(--primary, #28a745);
   color: white;
-  border: none;
+  font-weight: 500;
 }
 
 .runButton:hover {
-  background-color: #1e7e34;
-  color: white;
+  background-color: var(--primary-dark, #1e7e34);
+  border-color: var(--primary-dark, #1e7e34);
 }
 
 .runButton:disabled {
@@ -22,6 +28,10 @@
 
 .loadingSpinner {
   margin-right: 0.5rem;
+}
+
+.loadingText {
+  margin-left: 0.25rem;
 }
 
 .scheduleButton {

@@ -26,4 +26,29 @@
   margin-right: 0.5rem;
   margin-top: auto;
   margin-bottom: auto;
+  color: rgba(255, 255, 255, 0.8);
+  opacity: 0.8;
+}
+
+.closeButton:hover {
+  opacity: 1;
+  color: white;
+}
+
+/* Toast type colors using our green theme */
+.toast.bg-success {
+  background-color: #28a745 !important;
+}
+
+.toast.bg-danger {
+  background-color: #dc3545 !important;
+}
+
+.toast.bg-warning {
+  background-color: #ffc107 !important;
+  color: #212529 !important;
+}
+
+.toast.bg-info {
+  background-color: #0dcaf0 !important;
 }
