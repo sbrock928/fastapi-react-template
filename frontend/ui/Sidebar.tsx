@@ -17,13 +17,6 @@ const Sidebar = () => {
           <span className="sidebar-text">Home</span>
         </Link>
         <Link 
-          to="/resources" 
-          className={`list-group-item list-group-item-action d-flex align-items-center ${isActive('/resources') ? 'active' : ''}`}
-        >
-          <i className="bi bi-people me-3"></i>
-          <span className="sidebar-text">Resources</span>
-        </Link>
-        <Link 
           to="/calculations" 
           className={`list-group-item list-group-item-action d-flex align-items-center ${isActive('/calculations') ? 'active' : ''}`}
         >

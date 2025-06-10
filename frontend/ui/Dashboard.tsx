@@ -9,27 +9,12 @@ const Dashboard = () => {
       <div className={styles.dashboardGrid}>
         <div className={styles.dashboardCard}>
           <div className={styles.cardHeader}>
-            <div className={`${styles.icon} ${styles.blue}`}>
-              <i className="bi bi-people fs-1"></i>
-            </div>
-            <div className={styles.cardContent}>
-              <h5 className={styles.cardTitle}>Resources</h5>
-              <p className={styles.cardDescription}>Manage users, departments, and other resources</p>
-            </div>
-          </div>
-          <Link to="/resources" className={`${styles.dashboardButton} ${styles.blue}`}>
-            Manage Resources
-          </Link>
-        </div>
-
-        <div className={styles.dashboardCard}>
-          <div className={styles.cardHeader}>
             <div className={`${styles.icon} ${styles.green}`}>
               <i className="bi bi-calculator fs-1"></i>
             </div>
             <div className={styles.cardContent}>
               <h5 className={styles.cardTitle}>Calculations</h5>
-              <p className={styles.cardDescription}>Define and manage calculation formulas</p>
+              <p className={styles.cardDescription}>Build and manage calculation formulas</p>
             </div>
           </div>
           <Link to="/calculations" className={`${styles.dashboardButton} ${styles.green}`}>
@@ -39,46 +24,46 @@ const Dashboard = () => {
 
         <div className={styles.dashboardCard}>
           <div className={styles.cardHeader}>
-            <div className={`${styles.icon} ${styles.blue}`}>
+            <div className={`${styles.icon} ${styles.purple}`}>
               <i className="bi bi-bar-chart fs-1"></i>
             </div>
             <div className={styles.cardContent}>
               <h5 className={styles.cardTitle}>Reporting</h5>
-              <p className={styles.cardDescription}>Generate and view reports</p>
+              <p className={styles.cardDescription}>Generate reports and analyze data</p>
             </div>
           </div>
-          <Link to="/reporting" className={`${styles.dashboardButton} ${styles.blue}`}>
-            View Reports
+          <Link to="/reporting" className={`${styles.dashboardButton} ${styles.purple}`}>
+            Create Reports
           </Link>
         </div>
 
         <div className={styles.dashboardCard}>
           <div className={styles.cardHeader}>
-            <div className={`${styles.icon} ${styles.cyan}`}>
-              <i className="bi bi-list-ul fs-1"></i>
-            </div>
-            <div className={styles.cardContent}>
-              <h5 className={styles.cardTitle}>Logs</h5>
-              <p className={styles.cardDescription}>View application logs and activity</p>
-            </div>
-          </div>
-          <Link to="/logs" className={`${styles.dashboardButton} ${styles.cyan}`}>
-            View Logs
-          </Link>
-        </div>
-
-        <div className={styles.dashboardCard}>
-          <div className={styles.cardHeader}>
-            <div className={`${styles.icon} ${styles.yellow}`}>
+            <div className={`${styles.icon} ${styles.orange}`}>
               <i className="bi bi-file-earmark-text fs-1"></i>
             </div>
             <div className={styles.cardContent}>
               <h5 className={styles.cardTitle}>Documentation</h5>
-              <p className={styles.cardDescription}>API documentation and guides</p>
+              <p className={styles.cardDescription}>View guides and API documentation</p>
             </div>
           </div>
-          <Link to="/documentation" className={`${styles.dashboardButton} ${styles.yellow}`}>
-            View Docs
+          <Link to="/documentation" className={`${styles.dashboardButton} ${styles.orange}`}>
+            View Documentation
+          </Link>
+        </div>
+
+        <div className={styles.dashboardCard}>
+          <div className={styles.cardHeader}>
+            <div className={`${styles.icon} ${styles.red}`}>
+              <i className="bi bi-list-ul fs-1"></i>
+            </div>
+            <div className={styles.cardContent}>
+              <h5 className={styles.cardTitle}>System Logs</h5>
+              <p className={styles.cardDescription}>Monitor system activity and errors</p>
+            </div>
+          </div>
+          <Link to="/logs" className={`${styles.dashboardButton} ${styles.red}`}>
+            View Logs
           </Link>
         </div>
       </div>

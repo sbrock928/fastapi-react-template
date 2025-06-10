@@ -5,7 +5,6 @@ import { Sidebar, TopNavigation, Toast, Dashboard } from './ui'
 import Logs from './features/logging/Logs'
 import Documentation from './features/documentation'
 import Reporting from './features/reporting'
-import Resources from './features/resources'
 import CalculationBuilder from './features/calculations'
 import './index.css'  // Import the new layout styles
 
@@ -56,7 +55,6 @@ function App() {
                 <div className="container-fluid p-4">
                   <Routes>
                     <Route path="/" element={<Dashboard />} />
-                    <Route path="/resources" element={<Resources />} />
                     <Route path="/calculations" element={<CalculationBuilder />} />
                     <Route path="/reporting" element={<Reporting />} />
                     <Route path="/logs" element={<Logs />} />

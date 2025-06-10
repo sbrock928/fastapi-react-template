@@ -228,7 +228,7 @@ const Documentation = () => {
                       onChange={handleInputChange}
                     >
                       <option value="general">General</option>
-                      <option value="resources">Resources</option>
+                      <option value="calculations">Calculations</option>
                       <option value="reporting">Reporting</option>
                       <option value="logs">Logs</option>
                       <option value="api">API</option>
@@ -418,12 +418,12 @@ const Documentation = () => {
               <div className="accordion-item">
                 <h2 className="accordion-header" id="headingOne">
                   <button className="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne" aria-expanded="true" aria-controls="collapseOne">
-                    How do I add a new user?
+                    How do I create calculations?
                   </button>
                 </h2>
                 <div id="collapseOne" className="accordion-collapse collapse show" aria-labelledby="headingOne" data-bs-parent="#faqAccordion">
                   <div className="accordion-body">
-                    To add a new user, navigate to the <strong>Resources</strong> tab, ensure you are on the "Users" section, then click the "Add User" button in the top right corner. Fill out the required information in the form and submit.
+                    To create calculations, navigate to the <strong>Calculations</strong> tab and click the "Add New Calculation" button. Define your formula using the calculation builder interface and save your calculation.
                   </div>
                 </div>
               </div>
