@@ -1,5 +1,5 @@
 # app/calculations/router.py
-"""Simplified calculations router"""
+"""Simplified calculations router with dynamic configuration"""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -9,6 +9,7 @@ from app.core.exceptions import CalculationNotFoundError, CalculationAlreadyExis
 from app.query import QueryEngine
 from .service import CalculationService
 from .schemas import CalculationCreateRequest, CalculationResponse
+from .config import get_calculation_configuration
 
 router = APIRouter()
 
@@ -21,204 +22,21 @@ def get_calculation_service_with_preview(query_engine: QueryEngine = Depends(get
     return CalculationService(query_engine.config_db, query_engine)
 
 @router.get("/calculations/configuration")
-def get_calculation_configuration():
-    """Get simplified calculation configuration"""
-    
-    # Aggregation functions available in the system
-    aggregation_functions = [
-        {
-            "value": "SUM",
-            "label": "SUM - Total amount",
-            "description": "Add all values together",
-            "category": "aggregated"
-        },
-        {
-            "value": "AVG", 
-            "label": "AVG - Average",
-            "description": "Calculate average value",
-            "category": "aggregated"
-        },
-        {
-            "value": "COUNT",
-            "label": "COUNT - Count records", 
-            "description": "Count number of records",
-            "category": "aggregated"
-        },
-        {
-            "value": "MIN",
-            "label": "MIN - Minimum value",
-            "description": "Find minimum value",
-            "category": "aggregated"
-        },
-        {
-            "value": "MAX",
-            "label": "MAX - Maximum value", 
-            "description": "Find maximum value",
-            "category": "aggregated"
-        },
-        {
-            "value": "WEIGHTED_AVG",
-            "label": "WEIGHTED_AVG - Weighted average",
-            "description": "Calculate weighted average using specified weight field",
-            "category": "aggregated"
-        },
-        {
-            "value": "RAW",
-            "label": "RAW - Raw field value",
-            "description": "Include field value without aggregation",
-            "category": "raw"
+def get_calculation_configuration_endpoint():
+    """Get dynamically generated calculation configuration from SQLAlchemy models"""
+    try:
+        config = get_calculation_configuration()
+        
+        return {
+            "success": True,
+            "data": config,
+            "message": "Calculation configuration retrieved successfully"
         }
-    ]
-    
-    # Source models available for calculations
-    source_models = [
-        {
-            "value": "Deal",
-            "label": "Deal", 
-            "description": "Base deal information"
-        },
-        {
-            "value": "Tranche",
-            "label": "Tranche",
-            "description": "Tranche structure data"
-        },
-        {
-            "value": "TrancheBal",
-            "label": "TrancheBal",
-            "description": "Tranche balance and performance data"
-        }
-    ]
-    
-    # Group levels for aggregation
-    group_levels = [
-        {
-            "value": "deal",
-            "label": "Deal Level",
-            "description": "Aggregate to deal level"
-        },
-        {
-            "value": "tranche", 
-            "label": "Tranche Level",
-            "description": "Aggregate to tranche level"
-        }
-    ]
-    
-    # Available fields for each model
-    field_mappings = {
-        "Deal": [
-            {
-                "value": "dl_nbr",
-                "label": "Deal Number",
-                "type": "number",
-                "description": "Unique identifier for the deal"
-            },
-            {
-                "value": "issr_cde",
-                "label": "Issuer Code",
-                "type": "string",
-                "description": "Deal issuer code"
-            },
-            {
-                "value": "cdi_file_nme",
-                "label": "CDI File Name",
-                "type": "string",
-                "description": "CDI file name"
-            },
-            {
-                "value": "CDB_cdi_file_nme",
-                "label": "CDB CDI File Name",
-                "type": "string",
-                "description": "CDB CDI file name"
-            }
-        ],
-        "Tranche": [
-            {
-                "value": "tr_id",
-                "label": "Tranche ID", 
-                "type": "string",
-                "description": "Tranche identifier within the deal"
-            },
-            {
-                "value": "dl_nbr",
-                "label": "Deal Number",
-                "type": "number", 
-                "description": "Parent deal number"
-            },
-            {
-                "value": "tr_cusip_id",
-                "label": "Tranche CUSIP ID",
-                "type": "string",
-                "description": "CUSIP identifier for the tranche"
-            }
-        ],
-        "TrancheBal": [
-            {
-                "value": "tr_end_bal_amt",
-                "label": "Ending Balance Amount",
-                "type": "currency",
-                "description": "Outstanding principal balance at period end"
-            },
-            {
-                "value": "tr_prin_rel_ls_amt", 
-                "label": "Principal Release/Loss Amount",
-                "type": "currency",
-                "description": "Principal released or lost during the period"
-            },
-            {
-                "value": "tr_pass_thru_rte",
-                "label": "Pass Through Rate",
-                "type": "percentage",
-                "description": "Interest rate passed through to investors"
-            },
-            {
-                "value": "tr_accrl_days",
-                "label": "Accrual Days",
-                "type": "number",
-                "description": "Number of days in the accrual period"
-            },
-            {
-                "value": "tr_int_dstrb_amt",
-                "label": "Interest Distribution Amount", 
-                "type": "currency",
-                "description": "Interest distributed to investors"
-            },
-            {
-                "value": "tr_prin_dstrb_amt",
-                "label": "Principal Distribution Amount",
-                "type": "currency", 
-                "description": "Principal distributed to investors"
-            },
-            {
-                "value": "tr_int_accrl_amt",
-                "label": "Interest Accrual Amount",
-                "type": "currency",
-                "description": "Interest accrued during the period"
-            },
-            {
-                "value": "tr_int_shtfl_amt",
-                "label": "Interest Shortfall Amount",
-                "type": "currency",
-                "description": "Interest shortfall amount"
-            },
-            {
-                "value": "cycle_cde",
-                "label": "Cycle Code",
-                "type": "number",
-                "description": "Reporting cycle identifier (YYYYMM format)"
-            }
-        ]
-    }
-    
-    return {
-        "success": True,
-        "data": {
-            "aggregation_functions": aggregation_functions,
-            "source_models": source_models,
-            "group_levels": group_levels,
-            "field_mappings": field_mappings
-        },
-        "message": "Calculation configuration retrieved successfully"
-    }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error generating calculation configuration: {str(e)}"
+        )
 
 @router.get("/calculations", response_model=List[CalculationResponse])
 def get_available_calculations(
@@ -316,3 +134,22 @@ def delete_calculation(
         raise HTTPException(status_code=404, detail=str(e))
     except InvalidCalculationError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+# Debug endpoint to see all available fields for a model (development only)
+@router.get("/calculations/debug/model-fields/{model_name}")
+def get_model_fields(model_name: str):
+    """Debug endpoint to see all available fields for a model"""
+    from .config import calculation_config_generator
+    
+    try:
+        fields = calculation_config_generator.get_model_fields(model_name)
+        exposed_fields = calculation_config_generator.model_registry.get(model_name, {}).get("exposed_fields", [])
+        
+        return {
+            "model_name": model_name,
+            "all_available_fields": fields,
+            "currently_exposed_fields": exposed_fields,
+            "unexposed_fields": [f for f in fields if f not in exposed_fields]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error inspecting model: {str(e)}")

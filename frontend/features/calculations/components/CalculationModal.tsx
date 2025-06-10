@@ -57,7 +57,7 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
       <div className="modal-dialog modal-xl modal-dialog-scrollable">
         <div className="modal-content">
           <div className="modal-header bg-primary">
-            <h5 className="modal-title">
+            <h5 className="modal-title text-white">
               {editingCalculation ? 'Edit Calculation' : 'Create New Calculation'}
             </h5>
             <button
@@ -102,15 +102,21 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
                       value={calculation.level}
                       onChange={(e) => onUpdateCalculation({ level: e.target.value })}
                       className="form-select"
+                      disabled={groupLevels.length === 0}
                     >
-                      {groupLevels.map(level => (
-                        <option key={level.value} value={level.value}>
-                          {level.label}
-                        </option>
-                      ))}
+                      {groupLevels.length === 0 ? (
+                        <option value="">Loading group levels...</option>
+                      ) : (
+                        groupLevels.map((level: GroupLevel) => (
+                          <option key={level.value} value={level.value}>
+                            {level.label}
+                          </option>
+                        ))
+                      )}
                     </select>
                     <div className="form-text">
-                      {groupLevels.find(l => l.value === calculation.level)?.description}
+                      {calculation.level && groupLevels.find((l: GroupLevel) => l.value === calculation.level)?.description}
+                      {groupLevels.length === 0 && <span className="text-warning">Configuration not loaded</span>}
                     </div>
                   </div>
 
@@ -133,16 +139,20 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
                       value={calculation.source}
                       onChange={(e) => onUpdateCalculation({ source: e.target.value, source_field: '' })}
                       className="form-select"
+                      disabled={sourceModels.length === 0}
                     >
-                      <option value="">Select a source model...</option>
-                      {sourceModels.map(model => (
+                      <option value="">
+                        {sourceModels.length === 0 ? 'Loading source models...' : 'Select a source model...'}
+                      </option>
+                      {sourceModels.map((model: SourceModel) => (
                         <option key={model.value} value={model.value}>
                           {model.label}
                         </option>
                       ))}
                     </select>
                     <div className="form-text">
-                      {sourceModels.find(m => m.value === calculation.source)?.description}
+                      {calculation.source && sourceModels.find((m: SourceModel) => m.value === calculation.source)?.description}
+                      {sourceModels.length === 0 && <span className="text-warning">Configuration not loaded</span>}
                     </div>
                   </div>
 
@@ -152,15 +162,21 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
                       value={calculation.function_type}
                       onChange={(e) => onUpdateCalculation({ function_type: e.target.value })}
                       className="form-select"
+                      disabled={aggregationFunctions.length === 0}
                     >
-                      {aggregationFunctions.map(func => (
-                        <option key={func.value} value={func.value}>
-                          {func.label}
-                        </option>
-                      ))}
+                      {aggregationFunctions.length === 0 ? (
+                        <option value="">Loading aggregation functions...</option>
+                      ) : (
+                        aggregationFunctions.map((func: AggregationFunction) => (
+                          <option key={func.value} value={func.value}>
+                            {func.label}
+                          </option>
+                        ))
+                      )}
                     </select>
                     <div className="form-text">
-                      {aggregationFunctions.find(f => f.value === calculation.function_type)?.description}
+                      {calculation.function_type && aggregationFunctions.find((f: AggregationFunction) => f.value === calculation.function_type)?.description}
+                      {aggregationFunctions.length === 0 && <span className="text-warning">Configuration not loaded</span>}
                     </div>
                   </div>
 
@@ -174,7 +190,7 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
                       disabled={!calculation.source || availableFields.length === 0}
                     >
                       <option value="">Select a field...</option>
-                      {availableFields.map(field => (
+                      {availableFields.map((field: CalculationField) => (
                         <option key={field.value} value={field.value}>
                           {field.label} ({field.type})
                         </option>
@@ -184,9 +200,9 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
                       {calculation.source ? `Available fields from ${calculation.source} model` : 'Select a source model first'}
                     </div>
                     {/* Show field description if available */}
-                    {calculation.source_field && availableFields.find(f => f.value === calculation.source_field)?.description && (
+                    {calculation.source_field && availableFields.find((f: CalculationField) => f.value === calculation.source_field)?.description && (
                       <div className="form-text text-info">
-                        {availableFields.find(f => f.value === calculation.source_field)?.description}
+                        {availableFields.find((f: CalculationField) => f.value === calculation.source_field)?.description}
                       </div>
                     )}
                   </div>
@@ -202,7 +218,7 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
                         disabled={!calculation.source || availableFields.length === 0}
                       >
                         <option value="">Select weight field...</option>
-                        {availableFields.filter(f => f.type === 'currency' || f.type === 'number').map(field => (
+                        {availableFields.filter((f: CalculationField) => f.type === 'currency' || f.type === 'number').map((field: CalculationField) => (
                           <option key={field.value} value={field.value}>
                             {field.label}
                           </option>
@@ -212,9 +228,9 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
                         Field to use as weight for the weighted average calculation
                       </div>
                       {/* Show weight field description if available */}
-                      {calculation.weight_field && availableFields.find(f => f.value === calculation.weight_field)?.description && (
+                      {calculation.weight_field && availableFields.find((f: CalculationField) => f.value === calculation.weight_field)?.description && (
                         <div className="form-text text-info">
-                          {availableFields.find(f => f.value === calculation.weight_field)?.description}
+                          {availableFields.find((f: CalculationField) => f.value === calculation.weight_field)?.description}
                         </div>
                       )}
                     </div>

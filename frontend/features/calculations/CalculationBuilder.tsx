@@ -40,7 +40,11 @@ const CalculationBuilder: React.FC = () => {
     sourceModels,
     groupLevels,
     fieldsLoading,
-    fetchCalculationConfig
+    configError,
+    hasLoadedConfig,
+    fetchCalculationConfig,
+    retryLoadConfig,
+    isConfigAvailable
   } = useCalculationConfig();
 
   // Modal states
@@ -99,9 +103,10 @@ const CalculationBuilder: React.FC = () => {
     try {
       const response = await calculationsApi.previewSQL(calcId, SAMPLE_PREVIEW_PARAMS);
       setPreviewData(response.data);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error generating SQL preview:', error);
-      showToast(`Error generating SQL preview: ${error.message}`, 'error');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      showToast(`Error generating SQL preview: ${errorMessage}`, 'error');
     } finally {
       setPreviewLoading(false);
     }
@@ -129,92 +134,145 @@ const CalculationBuilder: React.FC = () => {
         </div>
         <button
           onClick={() => handleOpenModal()}
-          disabled={fieldsLoading}
+          disabled={fieldsLoading || !isConfigAvailable()}
           className="btn btn-primary"
+          title={!isConfigAvailable() ? "Configuration must be loaded before creating calculations" : ""}
         >
           <i className="bi bi-plus-lg me-2"></i>
           New Calculation
         </button>
       </div>
 
-      {/* Filter Section */}
-      <FilterSection
-        selectedFilter={selectedFilter}
-        onFilterChange={setSelectedFilter}
-        fieldsLoading={fieldsLoading}
-      />
-
-      {/* Available Calculations List */}
-      <div className="card">
-        <div className="card-header bg-primary">
-          <h5 className="card-title mb-0">Available Calculations</h5>
+      {/* Configuration Error State */}
+      {configError && (
+        <div className="alert alert-danger d-flex align-items-center" role="alert">
+          <i className="bi bi-exclamation-triangle-fill me-3"></i>
+          <div className="flex-grow-1">
+            <h6 className="alert-heading mb-1">Configuration Error</h6>
+            <p className="mb-2">{configError}</p>
+            <small className="text-muted">
+              The calculation builder requires configuration data from the server to function properly.
+            </small>
+          </div>
+          <button
+            onClick={retryLoadConfig}
+            disabled={fieldsLoading}
+            className="btn btn-outline-danger"
+          >
+            {fieldsLoading ? (
+              <>
+                <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                Retrying...
+              </>
+            ) : (
+              <>
+                <i className="bi bi-arrow-clockwise me-2"></i>
+                Retry
+              </>
+            )}
+          </button>
         </div>
-        <div className="card-body">
-          {isLoading || fieldsLoading ? (
-            <div className="text-center py-4">
-              <div className="spinner-border text-primary" role="status">
-                <span className="visually-hidden">Loading...</span>
+      )}
+
+      {/* Configuration Loading State */}
+      {fieldsLoading && !hasLoadedConfig && (
+        <div className="card">
+          <div className="card-body text-center py-5">
+            <div className="spinner-border text-primary mb-3" role="status">
+              <span className="visually-hidden">Loading...</span>
+            </div>
+            <h5>Loading Configuration</h5>
+            <p className="text-muted mb-0">
+              Fetching calculation configuration from server...
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Filter Section - Only show if config is available */}
+      {isConfigAvailable() && (
+        <FilterSection
+          selectedFilter={selectedFilter}
+          onFilterChange={setSelectedFilter}
+          fieldsLoading={fieldsLoading}
+        />
+      )}
+
+      {/* Available Calculations List - Only show if config is available or if we have calculations */}
+      {(isConfigAvailable() || calculations.length > 0) && (
+        <div className="card">
+          <div className="card-header bg-primary">
+            <h5 className="card-title mb-0">Available Calculations</h5>
+          </div>
+          <div className="card-body">
+            {isLoading ? (
+              <div className="text-center py-4">
+                <div className="spinner-border text-primary" role="status">
+                  <span className="visually-hidden">Loading...</span>
+                </div>
+                <p className="mt-2 mb-0">Loading calculations...</p>
               </div>
-              <p className="mt-2 mb-0">
-                {isLoading ? 'Loading calculations...' : 'Loading configuration...'}
-              </p>
-            </div>
-          ) : (
-            <div className="row g-3">
-              {displayCalculations.map((calc) => (
-                <div key={calc.id} className="col-12">
-                  <CalculationCard
-                    calculation={calc}
-                    usage={calculationUsage[calc.id]}
-                    onEdit={handleOpenModal}
-                    onDelete={deleteCalculation}
-                    onPreviewSQL={handlePreviewSQL}
-                    onShowUsage={handleShowUsage}
-                  />
-                </div>
-              ))}
-              
-              {displayCalculations.length === 0 && !isLoading && !fieldsLoading && (
-                <div className="col-12">
-                  <div className="text-center py-4 text-muted">
-                    No calculations available. Create your first calculation above.
+            ) : (
+              <div className="row g-3">
+                {displayCalculations.map((calc) => (
+                  <div key={calc.id} className="col-12">
+                    <CalculationCard
+                      calculation={calc}
+                      usage={calculationUsage[calc.id]}
+                      onEdit={handleOpenModal}
+                      onDelete={deleteCalculation}
+                      onPreviewSQL={handlePreviewSQL}
+                      onShowUsage={handleShowUsage}
+                    />
                   </div>
-                </div>
-              )}
-            </div>
-          )}
+                ))}
+                
+                {displayCalculations.length === 0 && !isLoading && (
+                  <div className="col-12">
+                    <div className="text-center py-4 text-muted">
+                      No calculations available. Create your first calculation above.
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Modals */}
-      <CalculationModal
-        isOpen={showModal}
-        editingCalculation={editingCalculation}
-        calculation={calculation}
-        error={error}
-        isSaving={isSaving}
-        fieldsLoading={fieldsLoading}
-        allAvailableFields={allAvailableFields}
-        aggregationFunctions={aggregationFunctions}
-        sourceModels={sourceModels}
-        groupLevels={groupLevels}
-        onClose={handleCloseModal}
-        onSave={handleSaveCalculation}
-        onUpdateCalculation={updateCalculation}
-      />
+      {/* Modals - Only render if config is available */}
+      {isConfigAvailable() && (
+        <>
+          <CalculationModal
+            isOpen={showModal}
+            editingCalculation={editingCalculation}
+            calculation={calculation}
+            error={error}
+            isSaving={isSaving}
+            fieldsLoading={fieldsLoading}
+            allAvailableFields={allAvailableFields}
+            aggregationFunctions={aggregationFunctions}
+            sourceModels={sourceModels}
+            groupLevels={groupLevels}
+            onClose={handleCloseModal}
+            onSave={handleSaveCalculation}
+            onUpdateCalculation={updateCalculation}
+          />
 
-      <SqlPreviewModal
-        isOpen={showPreviewModal}
-        previewData={previewData}
-        previewLoading={previewLoading}
-        onClose={() => setShowPreviewModal(false)}
-      />
+          <SqlPreviewModal
+            isOpen={showPreviewModal}
+            previewData={previewData}
+            previewLoading={previewLoading}
+            onClose={() => setShowPreviewModal(false)}
+          />
 
-      <UsageModal
-        isOpen={showUsageModal}
-        selectedUsageData={selectedUsageData}
-        onClose={() => setShowUsageModal(false)}
-      />
+          <UsageModal
+            isOpen={showUsageModal}
+            selectedUsageData={selectedUsageData}
+            onClose={() => setShowUsageModal(false)}
+          />
+        </>
+      )}
     </div>
   );
 };

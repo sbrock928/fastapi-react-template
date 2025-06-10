@@ -1,3 +1,4 @@
+// frontend/features/calculations/hooks/useCalculationConfig.ts
 import { useState } from 'react';
 import { useToast } from '@/context/ToastContext';
 import { calculationsApi } from '@/services/calculationsApi';
@@ -10,13 +11,7 @@ import type {
   CalculationForm, 
   CalculationConfig 
 } from '@/types/calculations';
-import { 
-  DEFAULT_FIELD_MAPPINGS, 
-  DEFAULT_AGGREGATION_FUNCTIONS, 
-  DEFAULT_SOURCE_MODELS, 
-  DEFAULT_GROUP_LEVELS, 
-  INITIAL_CALCULATION_FORM 
-} from '../constants/calculationConstants';
+import { INITIAL_CALCULATION_FORM } from '../constants/calculationConstants';
 
 export const useCalculationConfig = () => {
   const { showToast } = useToast();
@@ -25,9 +20,13 @@ export const useCalculationConfig = () => {
   const [sourceModels, setSourceModels] = useState<SourceModel[]>([]);
   const [groupLevels, setGroupLevels] = useState<GroupLevel[]>([]);
   const [fieldsLoading, setFieldsLoading] = useState<boolean>(false);
+  const [configError, setConfigError] = useState<string | null>(null);
+  const [hasLoadedConfig, setHasLoadedConfig] = useState<boolean>(false);
 
   const fetchCalculationConfig = async (): Promise<void> => {
     setFieldsLoading(true);
+    setConfigError(null);
+    
     try {
       const response = await calculationsApi.getCalculationConfig();
       const data: CalculationConfig = response.data.data || {};
@@ -37,27 +36,62 @@ export const useCalculationConfig = () => {
       setAggregationFunctions(data.aggregation_functions || []);
       setSourceModels(data.source_models || []);
       setGroupLevels(data.group_levels || []);
-    } catch (error) {
-      console.error('Error fetching calculation configuration:', error);
-      showToast('Error loading calculation configuration. Using default settings.', 'error');
+      setHasLoadedConfig(true);
       
-      // Fallback to default configuration if API fails
-      setAllAvailableFields(DEFAULT_FIELD_MAPPINGS);
-      setAggregationFunctions(DEFAULT_AGGREGATION_FUNCTIONS);
-      setSourceModels(DEFAULT_SOURCE_MODELS);
-      setGroupLevels(DEFAULT_GROUP_LEVELS);
+      console.log('✅ Loaded calculation configuration from API:', {
+        fieldMappings: Object.keys(data.field_mappings || {}),
+        aggregationFunctions: data.aggregation_functions?.length || 0,
+        sourceModels: data.source_models?.length || 0,
+        groupLevels: data.group_levels?.length || 0
+      });
+    } catch (error: any) {
+      console.error('❌ Error fetching calculation configuration:', error);
+      
+      const errorMessage = error.response?.data?.detail || error.message || 'Unknown error occurred';
+      setConfigError(`Failed to load calculation configuration: ${errorMessage}`);
+      
+      showToast(
+        'Unable to load calculation configuration from server. Please check your connection and try again.',
+        'error'
+      );
+      
+      // Clear all config data on error instead of using fallbacks
+      setAllAvailableFields({});
+      setAggregationFunctions([]);
+      setSourceModels([]);
+      setGroupLevels([]);
     } finally {
       setFieldsLoading(false);
     }
   };
 
+  const retryLoadConfig = async (): Promise<void> => {
+    await fetchCalculationConfig();
+  };
+
+  const isConfigAvailable = (): boolean => {
+    return hasLoadedConfig && 
+           aggregationFunctions.length > 0 && 
+           sourceModels.length > 0 && 
+           groupLevels.length > 0;
+  };
+
   return {
+    // Configuration data
     allAvailableFields,
     aggregationFunctions,
     sourceModels,
     groupLevels,
+    
+    // Loading and error states
     fieldsLoading,
-    fetchCalculationConfig
+    configError,
+    hasLoadedConfig,
+    
+    // Helper functions
+    fetchCalculationConfig,
+    retryLoadConfig,
+    isConfigAvailable
   };
 };
 
