@@ -1,5 +1,5 @@
-# app/shared/query_engine.py
-"""Simplified query engine - single mapping-based approach for all queries"""
+# app/query/engine.py
+"""Fixed query engine with proper WHERE clause parentheses for deal-tranche conditions"""
 
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, text, select, func
@@ -13,7 +13,7 @@ from app.datawarehouse.models import Deal, Tranche, TrancheBal
 
 
 class QueryEngine:
-    """Simplified unified engine using only mapping-based queries for consistency"""
+    """Unified engine with fixed WHERE clause generation for deal-tranche mappings"""
     
     def __init__(self, dw_db: Session, config_db: Session):
         self.dw_db = dw_db
@@ -27,7 +27,7 @@ class QueryEngine:
         calculations: List["Calculation"], 
         aggregation_level: str
     ):
-        """Build consolidated query using deal-tranche mapping (now the only method!)"""
+        """Build consolidated query using deal-tranche mapping"""
         
         # Separate raw fields from aggregated calculations
         raw_calculations = [calc for calc in calculations if calc.is_raw_field()]
@@ -126,62 +126,11 @@ class QueryEngine:
         # Apply filters with proper deal-tranche relationships
         filter_conditions = [TrancheBal.cycle_cde == cycle_code]
         
-        # Build optimized deal-specific tranche filters
+        # Build optimized deal-specific tranche filters with FIXED PARENTHESES
         if Tranche in required_models and deal_tranche_map:
-            # Separate deals into two categories for SQL optimization:
-            # 1. Deals with specific tranche selections (need explicit filtering)
-            # 2. Deals with all tranches (can use simple deal filter)
-            
-            deals_with_specific_tranches = []
-            deals_with_all_tranches = []
-            
-            # Get all available tranches for each deal to determine which have "all" vs "specific"
-            from app.datawarehouse.dao import DatawarehouseDAO
-            dw_dao = DatawarehouseDAO(self.dw_db)
-            
-            for dl_nbr, selected_tranches in deal_tranche_map.items():
-                if selected_tranches:
-                    # Get all available tranches for this deal
-                    all_deal_tranches = dw_dao.get_tranches_by_dl_nbr(dl_nbr)
-                    all_tranche_ids = [t.tr_id for t in all_deal_tranches]
-                    
-                    # Check if selected tranches == all available tranches
-                    if set(selected_tranches) == set(all_tranche_ids):
-                        # This deal has ALL tranches selected - no need for explicit tranche filtering
-                        deals_with_all_tranches.append(dl_nbr)
-                    else:
-                        # This deal has specific tranche selections - needs explicit filtering
-                        deals_with_specific_tranches.append((dl_nbr, selected_tranches))
-                else:
-                    # Empty list means all tranches (should have been populated by service layer)
-                    deals_with_all_tranches.append(dl_nbr)
-            
-            # Build optimized WHERE conditions
-            deal_conditions = []
-            
-            # For deals with all tranches: simple deal filter (no tranche restrictions)
-            if deals_with_all_tranches:
-                deal_conditions.append(Deal.dl_nbr.in_(deals_with_all_tranches))
-            
-            # For deals with specific tranches: explicit deal+tranche filtering
-            if deals_with_specific_tranches:
-                specific_conditions = []
-                for dl_nbr, selected_tranches in deals_with_specific_tranches:
-                    specific_conditions.append(and_(
-                        Deal.dl_nbr == dl_nbr,
-                        Tranche.tr_id.in_(selected_tranches)
-                    ))
-                if specific_conditions:
-                    from sqlalchemy import or_
-                    deal_conditions.append(or_(*specific_conditions))
-            
-            # Combine all deal conditions
-            if deal_conditions:
-                from sqlalchemy import or_
-                filter_conditions.append(or_(*deal_conditions))
-            else:
-                # Fallback if no valid conditions
-                filter_conditions.append(Deal.dl_nbr.in_(list(deal_tranche_map.keys())))
+            deal_conditions = self._build_deal_tranche_conditions_fixed(deal_tranche_map)
+            if deal_conditions is not None:
+                filter_conditions.append(deal_conditions)
         else:
             # Simple deal filtering when no tranche model needed
             filter_conditions.append(Deal.dl_nbr.in_(list(deal_tranche_map.keys())))
@@ -190,6 +139,59 @@ class QueryEngine:
         base_query = base_query.filter(and_(*filter_conditions))
         
         return base_query.cte('base_data')
+    
+    def _build_deal_tranche_conditions_fixed(self, deal_tranche_map: Dict[int, List[str]]):
+        """Build optimized WHERE conditions with MANUAL EXPLICIT PARENTHESES for deal-tranche filtering."""
+        from app.datawarehouse.dao import DatawarehouseDAO
+        from sqlalchemy import and_, or_, text
+        
+        if not deal_tranche_map:
+            return None
+        
+        # Get all available tranches for each deal to determine "all vs specific"
+        dw_dao = DatawarehouseDAO(self.dw_db)
+        
+        deals_with_specific_tranches = []
+        deals_with_all_tranches = []
+        
+        for dl_nbr, selected_tranches in deal_tranche_map.items():
+            if selected_tranches:
+                # Get all available tranches for this deal
+                all_deal_tranches = dw_dao.get_tranches_by_dl_nbr(dl_nbr)
+                all_tranche_ids = [t.tr_id for t in all_deal_tranches]
+                
+                # Check if selected tranches == all available tranches
+                if set(selected_tranches) == set(all_tranche_ids):
+                    # This deal has ALL tranches selected - no need for explicit tranche filtering
+                    deals_with_all_tranches.append(dl_nbr)
+                else:
+                    # This deal has specific tranche selections - needs explicit filtering
+                    deals_with_specific_tranches.append((dl_nbr, selected_tranches))
+            else:
+                # Empty list means all tranches (should have been populated by service layer)
+                deals_with_all_tranches.append(dl_nbr)
+        
+        # Build SQL condition string manually with explicit parentheses
+        condition_parts = []
+        
+        # For deals with all tranches: simple deal filter
+        if deals_with_all_tranches:
+            deal_numbers = ','.join(map(str, deals_with_all_tranches))
+            condition_parts.append(f"deal.dl_nbr IN ({deal_numbers})")
+        
+        # For deals with specific tranches: manual SQL with explicit parentheses
+        for dl_nbr, selected_tranches in deals_with_specific_tranches:
+            # Escape tranche IDs for SQL safety
+            escaped_tranches = ','.join(f"'{t.replace(chr(39), chr(39)+chr(39))}'" for t in selected_tranches)
+            condition_parts.append(f"(deal.dl_nbr = {dl_nbr} AND tranche.tr_id IN ({escaped_tranches}))")
+        
+        # Combine all conditions with OR and return as text()
+        if condition_parts:
+            full_condition = " OR ".join(condition_parts)
+            return text(full_condition)
+        else:
+            # Fallback if no valid conditions
+            return Deal.dl_nbr.in_(list(deal_tranche_map.keys()))
     
     def _build_calculation_cte(self, base_cte, calc: "Calculation", aggregation_level: str):
         """Build a CTE for a single aggregated calculation"""
@@ -348,7 +350,7 @@ class QueryEngine:
         """Get normalized column name for calculation"""
         return calc.name.lower().replace(" ", "_").replace("-", "_")
     
-    # ===== EXECUTION METHODS (SIMPLIFIED) =====
+    # ===== EXECUTION METHODS =====
     def execute_report_query(
         self,
         deal_tranche_map: Dict[int, List[str]],
@@ -374,7 +376,7 @@ class QueryEngine:
             deal_tranche_map, cycle_code, [calculation], aggregation_level
         )
     
-    # ===== PREVIEW METHODS (SIMPLIFIED) =====
+    # ===== PREVIEW METHODS =====
     def preview_calculation_sql(
         self,
         calculation: "Calculation",
