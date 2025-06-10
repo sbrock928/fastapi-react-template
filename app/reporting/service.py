@@ -33,9 +33,9 @@ class ReportService:
         self.query_engine = query_engine
 
     async def get_available_calculations(self, scope: ReportScope) -> List[AvailableCalculation]:
-        """Get available calculations for report configuration based on scope."""
+        """Get available calculations for report configuration based on scope, including auto-generated raw fields."""
         
-        # Get calculations from the config database using query engine
+        # Get manually defined calculations from the config database using query engine
         if not self.query_engine:
             raise HTTPException(status_code=500, detail="Query engine not available")
             
@@ -43,33 +43,36 @@ class ReportService:
         
         # Filter calculations by group level (deal/tranche) based on scope
         if scope == ReportScope.DEAL:
-            calculations = calc_repo.get_all_calculations(group_level="deal")
+            manual_calculations = calc_repo.get_all_calculations(group_level="deal")
         else:
-            calculations = calc_repo.get_all_calculations(group_level="tranche")
+            manual_calculations = calc_repo.get_all_calculations(group_level="tranche")
         
-        # Convert to AvailableCalculation format
         available_calculations = []
-        for calc in calculations:
-            # Determine category based on source model and field
-            category = self._get_calculation_category(calc)
-            
-            # Determine if this should be a default calculation
-            is_default = calc.name in ["Total Ending Balance", "Average Pass Through Rate"]
-            
-            available_calc = AvailableCalculation(
-                id=calc.id,
-                name=calc.name,
-                description=calc.description,
-                aggregation_function=calc.aggregation_function.value,
-                source_model=calc.source_model.value,
-                source_field=calc.source_field,
-                group_level=calc.group_level.value,
-                weight_field=calc.weight_field,
-                scope=scope,
-                category=category,
-                is_default=is_default
-            )
-            available_calculations.append(available_calc)
+        
+        # Add manually defined calculations (excluding RAW ones since we'll auto-generate them)
+        for calc in manual_calculations:
+            if calc.aggregation_function.value != "RAW":  # Skip manual RAW calculations
+                category = self._get_calculation_category(calc)
+                is_default = calc.name in ["Total Ending Balance", "Average Pass Through Rate"]
+                
+                available_calc = AvailableCalculation(
+                    id=calc.id,
+                    name=calc.name,
+                    description=calc.description,
+                    aggregation_function=calc.aggregation_function.value,
+                    source_model=calc.source_model.value,
+                    source_field=calc.source_field,
+                    group_level=calc.group_level.value,
+                    weight_field=calc.weight_field,
+                    scope=scope,
+                    category=category,
+                    is_default=is_default
+                )
+                available_calculations.append(available_calc)
+        
+        # Auto-generate RAW field calculations based on model introspection
+        auto_generated_fields = self._generate_auto_raw_fields(scope)
+        available_calculations.extend(auto_generated_fields)
         
         return available_calculations
 
@@ -160,17 +163,35 @@ class ReportService:
                 calc_repo = CalculationDAO(self.query_engine.config_db)
                 calc_ids = [calc.calculation_id for calc in report_data.selected_calculations]
                 
+                # Separate real calculations from virtual auto-generated ones
+                real_calc_ids = [calc_id for calc_id in calc_ids if calc_id < 10000]
+                virtual_calc_ids = [calc_id for calc_id in calc_ids if calc_id >= 10000]
+                
+                # Validate real calculations exist in database
                 existing_calculations = []
-                for calc_id in calc_ids:
+                for calc_id in real_calc_ids:
                     calc = calc_repo.get_by_id(calc_id)
                     if calc:
                         existing_calculations.append(calc)
                 
                 existing_calc_ids = {calc.id for calc in existing_calculations}
-                missing_calc_ids = set(calc_ids) - existing_calc_ids
+                missing_calc_ids = set(real_calc_ids) - existing_calc_ids
                 
                 if missing_calc_ids:
                     errors.append(f"Calculation IDs not found: {sorted(missing_calc_ids)}")
+                
+                # Validate virtual calculations by checking if they can be generated
+                if virtual_calc_ids:
+                    # Determine scope for virtual calculation validation
+                    scope = getattr(report_data, 'scope', None)
+                    if scope:
+                        scope_enum = ReportScope.DEAL if scope == ReportScope.DEAL else ReportScope.TRANCHE
+                        auto_fields = self._generate_auto_raw_fields(scope_enum)
+                        valid_virtual_ids = {field.id for field in auto_fields}
+                        
+                        invalid_virtual_ids = set(virtual_calc_ids) - valid_virtual_ids
+                        if invalid_virtual_ids:
+                            errors.append(f"Invalid virtual calculation IDs: {sorted(invalid_virtual_ids)}")
 
         if errors:
             raise HTTPException(status_code=422, detail={"errors": errors})
@@ -320,14 +341,51 @@ class ReportService:
         calc_repo = CalculationDAO(self.query_engine.config_db)
         
         for report_calc in report.selected_calculations:
-            calc = calc_repo.get_by_id(report_calc.calculation_id)
-            if calc:
-                calculations.append(calc)
+            calc_id = report_calc.calculation_id
+            
+            # Check if this is a virtual auto-generated RAW field (ID >= 10000)
+            if calc_id >= 10000:
+                # This is a virtual auto-generated field - create a temporary calculation object
+                virtual_calc = self._create_virtual_calculation_from_id(calc_id, report.scope)
+                if virtual_calc:
+                    calculations.append(virtual_calc)
+            else:
+                # This is a real calculation from the database
+                calc = calc_repo.get_by_id(calc_id)
+                if calc:
+                    calculations.append(calc)
         
         if not calculations:
             raise HTTPException(status_code=400, detail="No valid calculations found for report")
         
         return deal_tranche_map, calculations
+
+    def _create_virtual_calculation_from_id(self, virtual_id: int, report_scope: str) -> Optional[Calculation]:
+        """Create a virtual calculation object for auto-generated RAW fields."""
+        from app.calculations.models import Calculation, AggregationFunction, SourceModel, GroupLevel
+        
+        # Recreate the same auto-generated fields logic to find the matching field
+        scope_enum = ReportScope.DEAL if report_scope.upper() == "DEAL" else ReportScope.TRANCHE
+        auto_fields = self._generate_auto_raw_fields(scope_enum)
+        
+        # Find the matching auto-generated field
+        for auto_field in auto_fields:
+            if auto_field.id == virtual_id:
+                # Create a temporary Calculation object that mimics the virtual field
+                virtual_calc = Calculation()
+                virtual_calc.id = virtual_id
+                virtual_calc.name = auto_field.name
+                virtual_calc.description = auto_field.description
+                virtual_calc.aggregation_function = AggregationFunction.RAW
+                virtual_calc.source_model = SourceModel(auto_field.source_model)
+                virtual_calc.source_field = auto_field.source_field
+                virtual_calc.group_level = GroupLevel(auto_field.group_level)
+                virtual_calc.weight_field = None
+                virtual_calc.is_active = True
+                
+                return virtual_calc
+        
+        return None
 
     async def run_saved_report(self, report_id: int, cycle_code: int) -> List[Dict[str, Any]]:
         """Run a saved report using the QueryEngine with calculations and execution logging."""
@@ -601,3 +659,118 @@ class ReportService:
             tranche_summaries.append(tranche_summary)
         
         return tranche_summaries
+
+    def _generate_auto_raw_fields(self, scope: ReportScope) -> List[AvailableCalculation]:
+        """Auto-generate RAW field calculations based on available model fields."""
+        auto_fields = []
+        
+        # Define available fields for each model with metadata
+        field_definitions = {
+            "Deal": [
+                {"field": "dl_nbr", "name": "Deal Number", "description": "Unique deal identifier", "type": "number"},
+                {"field": "issr_cde", "name": "Issuer Code", "description": "Deal issuer code", "type": "string"},
+                {"field": "cdi_file_nme", "name": "CDI File Name", "description": "CDI file name", "type": "string"},
+                {"field": "CDB_cdi_file_nme", "name": "CDB CDI File Name", "description": "CDB CDI file name", "type": "string"},
+            ],
+            "Tranche": [
+                {"field": "tr_id", "name": "Tranche ID", "description": "Tranche identifier within the deal", "type": "string"},
+                {"field": "dl_nbr", "name": "Deal Number", "description": "Parent deal number", "type": "number"},
+                {"field": "tr_cusip_id", "name": "Tranche CUSIP ID", "description": "CUSIP identifier for the tranche", "type": "string"},
+            ],
+            "TrancheBal": [
+                {"field": "tr_end_bal_amt", "name": "Ending Balance Amount", "description": "Outstanding principal balance at period end", "type": "currency"},
+                {"field": "tr_prin_rel_ls_amt", "name": "Principal Release/Loss Amount", "description": "Principal released or lost during the period", "type": "currency"},
+                {"field": "tr_pass_thru_rte", "name": "Pass Through Rate", "description": "Interest rate passed through to investors", "type": "percentage"},
+                {"field": "tr_accrl_days", "name": "Accrual Days", "description": "Number of days in the accrual period", "type": "number"},
+                {"field": "tr_int_dstrb_amt", "name": "Interest Distribution Amount", "description": "Interest distributed to investors", "type": "currency"},
+                {"field": "tr_prin_dstrb_amt", "name": "Principal Distribution Amount", "description": "Principal distributed to investors", "type": "currency"},
+                {"field": "tr_int_accrl_amt", "name": "Interest Accrual Amount", "description": "Interest accrued during the period", "type": "currency"},
+                {"field": "tr_int_shtfl_amt", "name": "Interest Shortfall Amount", "description": "Interest shortfall amount", "type": "currency"},
+                {"field": "cycle_cde", "name": "Cycle Code", "description": "Reporting cycle identifier (YYYYMM format)", "type": "number"},
+            ]
+        }
+        
+        # Determine which models to include based on scope - CORRECTED LOGIC
+        models_to_include = []
+        group_level = scope.value.lower()  # 'deal' or 'tranche'
+        
+        if scope == ReportScope.DEAL:
+            # For deal-level reports, ONLY include Deal fields as raw fields
+            # TrancheBal fields should only be available as aggregated calculations
+            models_to_include = ["Deal"]
+        else:
+            # For tranche-level reports, include Deal and Tranche fields as raw fields
+            # TrancheBal fields should only be available as aggregated calculations
+            models_to_include = ["Deal", "Tranche"]
+        
+        # Generate unique ID starting from a high number to avoid conflicts with manual calculations
+        auto_id_counter = 10000
+        
+        for source_model in models_to_include:
+            fields = field_definitions.get(source_model, [])
+            
+            for field_def in fields:
+                # Skip duplicate dl_nbr from Tranche model when Deal is already included
+                if field_def["field"] == "dl_nbr" and source_model == "Tranche":
+                    continue
+                    
+                # Create category based on source model and field type
+                category = self._get_auto_field_category(source_model, field_def)
+                
+                # Generate a virtual calculation for this raw field
+                auto_field = AvailableCalculation(
+                    id=auto_id_counter,  # Virtual ID that won't conflict with real calculations
+                    name=field_def["name"],
+                    description=field_def["description"],
+                    aggregation_function="RAW",
+                    source_model=source_model,
+                    source_field=field_def["field"],
+                    group_level=group_level,
+                    weight_field=None,
+                    scope=scope,
+                    category=category,
+                    is_default=self._is_default_raw_field(source_model, field_def["field"])
+                )
+                auto_fields.append(auto_field)
+                auto_id_counter += 1
+        
+        return auto_fields
+
+    def _get_auto_field_category(self, source_model: str, field_def: dict) -> str:
+        """Determine category for auto-generated raw fields."""
+        if source_model == "Deal":
+            return "Deal Information"
+        elif source_model == "Tranche":
+            return "Tranche Structure"
+        elif source_model == "TrancheBal":
+            field_name = field_def["field"].lower()
+            field_type = field_def["type"]
+            
+            if "bal" in field_name or "amt" in field_name:
+                if field_type == "currency":
+                    return "Balance & Amount Fields"
+                else:
+                    return "Balance Data"
+            elif "rte" in field_name or "rate" in field_name:
+                return "Rate Fields"
+            elif "dstrb" in field_name:
+                return "Distribution Fields"
+            elif "accrl" in field_name:
+                return "Accrual Fields"
+            elif field_name == "cycle_cde":
+                return "Cycle Information"
+            else:
+                return "Other TrancheBal Fields"
+        else:
+            return "Other Fields"
+
+    def _is_default_raw_field(self, source_model: str, field_name: str) -> bool:
+        """Determine if a raw field should be selected by default."""
+        # Define commonly used fields that should be selected by default
+        default_fields = {
+            "Deal": ["dl_nbr"],
+            "Tranche": ["tr_id"],
+            "TrancheBal": ["tr_end_bal_amt", "cycle_cde"]
+        }
+        
+        return field_name in default_fields.get(source_model, [])

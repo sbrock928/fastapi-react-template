@@ -355,6 +355,51 @@ const CalculationBuilder: React.FC = () => {
     return `${calculation.function_type}(${field})`;
   };
 
+  const getScopeCompatibilityWarning = (): string | null => {
+    if (!calculation.function_type || !calculation.source || !calculation.source_field || !calculation.level) {
+      return null;
+    }
+
+    // Check for potential compatibility issues
+    if (calculation.function_type === 'RAW') {
+      if (calculation.level === 'deal' && calculation.source !== 'Deal') {
+        return `Warning: Raw ${calculation.source} fields in deal-level reports will create multiple rows per deal. Consider using an aggregated function instead.`;
+      }
+    }
+
+    // Check for tranche-level calculations that might be problematic in deal reports
+    if (calculation.level === 'tranche' && calculation.source === 'Tranche') {
+      return `Note: This tranche-level calculation will only be suitable for tranche-level reports. It cannot be used in deal-level reports.`;
+    }
+
+    return null;
+  };
+
+  const getRecommendedLevel = (): string | null => {
+    if (!calculation.function_type || !calculation.source) {
+      return null;
+    }
+
+    // Provide intelligent recommendations based on source and function
+    if (calculation.function_type === 'RAW') {
+      if (calculation.source === 'Deal') {
+        return 'deal'; // Raw deal fields work at both levels, but deal is more natural
+      } else if (calculation.source === 'Tranche' || calculation.source === 'TrancheBal') {
+        return 'tranche'; // Raw tranche fields should typically be tranche-level
+      }
+    } else {
+      // For aggregated functions, consider the typical use case
+      if (calculation.source === 'Deal') {
+        return 'deal'; // Deal fields typically aggregate at deal level
+      } else if (calculation.source === 'TrancheBal') {
+        // TrancheBal can aggregate at either level depending on use case
+        return calculation.level || 'deal'; // Default to deal for most financial calculations
+      }
+    }
+
+    return null;
+  };
+
   const getFullSQLPreview = (): string => {
     if (!calculation.function_type || !calculation.source || !calculation.source_field) {
       return 'Select aggregation function, source model, and field to see SQL preview';
@@ -855,6 +900,34 @@ const CalculationBuilder: React.FC = () => {
                           <strong> Level:</strong> {calculation.level}
                         </div>
                       </div>
+
+                      {/* Scope Compatibility Warning */}
+                      {getScopeCompatibilityWarning() && (
+                        <div className="col-12">
+                          <div className="alert alert-warning">
+                            <i className="bi bi-exclamation-triangle me-2"></i>
+                            <strong>Compatibility Notice:</strong> {getScopeCompatibilityWarning()}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Intelligent Recommendations */}
+                      {getRecommendedLevel() && getRecommendedLevel() !== calculation.level && (
+                        <div className="col-12">
+                          <div className="alert alert-info">
+                            <i className="bi bi-lightbulb me-2"></i>
+                            <strong>Recommendation:</strong> Based on your source model and function type, 
+                            consider setting the group level to <strong>{getRecommendedLevel()}</strong> for optimal compatibility.
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline-info ms-2"
+                              onClick={() => setCalculation({ ...calculation, level: getRecommendedLevel()! })}
+                            >
+                              Apply Recommendation
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Full SQL Preview */}
                       <div className="col-12">

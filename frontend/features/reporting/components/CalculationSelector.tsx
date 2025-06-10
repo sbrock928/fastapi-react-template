@@ -20,6 +20,54 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [calculationType, setCalculationType] = useState<'all' | 'raw' | 'aggregated'>('all');
 
+  // Validation logic to check if a calculation is compatible with the current scope
+  const isCalculationCompatible = (calc: AvailableCalculation): boolean => {
+    if (scope === 'TRANCHE') {
+      // Tranche-level reports can include any calculation (deal or tranche level)
+      return true;
+    }
+    
+    if (scope === 'DEAL') {
+      // Deal-level reports should only include:
+      // 1. Deal-level calculations
+      // 2. Aggregated TrancheBal calculations (these get aggregated to deal level)
+      // 3. RAW fields from Deal model only
+      
+      if (calc.group_level === 'deal') {
+        return true; // Deal-level calculations are always OK
+      }
+      
+      if (calc.aggregation_function === 'RAW') {
+        // RAW fields: only allow Deal model fields in deal-level reports
+        return calc.source_model === 'Deal';
+      }
+      
+      if (calc.aggregation_function !== 'RAW') {
+        // Aggregated calculations: check if they're designed for deal-level aggregation
+        return calc.group_level === 'deal';
+      }
+    }
+    
+    return true;
+  };
+
+  // Get incompatible calculations for warnings
+  const getIncompatibilityReason = (calc: AvailableCalculation): string | null => {
+    if (isCalculationCompatible(calc)) return null;
+    
+    if (scope === 'DEAL') {
+      if (calc.aggregation_function === 'RAW' && calc.source_model !== 'Deal') {
+        return `Raw ${calc.source_model} fields would create multiple rows per deal. Use aggregated calculations instead.`;
+      }
+      
+      if (calc.group_level === 'tranche') {
+        return `This tranche-level calculation would create multiple rows per deal.`;
+      }
+    }
+    
+    return 'This calculation is not compatible with the selected report scope.';
+  };
+
   // Group calculations by category and type
   const calculationsByCategory = useMemo(() => {
     const grouped: Record<string, AvailableCalculation[]> = {};
@@ -43,8 +91,8 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
     return { rawFields: raw, aggregatedCalculations: aggregated };
   }, [availableCalculations]);
 
-  // Filter calculations based on search, category, and type
-  const filteredCalculations = useMemo(() => {
+  // Filter and separate compatible/incompatible calculations
+  const { compatibleCalculations, incompatibleCalculations } = useMemo(() => {
     let calculations = availableCalculations;
 
     // Filter by calculation type
@@ -70,8 +118,12 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
       );
     }
 
-    return calculations;
-  }, [availableCalculations, selectedCategory, searchTerm, calculationType]);
+    // Separate compatible and incompatible
+    const compatible = calculations.filter(isCalculationCompatible);
+    const incompatible = calculations.filter(calc => !isCalculationCompatible(calc));
+
+    return { compatibleCalculations: compatible, incompatibleCalculations: incompatible };
+  }, [availableCalculations, selectedCategory, searchTerm, calculationType, scope]);
 
   // Check if a calculation is selected
   const isCalculationSelected = (calcId: number): boolean => {
@@ -89,6 +141,12 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
       );
       onCalculationsChange(updatedCalculations);
     } else {
+      // Check compatibility before adding
+      if (!isCalculationCompatible(availableCalc)) {
+        // Show warning but don't prevent selection - let user understand the issue
+        return; // Could show a toast message here
+      }
+      
       // Add calculation
       const newCalculation: ReportCalculation = {
         calculation_id: availableCalc.id,
@@ -99,9 +157,10 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
     }
   };
 
-  // Handle select all raw fields
+  // Handle select all with validation
   const handleSelectAllRaw = () => {
-    const rawCalculations = rawFields.map((calc, index) => ({
+    const compatibleRawFields = rawFields.filter(isCalculationCompatible);
+    const rawCalculations = compatibleRawFields.map((calc, index) => ({
       calculation_id: calc.id,
       display_order: selectedCalculations.length + index,
       display_name: undefined
@@ -109,9 +168,9 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
     onCalculationsChange([...selectedCalculations, ...rawCalculations]);
   };
 
-  // Handle select all aggregated
   const handleSelectAllAggregated = () => {
-    const aggregatedCalcs = aggregatedCalculations.map((calc, index) => ({
+    const compatibleAggregated = aggregatedCalculations.filter(isCalculationCompatible);
+    const aggregatedCalcs = compatibleAggregated.map((calc, index) => ({
       calculation_id: calc.id,
       display_order: selectedCalculations.length + index,
       display_name: undefined
@@ -119,9 +178,9 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
     onCalculationsChange([...selectedCalculations, ...aggregatedCalcs]);
   };
 
-  // Handle select all
   const handleSelectAll = () => {
-    const allCalculations = availableCalculations.map((calc, index) => ({
+    const compatibleCalculations = availableCalculations.filter(isCalculationCompatible);
+    const allCalculations = compatibleCalculations.map((calc, index) => ({
       calculation_id: calc.id,
       display_order: index,
       display_name: undefined
@@ -270,9 +329,27 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
         </div>
       )}
 
+      {/* Scope Compatibility Warning */}
+      {scope === 'DEAL' && incompatibleCalculations.length > 0 && (
+        <div className="alert alert-warning mb-3">
+          <i className="bi bi-exclamation-triangle me-2"></i>
+          <strong>Deal-Level Report Compatibility:</strong> Some calculations are not compatible with deal-level reports 
+          because they would create multiple rows per deal. These have been filtered out or disabled.
+          <details className="mt-2">
+            <summary>Why are some calculations incompatible?</summary>
+            <ul className="mt-2 mb-0">
+              <li><strong>Raw Tranche/TrancheBal fields:</strong> Would show individual tranche data, creating multiple rows per deal</li>
+              <li><strong>Tranche-level calculations:</strong> Designed to aggregate at tranche level, not deal level</li>
+              <li><strong>Solution:</strong> Use deal-level aggregated calculations instead (SUM, AVG, etc.)</li>
+            </ul>
+          </details>
+        </div>
+      )}
+
       {/* Available Calculations List */}
       <div className="row">
-        {filteredCalculations.length === 0 ? (
+        {/* Compatible Calculations */}
+        {compatibleCalculations.length === 0 && incompatibleCalculations.length === 0 ? (
           <div className="col-12">
             <div className="text-center text-muted p-4">
               {searchTerm || selectedCategory !== 'all' || calculationType !== 'all'
@@ -281,66 +358,126 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
             </div>
           </div>
         ) : (
-          filteredCalculations.map(calc => {
-            const isSelected = isCalculationSelected(calc.id);
-            const isRaw = calc.aggregation_function === 'RAW';
-            return (
-              <div key={calc.id} className="col-md-6 col-lg-4 mb-3">
-                <div 
-                  className={`card h-100 ${isSelected ? 'border-primary bg-light' : ''} ${isRaw ? 'border-info' : ''}`}
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => handleCalculationToggle(calc)}
-                >
-                  <div className="card-body">
-                    <div className="d-flex justify-content-between align-items-start mb-2">
-                      <h6 className="card-title mb-0">
-                        {isRaw && <i className="bi bi-file-text text-info me-1" title="Raw Field"></i>}
-                        {!isRaw && <i className="bi bi-calculator text-primary me-1" title="Aggregated Calculation"></i>}
-                        {calc.name}
-                        {calc.is_default && (
-                          <span className="badge bg-warning text-dark ms-1" title="Default calculation">
-                            <i className="bi bi-star-fill"></i>
-                          </span>
-                        )}
-                      </h6>
-                      <input
-                        type="checkbox"
-                        className="form-check-input"
-                        checked={isSelected}
-                        onChange={() => handleCalculationToggle(calc)}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </div>
-                    <div className="text-muted small mb-2">
-                      <span className="badge bg-secondary me-1">{calc.category}</span>
-                      <span className={`badge ${isRaw ? 'bg-info' : 'bg-success'}`}>
-                        {isRaw ? 'Raw Field' : calc.aggregation_function}
-                      </span>
-                    </div>
-                    <p className="card-text small text-muted">
-                      <strong>Source:</strong> {calc.source_model}.{calc.source_field}
-                    </p>
-                    {calc.description && (
-                      <p className="card-text small">
-                        {calc.description}
-                      </p>
-                    )}
-                    {calc.weight_field && (
+          <>
+            {compatibleCalculations.map(calc => {
+              const isSelected = isCalculationSelected(calc.id);
+              const isRaw = calc.aggregation_function === 'RAW';
+              return (
+                <div key={calc.id} className="col-md-6 col-lg-4 mb-3">
+                  <div 
+                    className={`card h-100 ${isSelected ? 'border-primary bg-light' : ''} ${isRaw ? 'border-info' : ''}`}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => handleCalculationToggle(calc)}
+                  >
+                    <div className="card-body">
+                      <div className="d-flex justify-content-between align-items-start mb-2">
+                        <h6 className="card-title mb-0">
+                          {isRaw && <i className="bi bi-file-text text-info me-1" title="Raw Field"></i>}
+                          {!isRaw && <i className="bi bi-calculator text-primary me-1" title="Aggregated Calculation"></i>}
+                          {calc.name}
+                          {calc.is_default && (
+                            <span className="badge bg-warning text-dark ms-1" title="Default calculation">
+                              <i className="bi bi-star-fill"></i>
+                            </span>
+                          )}
+                        </h6>
+                        <input
+                          type="checkbox"
+                          className="form-check-input"
+                          checked={isSelected}
+                          onChange={() => handleCalculationToggle(calc)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </div>
+                      <div className="text-muted small mb-2">
+                        <span className="badge bg-secondary me-1">{calc.category}</span>
+                        <span className={`badge ${isRaw ? 'bg-info' : 'bg-success'}`}>
+                          {isRaw ? 'Raw Field' : calc.aggregation_function}
+                        </span>
+                        <span className="badge bg-success ms-1">
+                          <i className="bi bi-check-circle me-1"></i>Compatible
+                        </span>
+                      </div>
                       <p className="card-text small text-muted">
-                        <strong>Weight Field:</strong> {calc.weight_field}
+                        <strong>Source:</strong> {calc.source_model}.{calc.source_field}
                       </p>
-                    )}
-                    {isRaw && (
-                      <p className="card-text small text-info">
-                        <i className="bi bi-info-circle me-1"></i>
-                        Shows individual row values without aggregation
-                      </p>
-                    )}
+                      {calc.description && (
+                        <p className="card-text small">
+                          {calc.description}
+                        </p>
+                      )}
+                      {calc.weight_field && (
+                        <p className="card-text small text-muted">
+                          <strong>Weight Field:</strong> {calc.weight_field}
+                        </p>
+                      )}
+                      {isRaw && (
+                        <p className="card-text small text-info">
+                          <i className="bi bi-info-circle me-1"></i>
+                          Shows individual row values without aggregation
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })
+              );
+            })}
+
+            {/* Incompatible Calculations (shown as disabled) */}
+            {incompatibleCalculations.map(calc => {
+              const isRaw = calc.aggregation_function === 'RAW';
+              const incompatibilityReason = getIncompatibilityReason(calc);
+              return (
+                <div key={calc.id} className="col-md-6 col-lg-4 mb-3">
+                  <div 
+                    className="card h-100 border-warning bg-light"
+                    style={{ opacity: 0.7, cursor: 'not-allowed' }}
+                    title={incompatibilityReason || 'Not compatible with current report scope'}
+                  >
+                    <div className="card-body">
+                      <div className="d-flex justify-content-between align-items-start mb-2">
+                        <h6 className="card-title mb-0 text-muted">
+                          {isRaw && <i className="bi bi-file-text text-muted me-1" title="Raw Field"></i>}
+                          {!isRaw && <i className="bi bi-calculator text-muted me-1" title="Aggregated Calculation"></i>}
+                          {calc.name}
+                          <i className="bi bi-exclamation-triangle text-warning ms-1" title="Not compatible"></i>
+                        </h6>
+                        <input
+                          type="checkbox"
+                          className="form-check-input"
+                          checked={false}
+                          disabled={true}
+                        />
+                      </div>
+                      <div className="text-muted small mb-2">
+                        <span className="badge bg-secondary me-1">{calc.category}</span>
+                        <span className={`badge ${isRaw ? 'bg-info' : 'bg-success'}`}>
+                          {isRaw ? 'Raw Field' : calc.aggregation_function}
+                        </span>
+                        <span className="badge bg-warning text-dark ms-1">
+                          <i className="bi bi-exclamation-triangle me-1"></i>Incompatible
+                        </span>
+                      </div>
+                      <p className="card-text small text-muted">
+                        <strong>Source:</strong> {calc.source_model}.{calc.source_field}
+                      </p>
+                      {incompatibilityReason && (
+                        <div className="alert alert-warning small py-2 mb-2">
+                          <i className="bi bi-info-circle me-1"></i>
+                          {incompatibilityReason}
+                        </div>
+                      )}
+                      {calc.description && (
+                        <p className="card-text small text-muted">
+                          {calc.description}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </>
         )}
       </div>
 
@@ -348,9 +485,16 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
       <div className="row mt-3">
         <div className="col-12">
           <small className="text-muted">
-            Showing {filteredCalculations.length} of {availableCalculations.length} available fields and calculations. 
+            Showing {compatibleCalculations.length} compatible + {incompatibleCalculations.length} incompatible 
+            of {availableCalculations.length} total fields and calculations. 
             {selectedCalculations.length > 0 && ` ${selectedCalculations.length} selected.`}
           </small>
+          {scope === 'DEAL' && incompatibleCalculations.length > 0 && (
+            <div className="small text-warning mt-1">
+              <i className="bi bi-exclamation-triangle me-1"></i>
+              {incompatibleCalculations.length} calculation(s) are incompatible with deal-level reports and are shown as disabled.
+            </div>
+          )}
         </div>
       </div>
     </div>
