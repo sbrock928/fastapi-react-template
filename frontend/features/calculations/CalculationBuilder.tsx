@@ -11,6 +11,7 @@ import CalculationModal from './components/CalculationModal';
 import SystemCalculationsTab from './components/SystemCalculationsTab';
 import SqlPreviewModal from './components/SqlPreviewModal';
 import UsageModal from './components/UsageModal';
+import CalculationStatsHeader from './components/CalculationStatsHeader';
 
 // Hooks
 import { useCalculations } from './hooks/useCalculations';
@@ -231,6 +232,16 @@ const CalculationBuilder: React.FC = () => {
         </div>
       </div>
 
+      {/* Calculation Statistics - Now as header */}
+      {isConfigAvailable() && (
+        <CalculationStatsHeader
+          userCalculations={userCalculations}
+          systemCalculations={systemCalculations}
+          userUsage={userUsage}
+          systemUsage={systemUsage}
+        />
+      )}
+
       {/* Configuration Error State */}
       {configError && (
         <div className="alert alert-danger d-flex align-items-center" role="alert">
@@ -386,7 +397,6 @@ const CalculationBuilder: React.FC = () => {
                 {/* System Defined Calculations Tab */}
                 {activeTab === 'system-defined' && (
                   <SystemCalculationsTab
-                    calculations={systemCalculations}
                     filteredCalculations={filteredSystemCalculations}
                     selectedFilter={systemFilter}
                     setSelectedFilter={setSystemFilter}
@@ -400,6 +410,8 @@ const CalculationBuilder: React.FC = () => {
               </div>
             </div>
           </div>
+
+          
         </>
       )}
 

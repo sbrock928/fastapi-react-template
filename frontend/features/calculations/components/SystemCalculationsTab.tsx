@@ -5,7 +5,6 @@ import CalculationCard from './CalculationCard';
 import FilterSection from './FilterSection';
 
 interface SystemCalculationsTabProps {
-  calculations: Calculation[];
   filteredCalculations: Calculation[];
   selectedFilter: string;
   setSelectedFilter: (filter: string) => void;
@@ -17,7 +16,6 @@ interface SystemCalculationsTabProps {
 }
 
 const SystemCalculationsTab: React.FC<SystemCalculationsTabProps> = ({
-  calculations,
   filteredCalculations,
   selectedFilter,
   setSelectedFilter,
@@ -125,28 +123,6 @@ const SystemCalculationsTab: React.FC<SystemCalculationsTabProps> = ({
               )}
             </>
           )}
-        </div>
-      </div>
-
-      {/* Statistics Footer */}
-      <div className="card bg-light mt-4">
-        <div className="card-body">
-          <div className="row text-center">
-            <div className="col-md-4">
-              <div className="h4 mb-0 text-primary">{calculations.length}</div>
-              <small className="text-muted">Total System Calculations</small>
-            </div>
-            <div className="col-md-4">
-              <div className="h4 mb-0 text-warning">{systemSqlCalcs.length}</div>
-              <small className="text-muted">SQL Calculations</small>
-            </div>
-            <div className="col-md-4">
-              <div className="h4 mb-0 text-info">
-                {Object.values(usage).filter(u => u?.is_in_use).length}
-              </div>
-              <small className="text-muted">In Active Use</small>
-            </div>
-          </div>
         </div>
       </div>
     </div>

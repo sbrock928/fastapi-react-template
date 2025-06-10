@@ -624,6 +624,71 @@ a:hover {
   color: var(--primary-dark);
 }
 
+/* Sidebar toggle button styling */
+.sidebar-toggle-btn {
+  position: fixed;
+  bottom: 20px;
+  left: 5px; /* Start closer to sidebar edge */
+  width: 50px;
+  height: 50px;
+  background: linear-gradient(135deg, #28a745, #1e7e34);
+  border: 3px solid #fff;
+  border-radius: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 1.4rem;
+  box-shadow: 0 6px 20px rgba(40, 167, 69, 0.4);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 1050;
+  backdrop-filter: blur(10px);
+  user-select: none;
+}
+
+/* Center the button in collapsed sidebar */
+body.sidebar-collapsed .sidebar-toggle-btn {
+  left: 5px; /* 60px sidebar width - 50px button = 10px, divided by 2 = 5px margin */
+}
+
+/* Keep button in a clean position when sidebar is expanded */
+body:not(.sidebar-collapsed) .sidebar-toggle-btn {
+  left: 70px; /* Just outside the sidebar edge for a cleaner look */
+}
+
+.sidebar-toggle-btn:hover {
+  transform: translateY(-3px) scale(1.05);
+  box-shadow: 0 8px 25px rgba(40, 167, 69, 0.6);
+  background: linear-gradient(135deg, #1e7e34, #155724);
+  border-color: #28a745;
+}
+
+.sidebar-toggle-btn:active {
+  transform: translateY(-1px) scale(1.02);
+  transition: all 0.1s ease;
+}
+
+.sidebar-toggle-btn i {
+  transition: transform 0.3s ease;
+}
+
+.sidebar-toggle-btn:hover i {
+  transform: rotate(15deg);
+}
+
+/* Show on smaller screens too */
+@media (max-width: 767px) {
+  .sidebar-toggle-btn {
+    display: flex !important;
+    bottom: 15px;
+    left: 5px !important; /* Always centered in collapsed sidebar on mobile */
+    width: 45px;
+    height: 45px;
+    font-size: 1.2rem;
+  }
+}
+
 /* Modal header enhancements with green theme */
 .modal-header.bg-primary {
   background-color: var(--primary) !important;
