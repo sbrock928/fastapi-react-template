@@ -38,6 +38,16 @@ const LogDetailsModal = ({ log, show, onHide }: LogDetailsModalProps) => {
     closeModal();
   }, [closeModal]);
   
+  // Copy to clipboard function
+  const copyToClipboard = useCallback((content: string, type: string) => {
+    navigator.clipboard.writeText(content).then(() => {
+      // You could add a toast notification here if available
+      console.log(`${type} copied to clipboard`);
+    }).catch(err => {
+      console.error('Failed to copy to clipboard:', err);
+    });
+  }, []);
+  
   if (!log) return null;
 
   return (
@@ -148,12 +158,45 @@ const LogDetailsModal = ({ log, show, onHide }: LogDetailsModalProps) => {
             
             <div className={`tab-content ${styles.tabContent}`} id="requestTabsContent">
               <div className="tab-pane fade show active" id="headers-tab-pane" role="tabpanel" aria-labelledby="headers-tab" tabIndex={0}>
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                  <h6 className="mb-0 text-muted">Request Headers</h6>
+                  <button
+                    className="btn btn-sm btn-outline-secondary"
+                    onClick={() => copyToClipboard(formatJsonString(log.request_headers), 'Request Headers')}
+                    title="Copy request headers to clipboard"
+                  >
+                    <i className="bi bi-clipboard me-1"></i>
+                    Copy
+                  </button>
+                </div>
                 <pre className={styles.preBlock} id="detailHeaders">{formatJsonString(log.request_headers)}</pre>
               </div>
               <div className="tab-pane fade" id="body-tab-pane" role="tabpanel" aria-labelledby="body-tab" tabIndex={0}>
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                  <h6 className="mb-0 text-muted">Request Body</h6>
+                  <button
+                    className="btn btn-sm btn-outline-secondary"
+                    onClick={() => copyToClipboard(formatJsonString(log.request_body), 'Request Body')}
+                    title="Copy request body to clipboard"
+                  >
+                    <i className="bi bi-clipboard me-1"></i>
+                    Copy
+                  </button>
+                </div>
                 <pre className={styles.preBlock} id="detailBody">{formatJsonString(log.request_body)}</pre>
               </div>
               <div className="tab-pane fade" id="response-tab-pane" role="tabpanel" aria-labelledby="response-tab" tabIndex={0}>
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                  <h6 className="mb-0 text-muted">Response Body</h6>
+                  <button
+                    className="btn btn-sm btn-outline-secondary"
+                    onClick={() => copyToClipboard(formatJsonString(log.response_body), 'Response Body')}
+                    title="Copy response body to clipboard"
+                  >
+                    <i className="bi bi-clipboard me-1"></i>
+                    Copy
+                  </button>
+                </div>
                 <pre className={styles.preBlock} id="detailResponseBody">{formatJsonString(log.response_body)}</pre>
               </div>
             </div>
