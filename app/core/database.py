@@ -117,7 +117,7 @@ def create_sample_data():
 
         print("Creating comprehensive sample data with issuer-based structure...")
 
-        # Define 3 main issuers with multiple deals each
+        # Define 3 main issuers with multiple deals each, plus some high-tranche deals
         issuers_config = [
             {
                 "issuer_code": "FHLMC24",
@@ -133,6 +133,12 @@ def create_sample_data():
                 "issuer_code": "GNMA24",
                 "deal_count": 5,
                 "deal_prefix": "GN"
+            },
+            # Add issuers with high-tranche deals for UI testing
+            {
+                "issuer_code": "COMPLEX24",
+                "deal_count": 3,
+                "deal_prefix": "CX"
             }
         ]
 
@@ -183,13 +189,32 @@ def create_sample_data():
                 ["I", "II", "III"],
                 ["FLOAT", "FIXED"],
                 ["1A", "1B", "2"]
+            ],
+            # Complex deals with many tranches for UI testing
+            "COMPLEX24": [
+                # First deal: 35 tranches with sequential pattern
+                [f"A{i:02d}" for i in range(1, 36)],
+                # Second deal: 42 tranches with mixed classes
+                [f"CLASS-{chr(65 + i//10)}{i%10 + 1}" for i in range(42)],
+                # Third deal: 38 tranches with varied naming
+                ([f"SENIOR-{i}" for i in range(1, 11)] + 
+                 [f"MEZZ-{i}" for i in range(1, 16)] + 
+                 [f"JUNIOR-{i}" for i in range(1, 14)])
             ]
         }
         
         for deal in created_deals:
             # Get patterns for this issuer
             patterns = issuer_tranche_patterns[deal.issr_cde]
-            pattern = random.choice(patterns)
+            
+            # For COMPLEX24 deals, use specific high-tranche patterns
+            if deal.issr_cde == "COMPLEX24":
+                # Get the index of this deal within the COMPLEX24 deals
+                complex_deals = [d for d in created_deals if d.issr_cde == "COMPLEX24"]
+                deal_index = complex_deals.index(deal)
+                pattern = patterns[deal_index % len(patterns)]
+            else:
+                pattern = random.choice(patterns)
             
             for tr_id in pattern:
                 tranche_data = {
@@ -244,7 +269,7 @@ def create_sample_data():
         dw_db.commit()
 
         print(f"✅ Successfully created issuer-based sample data:")
-        print(f"   📊 {len(created_deals)} deals across 3 issuers")
+        print(f"   📊 {len(created_deals)} deals across 4 issuers")
         print(f"   📈 {len(created_tranches)} tranches")
         print(f"   📊 {len(tranche_bal_data)} tranche balance records")
 
@@ -261,6 +286,20 @@ def create_sample_data():
                 deal_numbers.append(f"... +{len(issuer_deals) - 3} more")
             print(f"     Sample deals: {', '.join(deal_numbers)}")
 
+        # Highlight the high-tranche deals for UI testing
+        print(f"\n🎯 High-tranche deals for UI testing:")
+        complex_deals = [d for d in created_deals if d.issr_cde == "COMPLEX24"]
+        for deal in complex_deals:
+            deal_tranches = [t for t in created_tranches if t.dl_nbr == deal.dl_nbr]
+            print(f"   Deal {deal.dl_nbr} ({deal.cdi_file_nme}): {len(deal_tranches)} tranches")
+            # Show first few and last few tranche IDs as a preview
+            tranche_ids = [t.tr_id for t in deal_tranches]
+            if len(tranche_ids) > 8:
+                preview = ", ".join(tranche_ids[:4]) + f" ... {len(tranche_ids) - 8} more ... " + ", ".join(tranche_ids[-4:])
+            else:
+                preview = ", ".join(tranche_ids)
+            print(f"     Tranches: {preview}")
+
         # Print deal number range
         print(f"\n📋 Deal number range: {min(d.dl_nbr for d in created_deals)} - {max(d.dl_nbr for d in created_deals)}")
         
@@ -270,7 +309,11 @@ def create_sample_data():
             issuer_deals = [d for d in created_deals if d.issr_cde == issuer["issuer_code"]]
             issuer_tranches = [t for t in created_tranches if any(d.dl_nbr == t.dl_nbr for d in issuer_deals)]
             tranche_ids = sorted(set(t.tr_id for t in issuer_tranches))
-            print(f"   {issuer['issuer_code']}: {', '.join(tranche_ids)}")
+            if len(tranche_ids) > 10:
+                preview = ", ".join(tranche_ids[:8]) + f" ... +{len(tranche_ids) - 8} more"
+            else:
+                preview = ", ".join(tranche_ids)
+            print(f"   {issuer['issuer_code']}: {preview}")
 
     except Exception as e:
         dw_db.rollback()

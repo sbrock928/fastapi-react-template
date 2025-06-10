@@ -194,7 +194,18 @@ class ReportService:
 
         for report in reports:
             deal_count = len(report.selected_deals)
-            tranche_count = sum(len(deal.selected_tranches) for deal in report.selected_deals)
+            
+            # Calculate actual tranche count using smart tranche logic
+            tranche_count = 0
+            for deal in report.selected_deals:
+                if deal.selected_tranches:
+                    # Deal has explicit tranche selections
+                    tranche_count += len(deal.selected_tranches)
+                else:
+                    # Deal uses "smart" all-tranches selection - get actual count from data warehouse
+                    deal_tranches = self.dw_dao.get_tranches_by_dl_nbr(deal.dl_nbr)
+                    tranche_count += len(deal_tranches)
+            
             calculation_count = len(report.selected_calculations)
             
             # Get execution statistics
@@ -291,12 +302,11 @@ class ReportService:
             selected_tranches = [rt.tr_id for rt in deal.selected_tranches]
             deal_tranche_map[deal.dl_nbr] = selected_tranches
         
-        # If no specific tranches selected, get all tranches for selected deals
-        if not any(deal_tranche_map.values()):
-            for dl_nbr, tranches_list in deal_tranche_map.items():
-                if not tranches_list:  # Only if empty
-                    deal_tranches = self.dw_dao.get_tranches_by_dl_nbr(dl_nbr)
-                    deal_tranche_map[dl_nbr] = [t.tr_id for t in deal_tranches]
+        # Handle each deal individually: if no specific tranches stored, get all tranches for that deal
+        for dl_nbr, tranches_list in deal_tranche_map.items():
+            if not tranches_list:  # If empty, it means "include all tranches"
+                deal_tranches = self.dw_dao.get_tranches_by_dl_nbr(dl_nbr)
+                deal_tranche_map[dl_nbr] = [t.tr_id for t in deal_tranches]
         
         return deal_tranche_map
 

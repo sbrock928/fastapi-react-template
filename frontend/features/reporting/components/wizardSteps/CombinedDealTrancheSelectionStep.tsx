@@ -355,13 +355,25 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
                     <div className="row g-3 mb-3">
                       {/* Tranche Search */}
                       <div className="col-md-6">
-                        <input
-                          type="text"
-                          className="form-control form-control-sm"
-                          placeholder="Search tranches by tr_id..."
-                          value={trancheSearchTerms[item.dlNbr] || ''}
-                          onChange={(e) => handleTrancheSearchChange(item.dlNbr, e.target.value)}
-                        />
+                        <div className="input-group input-group-sm">
+                          <input
+                            type="text"
+                            className="form-control"
+                            placeholder="Search tranches by tr_id..."
+                            value={trancheSearchTerms[item.dlNbr] || ''}
+                            onChange={(e) => handleTrancheSearchChange(item.dlNbr, e.target.value)}
+                          />
+                          {trancheSearchTerms[item.dlNbr] && (
+                            <button
+                              className="btn btn-outline-secondary"
+                              type="button"
+                              onClick={() => handleTrancheSearchChange(item.dlNbr, '')}
+                              title="Clear search"
+                            >
+                              <i className="bi bi-x"></i>
+                            </button>
+                          )}
+                        </div>
                       </div>
                       
                       {/* Bulk Actions */}

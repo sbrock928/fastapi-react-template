@@ -29,15 +29,18 @@ export const useReportBuilderForm = ({ editingReport, isEditMode }: UseReportBui
 useEffect(() => {
   if (isEditMode && editingReport) {
     setFormState({
-      reportName: editingReport.name,
+      reportName: editingReport.name || '',
       reportDescription: editingReport.description || '',
-      reportScope: editingReport.scope,
+      reportScope: editingReport.scope || '',
       selectedDeals: editingReport.selected_deals?.map(deal => deal.dl_nbr) || [],
-      // Updated to handle simplified tranche structure
       selectedTranches: editingReport.selected_deals?.reduce((acc, deal) => {
         if (deal.selected_tranches && deal.selected_tranches.length > 0) {
-          // Since tranches no longer have dl_nbr, we use the parent deal's dl_nbr
+          // Deal has explicit tranche selections stored
           acc[deal.dl_nbr] = deal.selected_tranches.map(tranche => tranche.tr_id);
+        } else {
+          // Deal uses "smart" all-tranches selection - we'll populate this later when tranches load
+          // For now, mark it as empty so it gets populated when available tranches load
+          acc[deal.dl_nbr] = [];
         }
         return acc;
       }, {} as Record<number, string[]>) || {},

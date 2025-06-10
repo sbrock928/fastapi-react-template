@@ -222,8 +222,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
 
   // Auto-select tranches based on report scope (updated logic for smart defaults)
   React.useEffect(() => {
-    // Only auto-select for new reports, not when editing
-    if (!isEditMode && Object.keys(tranches).length > 0) {
+    if (Object.keys(tranches).length > 0) {
       setSelectedTranches((prev: Record<number, string[]>) => {
         const newSelectedTranches: Record<number, string[]> = {};
         let hasChanges = false;
@@ -231,10 +230,15 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
         Object.entries(tranches).forEach(([dealId, dealTranches]) => {
           const dlNbr = parseInt(dealId);
           if (selectedDeals.includes(dlNbr)) {
-            // Only auto-select if this deal has no existing tranche selections
-            if (!prev[dlNbr] || prev[dlNbr].length === 0) {
-              // For BOTH scopes: Auto-select ALL tranches by default
-              // This enables the smart exclusionary behavior for both report types
+            // Check if this deal has existing tranche selections or if it's empty (smart selection)
+            const existingTranches = prev[dlNbr] || [];
+            
+            if (isEditMode && existingTranches.length === 0) {
+              // For edit mode: if deal has no explicit selections, populate with all tranches (smart selection)
+              newSelectedTranches[dlNbr] = dealTranches.map((t: TrancheReportSummary) => t.tr_id);
+              hasChanges = true;
+            } else if (!isEditMode && existingTranches.length === 0) {
+              // For new reports: Auto-select ALL tranches by default for deals with no existing selections
               newSelectedTranches[dlNbr] = dealTranches.map((t: TrancheReportSummary) => t.tr_id);
               hasChanges = true;
             } else {
