@@ -28,6 +28,25 @@ export const calculationsApi = {
     return apiClient.put<Calculation>(`/calculations/${id}`, data);
   },
 
+  // Get calculation usage in report templates
+  getCalculationUsage: async (id: number) => {
+    return apiClient.get<{
+      calculation_id: number;
+      is_in_use: boolean;
+      report_count: number;
+      reports: Array<{
+        report_id: number;
+        report_name: string;
+        report_description?: string;
+        scope: string;
+        created_by: string;
+        created_date?: string;
+        display_order: number;
+        display_name?: string;
+      }>;
+    }>(`/calculations/${id}/usage`);
+  },
+
   // Delete calculation
   deleteCalculation: async (id: number) => {
     return apiClient.delete(`/calculations/${id}`);

@@ -28,6 +28,9 @@ const CalculationBuilder: React.FC = () => {
   const [previewLoading, setPreviewLoading] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [calculationUsage, setCalculationUsage] = useState<Record<number, any>>({});
+  const [showUsageModal, setShowUsageModal] = useState<boolean>(false);
+  const [selectedUsageData, setSelectedUsageData] = useState<any>(null);
   
   const [calculation, setCalculation] = useState<CalculationForm>({
     name: '',
@@ -112,10 +115,33 @@ const CalculationBuilder: React.FC = () => {
     return allAvailableFields[sourceModel] || [];
   };
 
+  // Fetch calculation usage for all calculations
+  const fetchCalculationUsage = async () => {
+    const usageMap: Record<number, any> = {};
+    
+    for (const calc of calculations) {
+      try {
+        const response = await calculationsApi.getCalculationUsage(calc.id);
+        usageMap[calc.id] = response.data;
+      } catch (error) {
+        console.error(`Error fetching usage for calculation ${calc.id}:`, error);
+        usageMap[calc.id] = { is_in_use: false, report_count: 0, reports: [] };
+      }
+    }
+    
+    setCalculationUsage(usageMap);
+  };
+
   useEffect(() => {
     fetchCalculations();
     fetchCalculationConfig();
   }, []);
+
+  useEffect(() => {
+    if (calculations.length > 0) {
+      fetchCalculationUsage();
+    }
+  }, [calculations]);
 
   useEffect(() => {
     filterCalculations();
@@ -274,6 +300,17 @@ const CalculationBuilder: React.FC = () => {
   };
 
   const handleDeleteCalculation = async (id: number, name: string): Promise<void> => {
+    // Check if calculation is in use
+    const usage = calculationUsage[id];
+    if (usage?.is_in_use) {
+      const reportNames = usage.reports.map((r: any) => r.report_name).join(', ');
+      showToast(
+        `Cannot delete calculation "${name}" because it is currently being used in the following report templates: ${reportNames}. Please remove the calculation from these reports before deleting it.`,
+        'error'
+      );
+      return;
+    }
+
     if (!window.confirm(`Are you sure you want to delete "${name}"?`)) {
       return;
     }
@@ -284,7 +321,22 @@ const CalculationBuilder: React.FC = () => {
       fetchCalculations();
     } catch (error: any) {
       console.error('Error deleting calculation:', error);
-      showToast(`Error deleting calculation: ${error.message}`, 'error');
+      
+      // Extract detailed error message from API response
+      let errorMessage = `Error deleting calculation: ${error.message}`;
+      if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      }
+      
+      showToast(errorMessage, 'error');
+    }
+  };
+
+  const handleShowUsage = async (calcId: number, calcName: string) => {
+    const usage = calculationUsage[calcId];
+    if (usage) {
+      setSelectedUsageData({ ...usage, calculation_name: calcName });
+      setShowUsageModal(true);
     }
   };
 
@@ -502,6 +554,35 @@ const CalculationBuilder: React.FC = () => {
                             <small>ORM-based calculation using SQLAlchemy func.{calc.aggregation_function.toLowerCase()}</small>
                           </div>
                           
+                          {/* Usage Information */}
+                          {calculationUsage[calc.id] && (
+                            <div className="mt-2">
+                              {calculationUsage[calc.id].is_in_use ? (
+                                <div className="alert alert-warning py-2 mb-2">
+                                  <i className="bi bi-exclamation-triangle me-1"></i>
+                                  <small>
+                                    <strong>In Use:</strong> Currently used in {calculationUsage[calc.id].report_count} report template(s):
+                                    <span className="ms-1">
+                                      {calculationUsage[calc.id].reports.map((report: any, index: number) => (
+                                        <span key={report.report_id}>
+                                          {index > 0 && ', '}
+                                          <strong>{report.report_name}</strong>
+                                        </span>
+                                      ))}
+                                    </span>
+                                  </small>
+                                </div>
+                              ) : (
+                                <div className="text-muted">
+                                  <small>
+                                    <i className="bi bi-check-circle me-1"></i>
+                                    Not currently used in any report templates
+                                  </small>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          
                           {calc.created_at && (
                             <div className="text-muted mt-2">
                               <small>
@@ -530,10 +611,31 @@ const CalculationBuilder: React.FC = () => {
                           </button>
                           <button
                             onClick={() => handleDeleteCalculation(calc.id, calc.name)}
-                            className="btn btn-outline-danger btn-sm"
-                            title="Delete"
+                            className={`btn btn-sm ${
+                              calculationUsage[calc.id]?.is_in_use 
+                                ? 'btn-outline-secondary' 
+                                : 'btn-outline-danger'
+                            }`}
+                            title={
+                              calculationUsage[calc.id]?.is_in_use 
+                                ? 'Cannot delete - calculation is in use'
+                                : 'Delete calculation'
+                            }
+                            disabled={calculationUsage[calc.id]?.is_in_use}
                           >
                             <i className="bi bi-trash"></i> Delete
+                          </button>
+                          <button
+                            onClick={() => handleShowUsage(calc.id, calc.name)}
+                            className="btn btn-outline-secondary btn-sm"
+                            title="View Usage Details"
+                          >
+                            <i className="bi bi-bar-chart"></i> 
+                            {calculationUsage[calc.id]?.report_count > 0 && (
+                              <span className="badge bg-warning text-dark ms-1">
+                                {calculationUsage[calc.id].report_count}
+                              </span>
+                            )}
                           </button>
                         </div>
                       </div>
@@ -1035,6 +1137,111 @@ const CalculationBuilder: React.FC = () => {
                   type="button"
                   className="btn btn-secondary"
                   onClick={() => setShowPreviewModal(false)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Usage Information Modal */}
+      {showUsageModal && selectedUsageData && (
+        <div className="modal show d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal-dialog modal-lg modal-dialog-scrollable">
+            <div className="modal-content">
+              <div className="modal-header bg-primary">
+                <h5 className="modal-title text-white">
+                  <i className="bi bi-bar-chart me-2"></i>
+                  Calculation Usage Information
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close btn-close-white"
+                  onClick={() => setShowUsageModal(false)}
+                ></button>
+              </div>
+              
+              <div className="modal-body">
+                <div>
+                  <div className="mb-4">
+                    <h6 className="text-muted mb-3">Usage Details for:</h6>
+                    <h5 className="mb-3">"{selectedUsageData.calculation_name}"</h5>
+                    
+                    <div className="row mb-3">
+                      <div className="col-md-6">
+                        <div className="card">
+                          <div className="card-body text-center">
+                            <h6 className="card-title">Status</h6>
+                            <span className={`badge fs-6 ${selectedUsageData.is_in_use ? 'bg-warning text-dark' : 'bg-success'}`}>
+                              {selectedUsageData.is_in_use ? 'In Use' : 'Available for Deletion'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="col-md-6">
+                        <div className="card">
+                          <div className="card-body text-center">
+                            <h6 className="card-title">Report Count</h6>
+                            <span className="fs-4 fw-bold text-primary">{selectedUsageData.report_count}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {selectedUsageData.is_in_use && selectedUsageData.reports.length > 0 && (
+                      <div>
+                        <h6 className="mb-3">Used in the following report templates:</h6>
+                        <div className="list-group">
+                          {selectedUsageData.reports.map((report: any) => (
+                            <div key={report.report_id} className="list-group-item">
+                              <div className="d-flex w-100 justify-content-between">
+                                <div>
+                                  <h6 className="mb-1">{report.report_name}</h6>
+                                  {report.report_description && (
+                                    <p className="mb-1 text-muted">{report.report_description}</p>
+                                  )}
+                                  <small className="text-muted">
+                                    Scope: {report.scope} | Created by: {report.created_by}
+                                    {report.display_name && ` | Display Name: ${report.display_name}`}
+                                  </small>
+                                </div>
+                                <div className="text-end">
+                                  <span className="badge bg-secondary">ID: {report.report_id}</span>
+                                  {report.created_date && (
+                                    <small className="d-block text-muted mt-1">
+                                      {new Date(report.created_date).toLocaleDateString()}
+                                    </small>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        
+                        <div className="alert alert-warning mt-3">
+                          <i className="bi bi-exclamation-triangle me-2"></i>
+                          <strong>Note:</strong> To delete this calculation, you must first remove it from all the report templates listed above.
+                        </div>
+                      </div>
+                    )}
+                    
+                    {!selectedUsageData.is_in_use && (
+                      <div className="alert alert-success">
+                        <i className="bi bi-check-circle me-2"></i>
+                        <strong>Good news!</strong> This calculation is not currently being used in any report templates and can be safely deleted if needed.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+              
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setShowUsageModal(false)}
                 >
                   Close
                 </button>

@@ -3,7 +3,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from app.core.dependencies import get_db, get_query_engine
 from app.core.exceptions import CalculationNotFoundError, CalculationAlreadyExistsError, InvalidCalculationError
 from app.shared.query_engine import QueryEngine
@@ -258,6 +258,23 @@ async def update_calculation(
     except InvalidCalculationError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@router.get("/calculations/{calc_id}/usage")
+async def get_calculation_usage(
+    calc_id: int,
+    service: CalculationService = Depends(get_calculation_service)
+) -> Dict[str, Any]:
+    """Get list of report templates that are using this calculation"""
+    try:
+        usage_info = service.get_calculation_usage_in_reports(calc_id)
+        return {
+            "calculation_id": calc_id,
+            "is_in_use": len(usage_info) > 0,
+            "report_count": len(usage_info),
+            "reports": usage_info
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error checking calculation usage: {str(e)}")
+
 @router.delete("/calculations/{calc_id}")
 async def delete_calculation(
     calc_id: int,
@@ -268,3 +285,5 @@ async def delete_calculation(
         return await service.delete_calculation(calc_id)
     except CalculationNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except InvalidCalculationError as e:
+        raise HTTPException(status_code=400, detail=str(e))

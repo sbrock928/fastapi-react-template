@@ -105,11 +105,47 @@ class CalculationService:
         calculation = self.dao.update(calculation)
         return CalculationResponse.model_validate(calculation)
     
+    def get_calculation_usage_in_reports(self, calc_id: int) -> List[Dict[str, Any]]:
+        """Get list of reports that are using this calculation"""
+        from app.reporting.models import Report, ReportCalculation
+        
+        # Query for reports using this calculation
+        reports_using_calc = (
+            self.config_db.query(Report, ReportCalculation)
+            .join(ReportCalculation, Report.id == ReportCalculation.report_id)
+            .filter(ReportCalculation.calculation_id == calc_id)
+            .filter(Report.is_active == True)
+            .all()
+        )
+        
+        return [
+            {
+                "report_id": report.id,
+                "report_name": report.name,
+                "report_description": report.description,
+                "scope": report.scope,
+                "created_by": report.created_by,
+                "created_date": report.created_date.isoformat() if report.created_date else None,
+                "display_order": report_calc.display_order,
+                "display_name": report_calc.display_name
+            }
+            for report, report_calc in reports_using_calc
+        ]
+    
     async def delete_calculation(self, calc_id: int) -> dict:
-        """Delete a calculation (soft delete)"""
+        """Delete a calculation (soft delete) - only if not used in any reports"""
         calculation = self.dao.get_by_id(calc_id)
         if not calculation:
             raise CalculationNotFoundError(f"Calculation with ID {calc_id} not found")
+        
+        # Check if calculation is being used in any reports
+        reports_using_calc = self.get_calculation_usage_in_reports(calc_id)
+        if reports_using_calc:
+            report_names = [report["report_name"] for report in reports_using_calc]
+            raise InvalidCalculationError(
+                f"Cannot delete calculation '{calculation.name}' because it is currently being used in the following report templates: {', '.join(report_names)}. "
+                f"Please remove the calculation from these reports before deleting it."
+            )
         
         self.dao.soft_delete(calculation)
         return {"message": f"Calculation '{calculation.name}' deleted successfully"}
