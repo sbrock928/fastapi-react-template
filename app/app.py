@@ -13,7 +13,7 @@ from app.logging.exception_handlers import (
     response_validation_exception_handler,
     request_validation_exception_handler,
     general_exception_handler,
-    http_exception_handler
+    http_exception_handler,
 )
 
 

@@ -102,28 +102,34 @@ def drop_all_tables():
 
 def create_standard_calculations():
     """Create standard calculation system with User Defined and System SQL types."""
-    from app.calculations.models import Calculation, CalculationType, AggregationFunction, SourceModel, GroupLevel
+    from app.calculations.models import (
+        Calculation,
+        CalculationType,
+        AggregationFunction,
+        SourceModel,
+        GroupLevel,
+    )
     from app.calculations.service import CalculationService
     from app.calculations.schemas import UserDefinedCalculationCreate, SystemSQLCalculationCreate
-    
+
     # Create config database session
     config_db = SessionLocal()
-    
+
     try:
         # Check if calculations already exist
         existing_count = config_db.query(Calculation).count()
         if existing_count > 0:
             print(f"Calculations already exist ({existing_count} found). Skipping creation.")
             return
-        
+
         print("Creating calculation system...")
-        
+
         # Initialize calculation service
         calc_service = CalculationService(config_db)
-        
+
         # ===== 1. CREATE SAMPLE USER DEFINED CALCULATIONS =====
         print("Creating sample user-defined calculations...")
-        
+
         user_defined_calcs = [
             {
                 "name": "Total Ending Balance",
@@ -131,7 +137,7 @@ def create_standard_calculations():
                 "aggregation_function": AggregationFunction.SUM,
                 "source_model": SourceModel.TRANCHE_BAL,
                 "source_field": "tr_end_bal_amt",
-                "group_level": GroupLevel.DEAL
+                "group_level": GroupLevel.DEAL,
             },
             {
                 "name": "Average Pass Through Rate",
@@ -140,15 +146,15 @@ def create_standard_calculations():
                 "source_model": SourceModel.TRANCHE_BAL,
                 "source_field": "tr_pass_thru_rte",
                 "weight_field": "tr_end_bal_amt",
-                "group_level": GroupLevel.DEAL
+                "group_level": GroupLevel.DEAL,
             },
             {
                 "name": "Total Interest Distribution",
                 "description": "Sum of all tranche interest distributions",
                 "aggregation_function": AggregationFunction.SUM,
                 "source_model": SourceModel.TRANCHE_BAL,
-                "source_field": "tr_int_dstrb_amt", 
-                "group_level": GroupLevel.DEAL
+                "source_field": "tr_int_dstrb_amt",
+                "group_level": GroupLevel.DEAL,
             },
             {
                 "name": "Total Principal Distribution",
@@ -156,7 +162,7 @@ def create_standard_calculations():
                 "aggregation_function": AggregationFunction.SUM,
                 "source_model": SourceModel.TRANCHE_BAL,
                 "source_field": "tr_prin_dstrb_amt",
-                "group_level": GroupLevel.DEAL
+                "group_level": GroupLevel.DEAL,
             },
             {
                 "name": "Tranche Count",
@@ -164,7 +170,7 @@ def create_standard_calculations():
                 "aggregation_function": AggregationFunction.COUNT,
                 "source_model": SourceModel.TRANCHE,
                 "source_field": "tr_id",
-                "group_level": GroupLevel.DEAL
+                "group_level": GroupLevel.DEAL,
             },
             # Tranche-level calculations
             {
@@ -173,18 +179,18 @@ def create_standard_calculations():
                 "aggregation_function": AggregationFunction.SUM,
                 "source_model": SourceModel.TRANCHE_BAL,
                 "source_field": "tr_end_bal_amt",
-                "group_level": GroupLevel.TRANCHE
+                "group_level": GroupLevel.TRANCHE,
             },
             {
                 "name": "Pass Through Rate",
-                "description": "Interest rate passed through to investors (tranche level)", 
+                "description": "Interest rate passed through to investors (tranche level)",
                 "aggregation_function": AggregationFunction.AVG,
                 "source_model": SourceModel.TRANCHE_BAL,
                 "source_field": "tr_pass_thru_rte",
-                "group_level": GroupLevel.TRANCHE
+                "group_level": GroupLevel.TRANCHE,
             },
         ]
-        
+
         user_defined_count = 0
         for calc_data in user_defined_calcs:
             try:
@@ -193,12 +199,12 @@ def create_standard_calculations():
                 user_defined_count += 1
             except Exception as e:
                 print(f"⚠️  Error creating user-defined calculation {calc_data['name']}: {e}")
-        
+
         print(f"✅ Created {user_defined_count} user-defined calculations")
-        
+
         # ===== 2. CREATE SAMPLE SYSTEM SQL CALCULATIONS =====
         print("Creating sample system SQL calculations...")
-        
+
         system_sql_calcs = [
             {
                 "name": "Issuer Type Classification",
@@ -215,7 +221,7 @@ def create_standard_calculations():
                     END AS issuer_type
                 FROM deal
                 """,
-                "result_column_name": "issuer_type"
+                "result_column_name": "issuer_type",
             },
             {
                 "name": "Deal Size Category",
@@ -234,7 +240,7 @@ def create_standard_calculations():
                 JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr AND tranche.tr_id = tranchebal.tr_id
                 GROUP BY deal.dl_nbr
                 """,
-                "result_column_name": "size_category"
+                "result_column_name": "size_category",
             },
             {
                 "name": "Tranche Performance Category",
@@ -253,10 +259,10 @@ def create_standard_calculations():
                 JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
                 JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr AND tranche.tr_id = tranchebal.tr_id
                 """,
-                "result_column_name": "performance_category"
-            }
+                "result_column_name": "performance_category",
+            },
         ]
-        
+
         system_sql_count = 0
         for calc_data in system_sql_calcs:
             try:
@@ -265,30 +271,34 @@ def create_standard_calculations():
                 system_sql_count += 1
             except Exception as e:
                 print(f"⚠️  Error creating system SQL calculation {calc_data['name']}: {e}")
-        
+
         print(f"✅ Created {system_sql_count} system SQL calculations")
-        
+
         # ===== SUMMARY =====
         total_calculations = user_defined_count + system_sql_count
         print(f"\n🎉 Successfully created calculation system:")
         print(f"   👤 {user_defined_count} user-defined calculations")
         print(f"   🔧 {system_sql_count} system SQL calculations")
         print(f"   📈 {total_calculations} total calculations")
-        print(f"\n📋 Note: System field calculations are now auto-generated via schema introspection")
-        
+        print(
+            f"\n📋 Note: System field calculations are now auto-generated via schema introspection"
+        )
+
         # Print breakdown by type
         config_db.commit()  # Commit changes before querying counts
         from app.calculations.dao import CalculationDAO
+
         dao = CalculationDAO(config_db)
         counts = dao.count_by_type()
         print(f"\n📋 Final counts by type:")
         for calc_type, count in counts.items():
             print(f"   {calc_type}: {count}")
-        
+
     except Exception as e:
         config_db.rollback()
         print(f"❌ Error creating calculation system: {e}")
         import traceback
+
         traceback.print_exc()
         raise
     finally:
@@ -319,40 +329,26 @@ def create_sample_data():
 
         # Define 3 main issuers with multiple deals each, plus some high-tranche deals
         issuers_config = [
-            {
-                "issuer_code": "FHLMC24",
-                "deal_count": 8,
-                "deal_prefix": "FH"
-            },
-            {
-                "issuer_code": "FNMA24", 
-                "deal_count": 7,
-                "deal_prefix": "FN"
-            },
-            {
-                "issuer_code": "GNMA24",
-                "deal_count": 5,
-                "deal_prefix": "GN"
-            },
+            {"issuer_code": "FHLMC24", "deal_count": 8, "deal_prefix": "FH"},
+            {"issuer_code": "FNMA24", "deal_count": 7, "deal_prefix": "FN"},
+            {"issuer_code": "GNMA24", "deal_count": 5, "deal_prefix": "GN"},
             # Add issuers with high-tranche deals for UI testing
-            {
-                "issuer_code": "COMPLEX24",
-                "deal_count": 3,
-                "deal_prefix": "CX"
-            }
+            {"issuer_code": "COMPLEX24", "deal_count": 3, "deal_prefix": "CX"},
         ]
 
         # Create deals for each issuer
         deals_data = []
         deal_counter = 1001
-        
+
         for issuer in issuers_config:
             for i in range(issuer["deal_count"]):
                 deal_data = {
                     "dl_nbr": deal_counter,
                     "issr_cde": issuer["issuer_code"],
                     "cdi_file_nme": f"{issuer['deal_prefix']}{deal_counter:04d}_CDI",
-                    "CDB_cdi_file_nme": f"{issuer['deal_prefix']}{deal_counter:04d}_CDB" if i % 3 == 0 else None,  # About 1/3 have CDB files
+                    "CDB_cdi_file_nme": (
+                        f"{issuer['deal_prefix']}{deal_counter:04d}_CDB" if i % 3 == 0 else None
+                    ),  # About 1/3 have CDB files
                 }
                 deals_data.append(deal_data)
                 deal_counter += 1
@@ -369,27 +365,22 @@ def create_sample_data():
         # Generate tranches for all deals with varied patterns by issuer
         print("Generating tranches for all deals...")
         tranches_data = []
-        
+
         # Different tranche patterns for different issuers
         issuer_tranche_patterns = {
             "FHLMC24": [
                 ["A1", "A2", "B"],
                 ["SEN", "SUB", "JUN"],
                 ["CLASS-A", "CLASS-B", "CLASS-C"],
-                ["A", "B", "C"]
+                ["A", "B", "C"],
             ],
             "FNMA24": [
                 ["SENIOR", "MEZZ", "JUNIOR"],
                 ["A1", "A2", "A3", "B"],
                 ["PASS", "IO", "PO"],
-                ["X", "Y", "Z"]
+                ["X", "Y", "Z"],
             ],
-            "GNMA24": [
-                ["A", "B"],
-                ["I", "II", "III"],
-                ["FLOAT", "FIXED"],
-                ["1A", "1B", "2"]
-            ],
+            "GNMA24": [["A", "B"], ["I", "II", "III"], ["FLOAT", "FIXED"], ["1A", "1B", "2"]],
             # Complex deals with many tranches for UI testing
             "COMPLEX24": [
                 # First deal: 35 tranches with sequential pattern
@@ -397,16 +388,18 @@ def create_sample_data():
                 # Second deal: 42 tranches with mixed classes
                 [f"CLASS-{chr(65 + i//10)}{i%10 + 1}" for i in range(42)],
                 # Third deal: 38 tranches with varied naming
-                ([f"SENIOR-{i}" for i in range(1, 11)] + 
-                 [f"MEZZ-{i}" for i in range(1, 16)] + 
-                 [f"JUNIOR-{i}" for i in range(1, 14)])
-            ]
+                (
+                    [f"SENIOR-{i}" for i in range(1, 11)]
+                    + [f"MEZZ-{i}" for i in range(1, 16)]
+                    + [f"JUNIOR-{i}" for i in range(1, 14)]
+                ),
+            ],
         }
-        
+
         for deal in created_deals:
             # Get patterns for this issuer
             patterns = issuer_tranche_patterns[deal.issr_cde]
-            
+
             # For COMPLEX24 deals, use specific high-tranche patterns
             if deal.issr_cde == "COMPLEX24":
                 # Get the index of this deal within the COMPLEX24 deals
@@ -415,12 +408,12 @@ def create_sample_data():
                 pattern = patterns[deal_index % len(patterns)]
             else:
                 pattern = random.choice(patterns)
-            
+
             for tr_id in pattern:
                 tranche_data = {
                     "dl_nbr": deal.dl_nbr,
                     "tr_id": tr_id,
-                    "tr_cusip_id": f"{deal.issr_cde[:6]}{tr_id[:3]}{str(deal.dl_nbr)[-3:]}"  # Generate synthetic CUSIP
+                    "tr_cusip_id": f"{deal.issr_cde[:6]}{tr_id[:3]}{str(deal.dl_nbr)[-3:]}",  # Generate synthetic CUSIP
                 }
                 tranches_data.append(tranche_data)
 
@@ -435,13 +428,13 @@ def create_sample_data():
 
         # Generate tranche balance records
         print("Generating tranche balance data...")
-        
+
         base_cycles = [202401, 202402, 202403, 202404]  # Different cycle codes
         tranche_bal_data = []
         for tranche in created_tranches:
             # Create 1-3 balance records per tranche with different cycle codes
             num_records = random.randint(1, 3)
-            
+
             for record_num in range(num_records):
                 bal_data = {
                     "dl_nbr": tranche.dl_nbr,
@@ -477,13 +470,18 @@ def create_sample_data():
         print(f"\n📋 Deals by issuer:")
         for issuer in issuers_config:
             issuer_deals = [d for d in created_deals if d.issr_cde == issuer["issuer_code"]]
-            issuer_tranches = [t for t in created_tranches if any(d.dl_nbr == t.dl_nbr for d in issuer_deals)]
-            print(f"   {issuer['issuer_code']}: {len(issuer_deals)} deals, {len(issuer_tranches)} tranches")
+            issuer_tranches = [
+                t for t in created_tranches if any(d.dl_nbr == t.dl_nbr for d in issuer_deals)
+            ]
+            print(
+                f"   {issuer['issuer_code']}: {len(issuer_deals)} deals, {len(issuer_tranches)} tranches"
+            )
 
     except Exception as e:
         dw_db.rollback()
         print(f"❌ Error creating sample data: {e}")
         import traceback
+
         traceback.print_exc()
         raise
     finally:

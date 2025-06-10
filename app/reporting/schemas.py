@@ -8,18 +8,21 @@ from pydantic import BaseModel, field_validator, ConfigDict
 
 class ReportScope(str, Enum):
     """Report scope options."""
+
     DEAL = "DEAL"
     TRANCHE = "TRANCHE"
 
 
 # ===== CALCULATION SCHEMAS =====
 
+
 class ReportCalculationBase(BaseModel):
     """Base schema for report calculation associations."""
+
     calculation_id: int
     display_order: int = 0
     display_name: Optional[str] = None
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -34,42 +37,52 @@ class ReportCalculation(ReportCalculationBase):
 
 # ===== TRANCHE SCHEMAS =====
 
+
 class ReportTrancheBase(BaseModel):
     """Base schema for report tranche associations."""
+
     tr_id: str
     dl_nbr: Optional[int] = None  # Auto-populated from parent deal
+
 
 class ReportTrancheCreate(ReportTrancheBase):
     pass
 
+
 class ReportTranche(ReportTrancheBase):
     id: int
     report_deal_id: int
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
 # ===== DEAL SCHEMAS =====
 
+
 class ReportDealBase(BaseModel):
     """Base schema for report deal associations."""
+
     dl_nbr: int
+
 
 class ReportDealCreate(ReportDealBase):
     selected_tranches: List[ReportTrancheCreate] = []
+
 
 class ReportDeal(ReportDealBase):
     id: int
     report_id: int
     selected_tranches: List[ReportTranche] = []
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
 # ===== CORE REPORT SCHEMAS =====
 
+
 class ReportBase(BaseModel):
     """Base schema for report configuration objects."""
+
     name: str
     description: Optional[str] = None
     scope: ReportScope
@@ -90,38 +103,42 @@ class ReportBase(BaseModel):
 
 class ReportCreate(ReportBase):
     """Create schema for reports."""
+
     selected_deals: List[ReportDealCreate] = []
     selected_calculations: List[ReportCalculationCreate] = []
-    
+
     @field_validator("selected_deals")
     @classmethod
     def validate_selected_deals(cls, v: List[ReportDealCreate]) -> List[ReportDealCreate]:
         if not v:
             raise ValueError("At least one deal must be selected")
-        
+
         # Check for duplicate deal numbers
         dl_nbrs = [deal.dl_nbr for deal in v]
         if len(set(dl_nbrs)) != len(dl_nbrs):
             raise ValueError("Duplicate deal numbers are not allowed")
-        
+
         return v
 
     @field_validator("selected_calculations")
     @classmethod
-    def validate_selected_calculations(cls, v: List[ReportCalculationCreate]) -> List[ReportCalculationCreate]:
+    def validate_selected_calculations(
+        cls, v: List[ReportCalculationCreate]
+    ) -> List[ReportCalculationCreate]:
         if not v:
             raise ValueError("At least one calculation must be selected")
-        
+
         # Check for duplicate calculation IDs
         calc_ids = [calc.calculation_id for calc in v]
         if len(set(calc_ids)) != len(calc_ids):
             raise ValueError("Duplicate calculation IDs are not allowed")
-        
+
         return v
 
 
 class ReportRead(ReportBase):
     """Read schema for reports."""
+
     id: int
     created_date: datetime
     updated_date: datetime
@@ -131,6 +148,7 @@ class ReportRead(ReportBase):
 
 class ReportUpdate(BaseModel):
     """Update schema - allows partial updates."""
+
     name: Optional[str] = None
     description: Optional[str] = None
     scope: Optional[ReportScope] = None
@@ -154,8 +172,10 @@ class ReportUpdate(BaseModel):
 
 # ===== AVAILABLE CALCULATION SCHEMA =====
 
+
 class AvailableCalculation(BaseModel):
     """Schema for available calculations that can be selected for reports."""
+
     id: int
     name: str
     description: Optional[str] = None
@@ -171,8 +191,10 @@ class AvailableCalculation(BaseModel):
 
 # ===== SUMMARY SCHEMAS =====
 
+
 class ReportSummary(BaseModel):
     """Summary schema for report listings."""
+
     id: int
     name: str
     description: Optional[str] = None
@@ -193,8 +215,10 @@ class ReportSummary(BaseModel):
 
 # ===== EXECUTION SCHEMAS =====
 
+
 class RunReportRequest(BaseModel):
     """Request schema for running a saved report."""
+
     report_id: int
     cycle_code: int
 
@@ -203,6 +227,7 @@ class RunReportRequest(BaseModel):
 
 class ReportExecutionLog(BaseModel):
     """Schema for report execution logs."""
+
     id: int
     report_id: int
     cycle_code: int
@@ -212,5 +237,5 @@ class ReportExecutionLog(BaseModel):
     success: bool
     error_message: Optional[str] = None
     executed_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)

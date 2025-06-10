@@ -26,8 +26,7 @@ def get_warehouse_db_session() -> Session:
 
 # Unified query engine dependency
 def get_query_engine(
-    dw_db: Session = Depends(get_dw_db),
-    config_db: Session = Depends(get_db)
+    dw_db: Session = Depends(get_dw_db), config_db: Session = Depends(get_db)
 ) -> QueryEngine:
     """Get unified query engine with both database sessions"""
     return QueryEngine(dw_db, config_db)

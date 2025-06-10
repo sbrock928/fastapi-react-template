@@ -107,7 +107,9 @@ async def run_report(
     request: RunReportRequest, service: ReportService = Depends(get_report_service)
 ) -> List[Dict[str, Any]]:
     """Run a saved report configuration."""
-    return await service.run_saved_report(request.report_id, request.cycle_code)  # FIXED: added await
+    return await service.run_saved_report(
+        request.report_id, request.cycle_code
+    )  # FIXED: added await
 
 
 @router.post("/run/{report_id}", response_model=List[Dict[str, Any]])
@@ -126,9 +128,7 @@ async def run_report_by_id(
 
 @router.get("/{report_id}/preview-sql")
 async def preview_report_sql(
-    report_id: int, 
-    cycle_code: int = 202404,
-    service: ReportService = Depends(get_report_service)
+    report_id: int, cycle_code: int = 202404, service: ReportService = Depends(get_report_service)
 ) -> Dict[str, Any]:
     """Preview SQL that would be generated for a report."""
     return await service.preview_report_sql(report_id, cycle_code)  # FIXED: added await
@@ -136,9 +136,7 @@ async def preview_report_sql(
 
 @router.get("/{report_id}/execution-logs")
 async def get_report_execution_logs(
-    report_id: int,
-    limit: int = 50,
-    service: ReportService = Depends(get_report_service)
+    report_id: int, limit: int = 50, service: ReportService = Depends(get_report_service)
 ) -> List[Dict[str, Any]]:
     """Get execution logs for a report."""
     return await service.get_execution_logs(report_id, limit)  # FIXED: added await
@@ -175,11 +173,11 @@ def get_available_deals(
 ) -> List[Dict[str, Any]]:
     """Get available deals for report building, optionally filtered by issuer code."""
     deals = service.get_available_deals()  # This one stays sync
-    
+
     # Filter by issuer code if provided
     if issuer_code:
         deals = [deal for deal in deals if deal["issr_cde"] == issuer_code]
-    
+
     return deals
 
 
@@ -191,11 +189,10 @@ def get_available_tranches(
     deal_ids = request.get("dl_nbrs", [])
     cycle_code = request.get("cycle_code")
 
-    tranches_by_deal = service.get_available_tranches_for_deals(deal_ids, cycle_code)  # This one stays sync
-    return {
-        int(deal_id): tranches
-        for deal_id, tranches in tranches_by_deal.items()
-    }
+    tranches_by_deal = service.get_available_tranches_for_deals(
+        deal_ids, cycle_code
+    )  # This one stays sync
+    return {int(deal_id): tranches for deal_id, tranches in tranches_by_deal.items()}
 
 
 @router.get("/data/cycles", response_model=List[Dict[str, Any]])

@@ -48,21 +48,25 @@ class DatawarehouseDAO:
         result = self.db.execute(stmt)
         return list(result.scalars().all())
 
-    def get_tranchebal_by_keys(self, dl_nbr: int, tr_id: str, cycle_date: Optional[int] = None) -> Optional[TrancheBal]:
+    def get_tranchebal_by_keys(
+        self, dl_nbr: int, tr_id: str, cycle_date: Optional[int] = None
+    ) -> Optional[TrancheBal]:
         """Get tranche cycle data by DL number, tranche ID, and optionally cycle date"""
         if cycle_date:
             stmt = select(TrancheBal).where(
-                TrancheBal.dl_nbr == dl_nbr, 
+                TrancheBal.dl_nbr == dl_nbr,
                 TrancheBal.tr_id == tr_id,
-                TrancheBal.cycle_cde == cycle_date
+                TrancheBal.cycle_cde == cycle_date,
             )
         else:
             # Get the most recent cycle data if no cycle date specified
-            stmt = select(TrancheBal).where(
-                TrancheBal.dl_nbr == dl_nbr, 
-                TrancheBal.tr_id == tr_id
-            ).order_by(TrancheBal.cycle_date.desc()).limit(1)
-        
+            stmt = (
+                select(TrancheBal)
+                .where(TrancheBal.dl_nbr == dl_nbr, TrancheBal.tr_id == tr_id)
+                .order_by(TrancheBal.cycle_date.desc())
+                .limit(1)
+            )
+
         result = self.db.execute(stmt)
         return result.scalars().first()
 
@@ -73,14 +77,14 @@ class DatawarehouseDAO:
             stmt = select(TrancheBal.cycle_cde).distinct().order_by(TrancheBal.cycle_cde.desc())
             result = self.db.execute(stmt)
             cycle_codes = result.scalars().all()
-            
+
             # Convert to the expected format with both label and value
             cycles = []
             for cycle_code in cycle_codes:
                 # Format the cycle code for display (e.g., 202401 -> "2024 Q1")
                 year = str(cycle_code)[:4]
                 quarter_month = str(cycle_code)[4:]
-                
+
                 if quarter_month == "01":
                     label = f"{year} Q1"
                 elif quarter_month == "02":
@@ -92,14 +96,16 @@ class DatawarehouseDAO:
                 else:
                     # For other formats, just show the raw cycle code
                     label = f"Cycle {cycle_code}"
-                
-                cycles.append({
-                    "label": label,
-                    "value": cycle_code  # Use the actual cycle code from the database
-                })
-            
+
+                cycles.append(
+                    {
+                        "label": label,
+                        "value": cycle_code,  # Use the actual cycle code from the database
+                    }
+                )
+
             return cycles
-            
+
         except Exception as e:
             print(f"Error fetching cycles from database: {e}")
             # Return empty list instead of dummy data

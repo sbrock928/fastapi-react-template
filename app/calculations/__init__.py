@@ -9,10 +9,10 @@ from .dao import CalculationDAO
 __all__ = [
     "Calculation",
     "AggregationFunction",
-    "SourceModel", 
+    "SourceModel",
     "GroupLevel",
     "CalculationCreateRequest",
-    "CalculationResponse", 
+    "CalculationResponse",
     "CalculationService",
-    "CalculationDAO"
+    "CalculationDAO",
 ]

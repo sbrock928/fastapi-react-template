@@ -18,7 +18,7 @@ class ReportDAO:
             select(Report)
             .options(
                 selectinload(Report.selected_deals).selectinload(ReportDeal.selected_tranches),
-                selectinload(Report.selected_calculations)
+                selectinload(Report.selected_calculations),
             )
             .where(Report.is_active == True)
             .order_by(Report.created_date.desc())
@@ -32,7 +32,7 @@ class ReportDAO:
             select(Report)
             .options(
                 selectinload(Report.selected_deals).selectinload(ReportDeal.selected_tranches),
-                selectinload(Report.selected_calculations)
+                selectinload(Report.selected_calculations),
             )
             .where(Report.id == report_id)
         )

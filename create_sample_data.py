@@ -149,11 +149,13 @@ def create_comprehensive_sample_data():
         tranche_bal_data = []
         for tranche in created_tranches:
             # Create a sample tranche record for each tranche with cycle date
-            tranche_bal_data.append({
-                "dl_nbr": tranche.dl_nbr,
-                "tr_id": tranche.tr_id,
-                "cycle_date": "2024-03-31",  # Sample cycle date
-            })
+            tranche_bal_data.append(
+                {
+                    "dl_nbr": tranche.dl_nbr,
+                    "tr_id": tranche.tr_id,
+                    "cycle_date": "2024-03-31",  # Sample cycle date
+                }
+            )
 
         # Create tranche balances
         for bal_data in tranche_bal_data:
@@ -165,7 +167,7 @@ def create_comprehensive_sample_data():
 
         print(f"✅ Successfully created sample data:")
         print(f"   📊 {len(created_deals)} deals")
-        print(f"   📈 {len(created_tranches)} tranches") 
+        print(f"   📈 {len(created_tranches)} tranches")
         print(f"   📊 {len(tranche_bal_data)} tranche balance records")
 
         # Print deal summary
