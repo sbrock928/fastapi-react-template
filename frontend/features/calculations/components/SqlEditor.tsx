@@ -20,6 +20,7 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const highlightRef = useRef<HTMLDivElement>(null);
+  const lineNumbersRef = useRef<HTMLDivElement>(null);
   const [focused, setFocused] = useState(false);
 
   // SQL keywords for highlighting
@@ -34,13 +35,13 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
   const TABLES = ['deal', 'tranche', 'tranchebal'];
   const COMMON_FIELDS = ['dl_nbr', 'tr_id', 'issr_cde', 'cdi_file_nme', 'tr_end_bal_amt', 'tr_pass_thru_rte'];
 
-  // Highlight SQL syntax
+  // Highlight SQL syntax (without line numbers)
   const highlightSql = (sql: string): string => {
     if (!sql) return '';
 
     let highlighted = sql;
 
-    // Escape HTML
+    // Escape HTML first
     highlighted = highlighted
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -81,20 +82,24 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
     // Highlight comments
     highlighted = highlighted.replace(/--.*$/gm, '<span class="sql-comment">$&</span>');
 
-    // Add line numbers
-    const lines = highlighted.split('\n');
-    const numberedLines = lines.map((line, index) => 
-      `<span class="line-number">${index + 1}</span>${line}`
-    ).join('\n');
-
-    return numberedLines;
+    return highlighted;
   };
 
-  // Sync scroll between textarea and highlight div
+  // Generate line numbers separately
+  const generateLineNumbers = (text: string): string => {
+    const lines = text.split('\n');
+    return lines.map((_, index) => index + 1).join('\n');
+  };
+
+  // Sync scroll between all elements
   const handleScroll = () => {
-    if (textareaRef.current && highlightRef.current) {
-      highlightRef.current.scrollTop = textareaRef.current.scrollTop;
-      highlightRef.current.scrollLeft = textareaRef.current.scrollLeft;
+    if (textareaRef.current && highlightRef.current && lineNumbersRef.current) {
+      const scrollTop = textareaRef.current.scrollTop;
+      const scrollLeft = textareaRef.current.scrollLeft;
+      
+      highlightRef.current.scrollTop = scrollTop;
+      highlightRef.current.scrollLeft = scrollLeft;
+      lineNumbersRef.current.scrollTop = scrollTop;
     }
   };
 
@@ -103,13 +108,8 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
     if (highlightRef.current) {
       highlightRef.current.innerHTML = highlightSql(value);
     }
-  }, [value]);
-
-  // Auto-resize textarea
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = Math.max(300, textareaRef.current.scrollHeight) + 'px';
+    if (lineNumbersRef.current) {
+      lineNumbersRef.current.textContent = generateLineNumbers(value);
     }
   }, [value]);
 
@@ -131,106 +131,17 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
     }
   };
 
-  // CSS styles as a constant object
-  const styles = {
-    container: {
-      position: 'relative' as const,
-      border: '2px solid #dee2e6',
-      borderRadius: '8px',
-      overflow: 'hidden' as const,
-      background: '#1e1e1e',
-      fontFamily: '"Consolas", "Monaco", "Courier New", monospace',
-      fontSize: '14px',
-      lineHeight: 1.4,
-      ...(focused && {
-        borderColor: '#0d6efd',
-        boxShadow: '0 0 0 0.2rem rgba(13, 110, 253, 0.25)'
-      }),
-      ...(disabled && {
-        opacity: 0.6,
-        pointerEvents: 'none' as const
-      })
-    },
-    wrapper: {
-      position: 'relative' as const,
-      height: height
-    },
-    highlight: {
-      position: 'absolute' as const,
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      padding: '12px',
-      margin: 0,
-      border: 'none',
-      background: 'transparent',
-      color: 'transparent',
-      whiteSpace: 'pre-wrap' as const,
-      wordWrap: 'break-word' as const,
-      overflow: 'auto' as const,
-      pointerEvents: 'none' as const,
-      fontFamily: 'inherit',
-      fontSize: 'inherit',
-      lineHeight: 'inherit'
-    },
-    textarea: {
-      position: 'absolute' as const,
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      width: '100%',
-      height: '100%',
-      padding: '12px',
-      margin: 0,
-      border: 'none',
-      background: 'transparent',
-      color: '#d4d4d4',
-      whiteSpace: 'pre-wrap' as const,
-      wordWrap: 'break-word' as const,
-      overflow: 'auto' as const,
-      resize: 'none' as const,
-      outline: 'none',
-      fontFamily: 'inherit',
-      fontSize: 'inherit',
-      lineHeight: 'inherit'
-    },
-    toolbar: {
-      background: '#2d2d30',
-      borderBottom: '1px solid #404040',
-      padding: '8px 12px',
-      display: 'flex',
-      justifyContent: 'space-between' as const,
-      alignItems: 'center',
-      color: '#cccccc',
-      fontSize: '12px'
-    },
-    status: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '12px'
-    },
-    actions: {
-      display: 'flex',
-      gap: '8px'
-    },
-    btn: {
-      background: '#0e639c',
-      border: 'none',
-      color: 'white',
-      padding: '4px 8px',
-      borderRadius: '4px',
-      cursor: 'pointer',
-      fontSize: '11px'
-    },
-    btnHover: {
-      background: '#1177bb'
-    },
-    btnDisabled: {
-      background: '#505050',
-      cursor: 'not-allowed'
-    }
+  const formatSql = () => {
+    const formatted = value
+      .replace(/\bSELECT\b/gi, '\nSELECT')
+      .replace(/\bFROM\b/gi, '\nFROM')
+      .replace(/\bWHERE\b/gi, '\nWHERE')
+      .replace(/\bJOIN\b/gi, '\nJOIN')
+      .replace(/\bGROUP BY\b/gi, '\nGROUP BY')
+      .replace(/\bORDER BY\b/gi, '\nORDER BY')
+      .replace(/\n\s*\n/g, '\n') // Remove extra blank lines
+      .trim();
+    onChange(formatted);
   };
 
   return (
@@ -238,6 +149,135 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
       {/* Global CSS for syntax highlighting */}
       <style dangerouslySetInnerHTML={{
         __html: `
+          .sql-editor-container {
+            position: relative;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #1e1e1e;
+            font-family: "Consolas", "Monaco", "Courier New", monospace;
+            font-size: 14px;
+            line-height: 1.4;
+            transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+          }
+          .sql-editor-container.focused {
+            border-color: #0d6efd;
+            box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+          }
+          .sql-editor-container.disabled {
+            opacity: 0.6;
+            pointer-events: none;
+          }
+          .sql-editor-wrapper {
+            position: relative;
+            height: ${height};
+            display: flex;
+          }
+          .sql-line-numbers {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 50px;
+            height: 100%;
+            padding: 12px 8px;
+            background: #252526;
+            color: #858585;
+            font-size: 12px;
+            line-height: 1.4;
+            text-align: right;
+            user-select: none;
+            overflow: hidden;
+            white-space: pre;
+            border-right: 1px solid #404040;
+            z-index: 1;
+          }
+          .sql-content-area {
+            position: relative;
+            flex: 1;
+            margin-left: 50px;
+          }
+          .sql-highlight {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            padding: 12px;
+            margin: 0;
+            border: none;
+            background: transparent;
+            color: transparent;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            overflow: auto;
+            pointer-events: none;
+            font-family: inherit;
+            font-size: inherit;
+            line-height: inherit;
+            z-index: 1;
+          }
+          .sql-textarea {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            width: 100%;
+            height: 100%;
+            padding: 12px;
+            margin: 0;
+            border: none;
+            background: transparent;
+            color: #d4d4d4;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            overflow: auto;
+            resize: none;
+            outline: none;
+            font-family: inherit;
+            font-size: inherit;
+            line-height: inherit;
+            z-index: 2;
+          }
+          .sql-textarea::placeholder {
+            color: #6a6a6a;
+          }
+          .sql-toolbar {
+            background: #2d2d30;
+            border-bottom: 1px solid #404040;
+            padding: 8px 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: #cccccc;
+            font-size: 12px;
+          }
+          .sql-status {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+          }
+          .sql-actions {
+            display: flex;
+            gap: 8px;
+          }
+          .sql-btn {
+            background: #0e639c;
+            border: none;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            transition: background-color 0.15s ease;
+          }
+          .sql-btn:hover:not(:disabled) {
+            background: #1177bb;
+          }
+          .sql-btn:disabled {
+            background: #505050;
+            cursor: not-allowed;
+          }
           .sql-keyword {
             color: #569cd6;
             font-weight: bold;
@@ -263,21 +303,13 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
             color: #6a9955;
             font-style: italic;
           }
-          .line-number {
-            color: #858585;
-            margin-right: 12px;
-            display: inline-block;
-            width: 30px;
-            text-align: right;
-            user-select: none;
-          }
         `
       }} />
       
-      <div style={styles.container}>
+      <div className={`sql-editor-container ${focused ? 'focused' : ''} ${disabled ? 'disabled' : ''}`}>
         {/* Toolbar */}
-        <div style={styles.toolbar}>
-          <div style={styles.status}>
+        <div className="sql-toolbar">
+          <div className="sql-status">
             <span>SQL Editor</span>
             <span className="text-muted">•</span>
             <span>Target: {groupLevel} Level</span>
@@ -288,33 +320,17 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
               </>
             )}
           </div>
-          <div style={styles.actions}>
+          <div className="sql-actions">
             <button
-              style={{
-                ...styles.btn,
-                ...(disabled || !value ? styles.btnDisabled : {})
-              }}
+              className="sql-btn"
               type="button"
-              onClick={() => {
-                const formatted = value
-                  .replace(/\bSELECT\b/gi, '\nSELECT')
-                  .replace(/\bFROM\b/gi, '\nFROM')
-                  .replace(/\bWHERE\b/gi, '\nWHERE')
-                  .replace(/\bJOIN\b/gi, '\nJOIN')
-                  .replace(/\bGROUP BY\b/gi, '\nGROUP BY')
-                  .replace(/\bORDER BY\b/gi, '\nORDER BY')
-                  .trim();
-                onChange(formatted);
-              }}
+              onClick={formatSql}
               disabled={disabled || !value}
             >
               Format
             </button>
             <button
-              style={{
-                ...styles.btn,
-                ...(disabled || !value ? styles.btnDisabled : {})
-              }}
+              className="sql-btn"
               type="button"
               onClick={() => onChange('')}
               disabled={disabled || !value}
@@ -325,33 +341,47 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
         </div>
 
         {/* Editor */}
-        <div style={styles.wrapper}>
+        <div className="sql-editor-wrapper">
+          {/* Line Numbers */}
           <div
-            ref={highlightRef}
-            style={styles.highlight}
-            dangerouslySetInnerHTML={{ __html: highlightSql(value) }}
-          />
-          <textarea
-            ref={textareaRef}
-            style={styles.textarea}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            onScroll={handleScroll}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            onKeyDown={handleKeyDown}
-            disabled={disabled}
-            placeholder={placeholder}
-            spellCheck={false}
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="off"
-          />
+            ref={lineNumbersRef}
+            className="sql-line-numbers"
+          >
+            {generateLineNumbers(value)}
+          </div>
+
+          {/* Content Area */}
+          <div className="sql-content-area">
+            {/* Syntax Highlighting Layer */}
+            <div
+              ref={highlightRef}
+              className="sql-highlight"
+              dangerouslySetInnerHTML={{ __html: highlightSql(value) }}
+            />
+            
+            {/* Input Layer */}
+            <textarea
+              ref={textareaRef}
+              className="sql-textarea"
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              onScroll={handleScroll}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              onKeyDown={handleKeyDown}
+              disabled={disabled}
+              placeholder={placeholder}
+              spellCheck={false}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+            />
+          </div>
         </div>
 
         {/* Footer with tips */}
-        <div style={styles.toolbar}>
-          <div style={styles.status}>
+        <div className="sql-toolbar">
+          <div className="sql-status">
             <small className="text-muted">
               <i className="bi bi-lightbulb me-1"></i>
               Tips: Use Tab for indentation, Ctrl+A to select all, include required fields for {groupLevel} level
