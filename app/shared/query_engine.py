@@ -126,25 +126,62 @@ class QueryEngine:
         # Apply filters with proper deal-tranche relationships
         filter_conditions = [TrancheBal.cycle_cde == cycle_code]
         
-        # Build deal-specific tranche filters
+        # Build optimized deal-specific tranche filters
         if deal_tranche_map and Tranche in required_models:
-            # Create OR conditions for each deal and its specific tranches
-            deal_tranche_conditions = []
+            # Separate deals into two categories for SQL optimization:
+            # 1. Deals with specific tranche selections (need explicit filtering)
+            # 2. Deals with all tranches (can use simple deal filter)
+            
+            deals_with_specific_tranches = []
+            deals_with_all_tranches = []
+            
+            # Get all available tranches for each deal to determine which have "all" vs "specific"
+            from app.datawarehouse.dao import DatawarehouseDAO
+            dw_dao = DatawarehouseDAO(self.dw_db)
+            
             for dl_nbr, selected_tranches in deal_tranche_map.items():
-                if selected_tranches:  # Only if there are selected tranches for this deal
-                    deal_condition = and_(
+                if selected_tranches:
+                    # Get all available tranches for this deal
+                    all_deal_tranches = dw_dao.get_tranches_by_dl_nbr(dl_nbr)
+                    all_tranche_ids = [t.tr_id for t in all_deal_tranches]
+                    
+                    # Check if selected tranches == all available tranches
+                    if set(selected_tranches) == set(all_tranche_ids):
+                        # This deal has ALL tranches selected - no need for explicit tranche filtering
+                        deals_with_all_tranches.append(dl_nbr)
+                    else:
+                        # This deal has specific tranche selections - needs explicit filtering
+                        deals_with_specific_tranches.append((dl_nbr, selected_tranches))
+                else:
+                    # Empty list means all tranches (should have been populated by service layer)
+                    deals_with_all_tranches.append(dl_nbr)
+            
+            # Build optimized WHERE conditions
+            deal_conditions = []
+            
+            # For deals with all tranches: simple deal filter (no tranche restrictions)
+            if deals_with_all_tranches:
+                deal_conditions.append(Deal.dl_nbr.in_(deals_with_all_tranches))
+            
+            # For deals with specific tranches: explicit deal+tranche filtering
+            if deals_with_specific_tranches:
+                specific_conditions = []
+                for dl_nbr, selected_tranches in deals_with_specific_tranches:
+                    specific_conditions.append(and_(
                         Deal.dl_nbr == dl_nbr,
                         Tranche.tr_id.in_(selected_tranches)
-                    )
-                    deal_tranche_conditions.append(deal_condition)
+                    ))
+                if specific_conditions:
+                    from sqlalchemy import or_
+                    deal_conditions.append(or_(*specific_conditions))
             
-            if deal_tranche_conditions:
+            # Combine all deal conditions
+            if deal_conditions:
                 from sqlalchemy import or_
-                # Add the properly grouped OR condition to filter conditions
-                filter_conditions.append(or_(*deal_tranche_conditions))
+                filter_conditions.append(or_(*deal_conditions))
             else:
-                # Fallback to simple filtering if no specific tranches
-                filter_conditions.append(Deal.dl_nbr.in_(deal_numbers))
+                # Fallback if no valid conditions
+                filter_conditions.append(Deal.dl_nbr.in_(list(deal_tranche_map.keys())))
         else:
             # Simple filtering when no deal-tranche mapping provided (backward compatibility)
             filter_conditions.append(Deal.dl_nbr.in_(deal_numbers))
