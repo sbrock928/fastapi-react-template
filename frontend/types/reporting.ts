@@ -99,6 +99,10 @@ export interface ReportSummary {
   tranche_count: number;
   calculation_count: number; // Changed from field_count
   is_active: boolean;
+  // Execution statistics
+  total_executions: number;
+  last_executed?: string;
+  last_execution_success?: boolean;
 }
 
 // Report Execution Types
@@ -142,7 +146,6 @@ export interface ReportFormState {
   selectedDeals: number[];
   selectedTranches: Record<number, string[]>;
   selectedCalculations: ReportCalculation[]; // Changed from selectedFields
-  currentStep: number;
 }
 
 export interface ValidationErrors {

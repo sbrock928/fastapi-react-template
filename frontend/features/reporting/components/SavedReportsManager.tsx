@@ -147,7 +147,8 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
           {savedReports.map(report => (
             <option key={report.id} value={report.id.toString()}>
               {report.name} ({report.scope} Level • {report.deal_count} deals • {report.calculation_count} calculations
-              {report.scope === 'TRANCHE' && ` • ${report.tranche_count} tranches`})
+              {report.scope === 'TRANCHE' && ` • ${report.tranche_count} tranches`}
+              {report.last_executed && ` • Last run: ${formatDate(report.last_executed)}`})
             </option>
           ))}
         </select>
@@ -175,9 +176,22 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
                       <div className="col-sm-6">
                         <strong>Calculations:</strong> {selectedReport.calculation_count}
                       </div>
+                      <div className="col-sm-6">
+                        <strong>Total Executions:</strong> {selectedReport.total_executions}
+                      </div>
                       {selectedReport.scope === 'TRANCHE' && (
                         <div className="col-sm-6">
                           <strong>Tranches:</strong> {selectedReport.tranche_count}
+                        </div>
+                      )}
+                      {selectedReport.last_executed && (
+                        <div className="col-sm-6">
+                          <strong>Last Executed:</strong> {formatDate(selectedReport.last_executed)}
+                          {selectedReport.last_execution_success !== undefined && (
+                            <span className={`ms-2 badge ${selectedReport.last_execution_success ? 'bg-success' : 'bg-danger'}`}>
+                              {selectedReport.last_execution_success ? 'Success' : 'Failed'}
+                            </span>
+                          )}
                         </div>
                       )}
                       {selectedReport.description && (

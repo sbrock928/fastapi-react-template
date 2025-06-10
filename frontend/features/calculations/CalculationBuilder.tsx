@@ -649,8 +649,17 @@ const CalculationBuilder: React.FC = () => {
                           </button>
                           <button
                             onClick={() => handleOpenModal(calc)}
-                            className="btn btn-outline-warning btn-sm"
-                            title="Edit"
+                            className={`btn btn-sm ${
+                              calculationUsage[calc.id]?.is_in_use 
+                                ? 'btn-outline-secondary' 
+                                : 'btn-outline-warning'
+                            }`}
+                            title={
+                              calculationUsage[calc.id]?.is_in_use 
+                                ? 'Cannot edit - calculation is in use'
+                                : 'Edit calculation'
+                            }
+                            disabled={calculationUsage[calc.id]?.is_in_use}
                           >
                             <i className="bi bi-pencil"></i> Edit
                           </button>
