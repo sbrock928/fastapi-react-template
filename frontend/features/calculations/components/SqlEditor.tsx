@@ -132,15 +132,74 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
   };
 
   const formatSql = () => {
-    const formatted = value
+    if (!value.trim()) return;
+    
+    let formatted = value;
+    
+    // Remove extra whitespace and normalize
+    formatted = formatted.replace(/\s+/g, ' ').trim();
+    
+    // Add line breaks before major keywords
+    formatted = formatted
       .replace(/\bSELECT\b/gi, '\nSELECT')
       .replace(/\bFROM\b/gi, '\nFROM')
       .replace(/\bWHERE\b/gi, '\nWHERE')
-      .replace(/\bJOIN\b/gi, '\nJOIN')
-      .replace(/\bGROUP BY\b/gi, '\nGROUP BY')
-      .replace(/\bORDER BY\b/gi, '\nORDER BY')
-      .replace(/\n\s*\n/g, '\n') // Remove extra blank lines
-      .trim();
+      .replace(/\bINNER\s+JOIN\b/gi, '\n    INNER JOIN')
+      .replace(/\bLEFT\s+JOIN\b/gi, '\n    LEFT JOIN')
+      .replace(/\bRIGHT\s+JOIN\b/gi, '\n    RIGHT JOIN')
+      .replace(/\bJOIN\b/gi, '\n    JOIN')
+      .replace(/\bGROUP\s+BY\b/gi, '\nGROUP BY')
+      .replace(/\bORDER\s+BY\b/gi, '\nORDER BY')
+      .replace(/\bHAVING\b/gi, '\nHAVING')
+      .replace(/\bUNION\b/gi, '\nUNION')
+      .replace(/\bCASE\b/gi, '\n        CASE')
+      .replace(/\bWHEN\b/gi, '\n            WHEN')
+      .replace(/\bTHEN\b/gi, ' THEN')
+      .replace(/\bELSE\b/gi, '\n            ELSE')
+      .replace(/\bEND\b/gi, '\n        END');
+    
+    // Handle SELECT column formatting
+    formatted = formatted.replace(/SELECT\s+/gi, 'SELECT\n    ');
+    
+    // Format commas in SELECT and other clauses
+    formatted = formatted.replace(/,(?!\s*\n)/g, ',\n    ');
+    
+    // Clean up AND/OR operators
+    formatted = formatted
+      .replace(/\s+AND\s+/gi, '\n    AND ')
+      .replace(/\s+OR\s+/gi, '\n    OR ');
+    
+    // Add proper indentation for ON clauses
+    formatted = formatted.replace(/\bON\b/gi, '\n        ON');
+    
+    // Fix spacing around operators
+    formatted = formatted
+      .replace(/\s*=\s*/g, ' = ')
+      .replace(/\s*<>\s*/g, ' <> ')
+      .replace(/\s*!=\s*/g, ' != ')
+      .replace(/\s*<=\s*/g, ' <= ')
+      .replace(/\s*>=\s*/g, ' >= ')
+      .replace(/\s*<\s*/g, ' < ')
+      .replace(/\s*>\s*/g, ' > ');
+    
+    // Clean up parentheses spacing
+    formatted = formatted
+      .replace(/\(\s+/g, '(')
+      .replace(/\s+\)/g, ')')
+      .replace(/,\s*\)/g, ')');
+    
+    // Handle IN clauses
+    formatted = formatted.replace(/\bIN\s*\(/gi, ' IN (');
+    
+    // Remove excessive blank lines and clean up
+    formatted = formatted
+      .replace(/\n\s*\n\s*\n/g, '\n\n')
+      .replace(/^\n+/, '')
+      .replace(/\n+$/, '')
+      .split('\n')
+      .map(line => line.trimEnd())
+      .join('\n');
+    
     onChange(formatted);
   };
 
