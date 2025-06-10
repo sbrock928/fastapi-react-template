@@ -1,4 +1,4 @@
-// frontend/types/calculations.ts - Updated with raw field support
+// frontend/types/calculations.ts - Updated with system calculation types
 export interface CalculationField {
   value: string;
   label: string;
@@ -10,7 +10,7 @@ export interface AggregationFunction {
   value: string;
   label: string;
   description: string;
-  category: 'aggregated' | 'raw'; // New: distinguish between aggregated and raw functions
+  category: 'aggregated'; // Removed 'raw' category since RAW is now SYSTEM_FIELD
 }
 
 export interface SourceModel {
@@ -25,33 +25,52 @@ export interface GroupLevel {
   description: string;
 }
 
+// Enhanced calculation interface with system types
 export interface Calculation {
   id: number;
   name: string;
   description?: string;
-  aggregation_function: string;
-  source_model: string;
-  source_field: string;
+  
+  // Core calculation type
+  calculation_type: 'USER_DEFINED' | 'SYSTEM_FIELD' | 'SYSTEM_SQL';
   group_level: string;
+  is_system_managed: boolean;
+  
+  // User-defined calculation fields
+  aggregation_function?: string;
+  source_model?: string;
+  source_field?: string;
   weight_field?: string;
+  
+  // System field calculation fields
+  field_name?: string;
+  field_type?: string;
+  
+  // System SQL calculation fields
+  raw_sql?: string;
+  result_column_name?: string;
+  
+  // Metadata
   created_at?: string;
   updated_at?: string;
+  created_by?: string;
+  is_active?: boolean;
 }
 
 export interface CalculationForm {
   name: string;
   description: string;
-  function_type: string;
-  source: string;
-  source_field: string;
-  level: string;
-  weight_field: string;
+  function_type: string; // For user-defined: aggregation function, for system: calculation type
+  source: string; // Source model for user-defined and system-field
+  source_field: string; // Field name for system-field, SQL text for system-sql
+  level: string; // Group level
+  weight_field: string; // Weight field for user-defined, result column for system-sql
 }
 
 export interface PreviewData {
   calculation_name: string;
   aggregation_level: string;
-  calculation_type: string; // New: "Raw Field" or "Aggregated Calculation"
+  calculation_type: string; // "User Defined (SUM)", "System Field", "System SQL"
   generated_sql: string;
   sample_parameters?: {
     deals?: string[];
@@ -67,6 +86,7 @@ export interface CalculationConfig {
   group_levels: GroupLevel[];
 }
 
+// User-defined calculation request (unchanged)
 export interface CreateCalculationRequest {
   name: string;
   description?: string;
@@ -81,19 +101,159 @@ export interface UpdateCalculationRequest extends CreateCalculationRequest {
   id: number;
 }
 
-// Helper functions to work with raw vs aggregated calculations
-export const isRawCalculation = (calculation: Calculation): boolean => {
-  return calculation.aggregation_function === 'RAW';
+// System field calculation request
+export interface CreateSystemFieldRequest {
+  name: string;
+  description?: string;
+  source_model: string;
+  field_name: string;
+  field_type: string;
+  group_level: string;
+}
+
+// System SQL calculation request
+export interface CreateSystemSqlRequest {
+  name: string;
+  description?: string;
+  group_level: string;
+  raw_sql: string;
+  result_column_name: string;
+}
+
+// SQL validation request and response
+export interface SqlValidationRequest {
+  sql_text: string;
+  group_level: string;
+  result_column_name: string;
+}
+
+export interface SqlValidationResult {
+  is_valid: boolean;
+  errors: string[];
+  warnings: string[];
+  extracted_columns: string[];
+  detected_tables: string[];
+  result_column_name: string;
+}
+
+// Helper functions for calculation types
+export const isUserDefinedCalculation = (calculation: Calculation): boolean => {
+  return calculation.calculation_type === 'USER_DEFINED';
 };
 
-export const isAggregatedCalculation = (calculation: Calculation): boolean => {
-  return calculation.aggregation_function !== 'RAW';
+export const isSystemFieldCalculation = (calculation: Calculation): boolean => {
+  return calculation.calculation_type === 'SYSTEM_FIELD';
 };
 
-export const getCalculationType = (calculation: Calculation): 'raw' | 'aggregated' => {
-  return isRawCalculation(calculation) ? 'raw' : 'aggregated';
+export const isSystemSqlCalculation = (calculation: Calculation): boolean => {
+  return calculation.calculation_type === 'SYSTEM_SQL';
+};
+
+export const isSystemCalculation = (calculation: Calculation): boolean => {
+  return calculation.is_system_managed || 
+         calculation.calculation_type === 'SYSTEM_FIELD' || 
+         calculation.calculation_type === 'SYSTEM_SQL';
 };
 
 export const getCalculationDisplayType = (calculation: Calculation): string => {
-  return isRawCalculation(calculation) ? 'Raw Field' : 'Aggregated Calculation';
+  switch (calculation.calculation_type) {
+    case 'USER_DEFINED':
+      return `User Defined (${calculation.aggregation_function})`;
+    case 'SYSTEM_FIELD':
+      return `System Field (${calculation.field_type || 'Unknown'})`;
+    case 'SYSTEM_SQL':
+      return 'System SQL';
+    default:
+      return 'Unknown';
+  }
+};
+
+export const getCalculationSourceDescription = (calculation: Calculation): string => {
+  switch (calculation.calculation_type) {
+    case 'USER_DEFINED':
+      return `${calculation.source_model}.${calculation.source_field}`;
+    case 'SYSTEM_FIELD':
+      return `${calculation.source_model}.${calculation.field_name}`;
+    case 'SYSTEM_SQL':
+      return `Custom SQL (${calculation.result_column_name})`;
+    default:
+      return 'Unknown';
+  }
+};
+
+export const getCalculationCategory = (calculation: Calculation): string => {
+  if (calculation.calculation_type === 'USER_DEFINED') {
+    const sourceModel = calculation.source_model;
+    if (sourceModel === 'Deal') {
+      return 'Deal Information';
+    } else if (sourceModel === 'Tranche') {
+      return 'Tranche Structure';
+    } else if (sourceModel === 'TrancheBal') {
+      if (calculation.source_field?.includes('bal') || calculation.source_field?.includes('amt')) {
+        return 'Balance & Amount Calculations';
+      } else if (calculation.source_field?.includes('rte')) {
+        return 'Rate Calculations';
+      } else if (calculation.source_field?.includes('dstrb')) {
+        return 'Distribution Calculations';
+      } else {
+        return 'Performance Calculations';
+      }
+    }
+  } else if (calculation.calculation_type === 'SYSTEM_FIELD') {
+    const sourceModel = calculation.source_model;
+    if (sourceModel === 'Deal') {
+      return 'Deal Fields';
+    } else if (sourceModel === 'Tranche') {
+      return 'Tranche Fields';
+    } else if (sourceModel === 'TrancheBal') {
+      return 'Tranche Balance Fields';
+    }
+  } else if (calculation.calculation_type === 'SYSTEM_SQL') {
+    return 'Custom SQL Calculations';
+  }
+  
+  return 'Other';
+};
+
+// Enhanced form validation
+export const validateCalculationForm = (
+  calculation: CalculationForm, 
+  modalType: 'user-defined' | 'system-field' | 'system-sql'
+): string | null => {
+  if (!calculation.name || !calculation.level) {
+    return 'Please fill in name and group level';
+  }
+
+  switch (modalType) {
+    case 'user-defined':
+      if (!calculation.function_type || !calculation.source || !calculation.source_field) {
+        return 'Please fill in all required fields (Function Type, Source, and Source Field)';
+      }
+      if (calculation.function_type === 'WEIGHTED_AVG' && !calculation.weight_field) {
+        return 'Weight field is required for weighted average calculations';
+      }
+      break;
+      
+    case 'system-field':
+      if (!calculation.source || !calculation.source_field) {
+        return 'Please select source model and field';
+      }
+      break;
+      
+    case 'system-sql':
+      if (!calculation.source_field || !calculation.weight_field) {
+        return 'Please provide SQL query and result column name';
+      }
+      // Basic SQL validation
+      const sql = calculation.source_field.trim().toLowerCase();
+      if (!sql.startsWith('select')) {
+        return 'SQL must be a SELECT statement';
+      }
+      if (!sql.includes('from')) {
+        return 'SQL must include a FROM clause';
+      }
+      break;
+  }
+
+  return null;
 };

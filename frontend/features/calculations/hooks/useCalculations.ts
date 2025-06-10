@@ -1,3 +1,4 @@
+// frontend/features/calculations/hooks/useCalculations.ts
 import { useState, useEffect } from 'react';
 import { useToast } from '@/context/ToastContext';
 import { calculationsApi } from '@/services/calculationsApi';
@@ -14,11 +15,12 @@ export const useCalculations = () => {
   const fetchCalculations = async (): Promise<void> => {
     setIsLoading(true);
     try {
-      const response = await calculationsApi.getCalculations();
+      // Fetch only user-defined calculations
+      const response = await calculationsApi.getUserDefinedCalculations();
       setCalculations(response.data);
     } catch (error) {
-      console.error('Error fetching calculations:', error);
-      showToast('Error loading calculations. Please refresh the page.', 'error');
+      console.error('Error fetching user calculations:', error);
+      showToast('Error loading user calculations. Please refresh the page.', 'error');
     } finally {
       setIsLoading(false);
     }

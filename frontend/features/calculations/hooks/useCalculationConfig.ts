@@ -55,7 +55,7 @@ export const useCalculationConfig = () => {
         'error'
       );
       
-      // Clear all config data on error instead of using fallbacks
+      // Clear all config data on error
       setAllAvailableFields({});
       setAggregationFunctions([]);
       setSourceModels([]);
@@ -103,16 +103,38 @@ export const useCalculationForm = (editingCalculation: Calculation | null) => {
 
   const initializeForm = (calc: Calculation | null) => {
     if (calc) {
-      // Edit mode
-      setCalculation({
-        name: calc.name,
-        description: calc.description || '',
-        function_type: calc.aggregation_function,
-        source: calc.source_model,
-        source_field: calc.source_field,
-        level: calc.group_level,
-        weight_field: calc.weight_field || ''
-      });
+      // Edit mode - map calculation to form
+      if (calc.calculation_type === 'USER_DEFINED') {
+        setCalculation({
+          name: calc.name,
+          description: calc.description || '',
+          function_type: calc.aggregation_function || '',
+          source: calc.source_model || '',
+          source_field: calc.source_field || '',
+          level: calc.group_level,
+          weight_field: calc.weight_field || ''
+        });
+      } else if (calc.calculation_type === 'SYSTEM_FIELD') {
+        setCalculation({
+          name: calc.name,
+          description: calc.description || '',
+          function_type: 'SYSTEM_FIELD',
+          source: calc.source_model || '',
+          source_field: calc.field_name || '',
+          level: calc.group_level,
+          weight_field: calc.field_type || ''
+        });
+      } else if (calc.calculation_type === 'SYSTEM_SQL') {
+        setCalculation({
+          name: calc.name,
+          description: calc.description || '',
+          function_type: 'SYSTEM_SQL',
+          source: '',
+          source_field: calc.raw_sql || '',
+          level: calc.group_level,
+          weight_field: calc.result_column_name || ''
+        });
+      }
     } else {
       // Create mode
       setCalculation(INITIAL_CALCULATION_FORM);
@@ -124,15 +146,23 @@ export const useCalculationForm = (editingCalculation: Calculation | null) => {
     setCalculation(prev => ({ ...prev, ...updates }));
   };
 
-  const saveCalculation = async (onSuccess?: () => void): Promise<void> => {
-    if (!calculation.name || !calculation.function_type || !calculation.source || !calculation.source_field) {
-      setError('Please fill in all required fields (Name, Function Type, Source, and Source Field)');
-      return;
+  const saveCalculation = async (onSuccess?: () => void): Promise<boolean> => {
+    if (!calculation.name || !calculation.function_type || !calculation.level) {
+      setError('Please fill in all required fields (Name, Function Type, and Group Level)');
+      return false;
     }
 
-    if (calculation.function_type === 'WEIGHTED_AVG' && !calculation.weight_field) {
-      setError('Weight field is required for weighted average calculations');
-      return;
+    // Additional validation for user-defined calculations
+    if (calculation.function_type !== 'SYSTEM_FIELD' && calculation.function_type !== 'SYSTEM_SQL') {
+      if (!calculation.source || !calculation.source_field) {
+        setError('Please fill in all required fields (Source Model and Source Field)');
+        return false;
+      }
+
+      if (calculation.function_type === 'WEIGHTED_AVG' && !calculation.weight_field) {
+        setError('Weight field is required for weighted average calculations');
+        return false;
+      }
     }
 
     setIsSaving(true);
@@ -163,6 +193,7 @@ export const useCalculationForm = (editingCalculation: Calculation | null) => {
       setCalculation(INITIAL_CALCULATION_FORM);
       setError(null);
       onSuccess?.();
+      return true;
     } catch (error: any) {
       console.error('Error saving calculation:', error);
       
@@ -178,6 +209,7 @@ export const useCalculationForm = (editingCalculation: Calculation | null) => {
       }
       
       setError(errorMessage);
+      return false;
     } finally {
       setIsSaving(false);
     }
