@@ -1,5 +1,5 @@
-# app/features/calculations/service.py
-"""Refactored calculation service using unified query engine"""
+# app/calculations/service.py
+"""Simplified calculation service focused on CRUD operations"""
 
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
@@ -14,21 +14,28 @@ from .models import Calculation, AggregationFunction, SourceModel, GroupLevel
 from .schemas import CalculationCreateRequest, CalculationResponse
 
 class CalculationService:
-    """Streamlined calculation service using unified query engine"""
+    """Simplified calculation service focused on CRUD operations"""
     
     def __init__(self, config_db: Session, query_engine: "QueryEngine" = None):
         self.config_db = config_db
         self.query_engine = query_engine
         self.dao = CalculationDAO(config_db)
     
-    async def get_available_calculations(self, group_level: Optional[str] = None) -> List[CalculationResponse]:
+    def get_available_calculations(self, group_level: Optional[str] = None) -> List[CalculationResponse]:
         """Get list of available calculations, optionally filtered by group level"""
         group_level_enum = GroupLevel(group_level) if group_level else None
         calculations = self.dao.get_all_calculations(group_level_enum)
         
         return [CalculationResponse.model_validate(calc) for calc in calculations]
     
-    async def preview_calculation_sql(
+    def get_calculation_by_id(self, calc_id: int) -> Optional[CalculationResponse]:
+        """Get a single calculation by ID"""
+        calculation = self.dao.get_by_id(calc_id)
+        if not calculation:
+            return None
+        return CalculationResponse.model_validate(calculation)
+    
+    def preview_calculation_sql(
         self,
         calc_id: int,
         aggregation_level: str = "deal",
@@ -36,23 +43,24 @@ class CalculationService:
         sample_tranches: List[str] = None,
         sample_cycle: int = None
     ) -> Dict[str, Any]:
-        """Generate SQL preview using simplified query engine"""
+        """Generate SQL preview using query engine"""
         if not self.query_engine:
             raise ValueError("Query engine required for SQL preview operations")
         
-        calculation = self.query_engine.get_calculation_by_id(calc_id)
+        calculation = self.dao.get_by_id(calc_id)
         if not calculation:
             raise CalculationNotFoundError(f"Calculation with ID {calc_id} not found")
         
-        # Use the simplified preview method - it handles the mapping conversion internally!
+        # Use simplified preview method
         return self.query_engine.preview_calculation_sql(
             calculation=calculation,
-            aggregation_level=calculation.group_level,
-            sample_deals=sample_deals,
-            sample_tranches=sample_tranches,
-            sample_cycle=sample_cycle
+            aggregation_level=aggregation_level,
+            sample_deals=sample_deals or [1001, 1002, 1003],
+            sample_tranches=sample_tranches or ["A", "B"],
+            sample_cycle=sample_cycle or 202404
         )
-    async def create_calculation(self, request: CalculationCreateRequest, user_id: str = "api_user") -> CalculationResponse:
+    
+    def create_calculation(self, request: CalculationCreateRequest, user_id: str = "api_user") -> CalculationResponse:
         """Create a new calculation"""
         # Check if calculation name already exists at this group level
         existing = self.dao.get_by_name_and_group_level(request.name, request.group_level)
@@ -78,7 +86,7 @@ class CalculationService:
         calculation = self.dao.create(calculation)
         return CalculationResponse.model_validate(calculation)
     
-    async def update_calculation(self, calc_id: int, request: CalculationCreateRequest) -> CalculationResponse:
+    def update_calculation(self, calc_id: int, request: CalculationCreateRequest) -> CalculationResponse:
         """Update an existing calculation"""
         calculation = self.dao.get_by_id(calc_id)
         if not calculation:
@@ -132,11 +140,15 @@ class CalculationService:
             for report, report_calc in reports_using_calc
         ]
     
-    async def delete_calculation(self, calc_id: int) -> dict:
+    def delete_calculation(self, calc_id: int) -> dict:
         """Delete a calculation (soft delete) - only if not used in any reports"""
         calculation = self.dao.get_by_id(calc_id)
         if not calculation:
             raise CalculationNotFoundError(f"Calculation with ID {calc_id} not found")
+        
+        # Prevent deletion of system-created calculations
+        if calculation.created_by == "system":
+            raise InvalidCalculationError(f"Cannot delete system calculation '{calculation.name}'. System calculations are read-only.")
         
         # Check if calculation is being used in any reports
         reports_using_calc = self.get_calculation_usage_in_reports(calc_id)

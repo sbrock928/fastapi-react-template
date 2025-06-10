@@ -1,5 +1,5 @@
-# app/features/calculations/router.py
-"""Refactored calculations router using unified query engine"""
+# app/calculations/router.py
+"""Simplified calculations router"""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -13,7 +13,7 @@ from .schemas import CalculationCreateRequest, CalculationResponse
 router = APIRouter()
 
 def get_calculation_service(config_db: Session = Depends(get_db)) -> CalculationService:
-    """Get calculation service for config-only operations"""
+    """Get calculation service for basic CRUD operations"""
     return CalculationService(config_db)
 
 def get_calculation_service_with_preview(query_engine: QueryEngine = Depends(get_query_engine)) -> CalculationService:
@@ -21,10 +21,10 @@ def get_calculation_service_with_preview(query_engine: QueryEngine = Depends(get
     return CalculationService(query_engine.config_db, query_engine)
 
 @router.get("/calculations/configuration")
-async def get_calculation_configuration():
-    """Get comprehensive calculation configuration including fields, functions, models, and levels"""
+def get_calculation_configuration():
+    """Get simplified calculation configuration"""
     
-    # Aggregation functions available in the system (including RAW for non-aggregated fields)
+    # Aggregation functions available in the system
     aggregation_functions = [
         {
             "value": "SUM",
@@ -62,6 +62,12 @@ async def get_calculation_configuration():
             "description": "Calculate weighted average using specified weight field",
             "category": "aggregated"
         },
+        {
+            "value": "RAW",
+            "label": "RAW - Raw field value",
+            "description": "Include field value without aggregation",
+            "category": "raw"
+        }
     ]
     
     # Source models available for calculations
@@ -97,7 +103,7 @@ async def get_calculation_configuration():
         }
     ]
     
-    # Field metadata for each model
+    # Available fields for each model
     field_mappings = {
         "Deal": [
             {
@@ -105,6 +111,24 @@ async def get_calculation_configuration():
                 "label": "Deal Number",
                 "type": "number",
                 "description": "Unique identifier for the deal"
+            },
+            {
+                "value": "issr_cde",
+                "label": "Issuer Code",
+                "type": "string",
+                "description": "Deal issuer code"
+            },
+            {
+                "value": "cdi_file_nme",
+                "label": "CDI File Name",
+                "type": "string",
+                "description": "CDI file name"
+            },
+            {
+                "value": "CDB_cdi_file_nme",
+                "label": "CDB CDI File Name",
+                "type": "string",
+                "description": "CDB CDI file name"
             }
         ],
         "Tranche": [
@@ -197,40 +221,51 @@ async def get_calculation_configuration():
     }
 
 @router.get("/calculations", response_model=List[CalculationResponse])
-async def get_available_calculations(
+def get_available_calculations(
     service: CalculationService = Depends(get_calculation_service),
     group_level: Optional[str] = Query(None, description="Filter by group level: 'deal', 'tranche'")
 ):
     """Get list of available calculations, optionally filtered by group level"""
-    return await service.get_available_calculations(group_level)
+    return service.get_available_calculations(group_level)
+
+@router.get("/calculations/{calc_id}", response_model=CalculationResponse)
+def get_calculation_by_id(
+    calc_id: int,
+    service: CalculationService = Depends(get_calculation_service)
+):
+    """Get a single calculation by ID"""
+    calculation = service.get_calculation_by_id(calc_id)
+    if not calculation:
+        raise HTTPException(status_code=404, detail="Calculation not found")
+    return calculation
 
 @router.post("/calculations", response_model=CalculationResponse, status_code=201)
-async def create_calculation(
+def create_calculation(
     request: CalculationCreateRequest,
     service: CalculationService = Depends(get_calculation_service)
 ):
     """Create a new calculation"""
     try:
-        return await service.create_calculation(request)
+        return service.create_calculation(request)
     except (CalculationAlreadyExistsError, InvalidCalculationError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/calculations/{calc_id}/preview-sql")
-async def preview_calculation_sql(
+def preview_calculation_sql(
     calc_id: int,
     service: CalculationService = Depends(get_calculation_service_with_preview),
     aggregation_level: str = Query("deal", description="Aggregation level: 'deal' or 'tranche'"),
-    sample_deals: str = Query("101,102,103", description="Comma-separated sample deal numbers"),
+    sample_deals: str = Query("1001,1002,1003", description="Comma-separated sample deal numbers"),
     sample_tranches: str = Query("A,B", description="Comma-separated sample tranche IDs"),
     sample_cycle: int = Query(202404, description="Sample cycle code")
 ):
-    """Preview SQL using unified query engine"""
+    """Preview SQL for a calculation"""
     try:
         # Parse comma-separated values
         deal_list = [int(d.strip()) for d in sample_deals.split(',') if d.strip()]
         tranche_list = [t.strip() for t in sample_tranches.split(',') if t.strip()]
         
-        return await service.preview_calculation_sql(
+        return service.preview_calculation_sql(
             calc_id, aggregation_level, deal_list, tranche_list, sample_cycle
         )
     except CalculationNotFoundError as e:
@@ -239,21 +274,21 @@ async def preview_calculation_sql(
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/calculations/{calc_id}", response_model=CalculationResponse)
-async def update_calculation(
+def update_calculation(
     calc_id: int,
     request: CalculationCreateRequest,
     service: CalculationService = Depends(get_calculation_service)
 ):
     """Update an existing calculation"""
     try:
-        return await service.update_calculation(calc_id, request)
+        return service.update_calculation(calc_id, request)
     except CalculationNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except InvalidCalculationError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/calculations/{calc_id}/usage")
-async def get_calculation_usage(
+def get_calculation_usage(
     calc_id: int,
     service: CalculationService = Depends(get_calculation_service)
 ) -> Dict[str, Any]:
@@ -270,13 +305,13 @@ async def get_calculation_usage(
         raise HTTPException(status_code=500, detail=f"Error checking calculation usage: {str(e)}")
 
 @router.delete("/calculations/{calc_id}")
-async def delete_calculation(
+def delete_calculation(
     calc_id: int,
     service: CalculationService = Depends(get_calculation_service)
 ):
     """Delete a calculation"""
     try:
-        return await service.delete_calculation(calc_id)
+        return service.delete_calculation(calc_id)
     except CalculationNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except InvalidCalculationError as e:

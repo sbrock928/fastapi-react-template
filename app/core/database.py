@@ -1,4 +1,4 @@
-"""Enhanced database configuration with dual database support."""
+"""Enhanced database configuration with dual database support and calculation seeding."""
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -93,6 +93,205 @@ def drop_all_tables():
     DWBase.metadata.drop_all(bind=dw_engine)
 
     print("All tables dropped!")
+
+
+# ===== CALCULATION SEEDING =====
+
+
+def create_standard_calculations():
+    """Create standard RAW field and common aggregated calculations."""
+    from app.calculations.models import Calculation, AggregationFunction, SourceModel, GroupLevel
+    
+    # Create config database session
+    config_db = SessionLocal()
+    
+    try:
+        # Check if calculations already exist
+        existing_count = config_db.query(Calculation).count()
+        if existing_count > 0:
+            print(f"Standard calculations already exist ({existing_count} found). Skipping creation.")
+            return
+        
+        print("Creating standard calculations...")
+        
+        # ===== RAW FIELD CALCULATIONS =====
+        
+        # Deal-level RAW fields (available for both DEAL and TRANCHE scope reports)
+        deal_raw_fields = [
+            {
+                "name": "Deal Number",
+                "description": "Unique deal identifier",
+                "source_model": SourceModel.DEAL,
+                "source_field": "dl_nbr",
+                "group_level": GroupLevel.DEAL
+            },
+            {
+                "name": "Issuer Code", 
+                "description": "Deal issuer code",
+                "source_model": SourceModel.DEAL,
+                "source_field": "issr_cde",
+                "group_level": GroupLevel.DEAL
+            },
+            {
+                "name": "CDI File Name",
+                "description": "CDI file name", 
+                "source_model": SourceModel.DEAL,
+                "source_field": "cdi_file_nme",
+                "group_level": GroupLevel.DEAL
+            },
+            {
+                "name": "CDB CDI File Name",
+                "description": "CDB CDI file name",
+                "source_model": SourceModel.DEAL, 
+                "source_field": "CDB_cdi_file_nme",
+                "group_level": GroupLevel.DEAL
+            }
+        ]
+        
+        # Tranche-level RAW fields (only available for TRANCHE scope reports)
+        tranche_raw_fields = [
+            {
+                "name": "Tranche ID",
+                "description": "Tranche identifier within the deal",
+                "source_model": SourceModel.TRANCHE,
+                "source_field": "tr_id", 
+                "group_level": GroupLevel.TRANCHE
+            },
+            {
+                "name": "Tranche CUSIP ID",
+                "description": "CUSIP identifier for the tranche",
+                "source_model": SourceModel.TRANCHE,
+                "source_field": "tr_cusip_id",
+                "group_level": GroupLevel.TRANCHE
+            }
+        ]
+        
+        # ===== COMMON AGGREGATED CALCULATIONS =====
+        
+        # Deal-level aggregated calculations
+        deal_aggregated = [
+            {
+                "name": "Total Ending Balance",
+                "description": "Sum of all tranche ending balance amounts",
+                "aggregation_function": AggregationFunction.SUM,
+                "source_model": SourceModel.TRANCHE_BAL,
+                "source_field": "tr_end_bal_amt",
+                "group_level": GroupLevel.DEAL
+            },
+            {
+                "name": "Average Pass Through Rate",
+                "description": "Weighted average pass through rate across tranches",
+                "aggregation_function": AggregationFunction.WEIGHTED_AVG,
+                "source_model": SourceModel.TRANCHE_BAL,
+                "source_field": "tr_pass_thru_rte",
+                "weight_field": "tr_end_bal_amt",
+                "group_level": GroupLevel.DEAL
+            },
+            {
+                "name": "Total Interest Distribution",
+                "description": "Sum of all tranche interest distributions",
+                "aggregation_function": AggregationFunction.SUM,
+                "source_model": SourceModel.TRANCHE_BAL,
+                "source_field": "tr_int_dstrb_amt", 
+                "group_level": GroupLevel.DEAL
+            },
+            {
+                "name": "Total Principal Distribution",
+                "description": "Sum of all tranche principal distributions",
+                "aggregation_function": AggregationFunction.SUM,
+                "source_model": SourceModel.TRANCHE_BAL,
+                "source_field": "tr_prin_dstrb_amt",
+                "group_level": GroupLevel.DEAL
+            }
+        ]
+        
+        # Tranche-level aggregated calculations (these don't aggregate, but provide TrancheBal data)
+        tranche_aggregated = [
+            {
+                "name": "Ending Balance Amount",
+                "description": "Outstanding principal balance at period end",
+                "aggregation_function": AggregationFunction.SUM,  # Will be 1 record per tranche
+                "source_model": SourceModel.TRANCHE_BAL,
+                "source_field": "tr_end_bal_amt",
+                "group_level": GroupLevel.TRANCHE
+            },
+            {
+                "name": "Pass Through Rate",
+                "description": "Interest rate passed through to investors", 
+                "aggregation_function": AggregationFunction.AVG,  # Will be 1 record per tranche
+                "source_model": SourceModel.TRANCHE_BAL,
+                "source_field": "tr_pass_thru_rte",
+                "group_level": GroupLevel.TRANCHE
+            },
+            {
+                "name": "Interest Distribution Amount",
+                "description": "Interest distributed to investors",
+                "aggregation_function": AggregationFunction.SUM,
+                "source_model": SourceModel.TRANCHE_BAL,
+                "source_field": "tr_int_dstrb_amt",
+                "group_level": GroupLevel.TRANCHE
+            },
+            {
+                "name": "Principal Distribution Amount", 
+                "description": "Principal distributed to investors",
+                "aggregation_function": AggregationFunction.SUM,
+                "source_model": SourceModel.TRANCHE_BAL,
+                "source_field": "tr_prin_dstrb_amt",
+                "group_level": GroupLevel.TRANCHE
+            }
+        ]
+        
+        # Create all calculations
+        all_calculations = []
+        
+        # Add RAW field calculations
+        for field_data in deal_raw_fields + tranche_raw_fields:
+            calc = Calculation(
+                name=field_data["name"],
+                description=field_data["description"],
+                aggregation_function=AggregationFunction.RAW,
+                source_model=field_data["source_model"],
+                source_field=field_data["source_field"],
+                group_level=field_data["group_level"],
+                created_by="system"
+            )
+            all_calculations.append(calc)
+        
+        # Add aggregated calculations
+        for field_data in deal_aggregated + tranche_aggregated:
+            calc = Calculation(
+                name=field_data["name"],
+                description=field_data["description"],
+                aggregation_function=field_data["aggregation_function"],
+                source_model=field_data["source_model"],
+                source_field=field_data["source_field"],
+                group_level=field_data["group_level"],
+                weight_field=field_data.get("weight_field"),
+                created_by="system"
+            )
+            all_calculations.append(calc)
+        
+        # Bulk insert
+        config_db.add_all(all_calculations)
+        config_db.commit()
+        
+        print(f"✅ Created {len(all_calculations)} standard calculations:")
+        print(f"   📊 {len(deal_raw_fields + tranche_raw_fields)} RAW field calculations")
+        print(f"   📈 {len(deal_aggregated + tranche_aggregated)} aggregated calculations")
+        
+        # Print breakdown by group level
+        deal_count = len([c for c in all_calculations if c.group_level == GroupLevel.DEAL])
+        tranche_count = len([c for c in all_calculations if c.group_level == GroupLevel.TRANCHE])
+        print(f"   🎯 {deal_count} deal-level, {tranche_count} tranche-level calculations")
+        
+    except Exception as e:
+        config_db.rollback()
+        print(f"❌ Error creating standard calculations: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+    finally:
+        config_db.close()
 
 
 # ===== SAMPLE DATA CREATION =====
@@ -329,7 +528,7 @@ def create_sample_data():
 
 
 def initialize_databases(force_recreate: bool = False):
-    """Initialize both databases with tables and sample data."""
+    """Initialize both databases with tables, calculations, and sample data."""
     print("Initializing dual database system...")
 
     if force_recreate:
@@ -338,6 +537,9 @@ def initialize_databases(force_recreate: bool = False):
 
     # Create all tables
     create_all_tables()
+
+    # Create standard calculations (must come before sample data)
+    create_standard_calculations()
 
     # Create sample data for development
     create_sample_data()

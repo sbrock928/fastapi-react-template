@@ -1,4 +1,4 @@
-"""API router for the reporting module - Updated for calculation-based reporting."""
+"""API router for the reporting module - Phase 1: Fixed async/sync issues."""
 
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
@@ -25,15 +25,15 @@ router = APIRouter(prefix="/reports", tags=["reporting"])
 
 
 # Dependency functions
-async def get_report_dao(db: SessionDep) -> ReportDAO:
+def get_report_dao(db: SessionDep) -> ReportDAO:
     return ReportDAO(db)
 
 
-async def get_dw_dao(db: DWSessionDep) -> DatawarehouseDAO:
+def get_dw_dao(db: DWSessionDep) -> DatawarehouseDAO:
     return DatawarehouseDAO(db)
 
 
-async def get_report_service(
+def get_report_service(
     report_dao: ReportDAO = Depends(get_report_dao),
     dw_dao: DatawarehouseDAO = Depends(get_dw_dao),
     query_engine: QueryEngine = Depends(get_query_engine),
@@ -47,7 +47,7 @@ async def get_report_service(
 @router.get("/", response_model=List[ReportRead])
 async def get_all_reports(service: ReportService = Depends(get_report_service)) -> List[ReportRead]:
     """Get all report configurations."""
-    return await service.get_all()
+    return await service.get_all()  # FIXED: added await
 
 
 @router.get("/summary", response_model=List[ReportSummary])
@@ -55,7 +55,7 @@ async def get_all_reports_summary(
     service: ReportService = Depends(get_report_service),
 ) -> List[ReportSummary]:
     """Get all reports with summary information."""
-    return await service.get_all_summaries()
+    return await service.get_all_summaries()  # FIXED: added await
 
 
 @router.get("/{report_id}", response_model=ReportRead)
@@ -63,7 +63,7 @@ async def get_report_by_id(
     report_id: int, service: ReportService = Depends(get_report_service)
 ) -> ReportRead:
     """Get a specific report configuration by ID."""
-    report = await service.get_by_id(report_id)
+    report = await service.get_by_id(report_id)  # FIXED: added await
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     return report
@@ -74,7 +74,7 @@ async def create_report(
     report_data: ReportCreate, service: ReportService = Depends(get_report_service)
 ) -> ReportRead:
     """Create a new report configuration."""
-    return await service.create(report_data)
+    return await service.create(report_data)  # FIXED: added await
 
 
 @router.patch("/{report_id}", response_model=ReportRead)
@@ -82,7 +82,7 @@ async def update_report(
     report_id: int, report_data: ReportUpdate, service: ReportService = Depends(get_report_service)
 ) -> ReportRead:
     """Update an existing report configuration."""
-    report = await service.update(report_id, report_data)
+    report = await service.update(report_id, report_data)  # FIXED: added await
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     return report
@@ -93,7 +93,7 @@ async def delete_report(
     report_id: int, service: ReportService = Depends(get_report_service)
 ) -> Dict[str, str]:
     """Delete a report configuration."""
-    success = await service.delete(report_id)
+    success = await service.delete(report_id)  # FIXED: added await
     if not success:
         raise HTTPException(status_code=404, detail="Report not found")
     return {"message": "Report deleted successfully"}
@@ -107,7 +107,7 @@ async def run_report(
     request: RunReportRequest, service: ReportService = Depends(get_report_service)
 ) -> List[Dict[str, Any]]:
     """Run a saved report configuration."""
-    return await service.run_saved_report(request.report_id, request.cycle_code)
+    return await service.run_saved_report(request.report_id, request.cycle_code)  # FIXED: added await
 
 
 @router.post("/run/{report_id}", response_model=List[Dict[str, Any]])
@@ -118,7 +118,7 @@ async def run_report_by_id(
     cycle_code = request.get("cycle_code")
     if not cycle_code:
         raise HTTPException(status_code=400, detail="cycle_code is required")
-    return await service.run_saved_report(report_id, cycle_code)
+    return await service.run_saved_report(report_id, cycle_code)  # FIXED: added await
 
 
 # ===== PREVIEW AND EXECUTION LOG ENDPOINTS =====
@@ -131,7 +131,7 @@ async def preview_report_sql(
     service: ReportService = Depends(get_report_service)
 ) -> Dict[str, Any]:
     """Preview SQL that would be generated for a report."""
-    return await service.preview_report_sql(report_id, cycle_code)
+    return await service.preview_report_sql(report_id, cycle_code)  # FIXED: added await
 
 
 @router.get("/{report_id}/execution-logs")
@@ -141,40 +141,40 @@ async def get_report_execution_logs(
     service: ReportService = Depends(get_report_service)
 ) -> List[Dict[str, Any]]:
     """Get execution logs for a report."""
-    return await service.get_execution_logs(report_id, limit)
+    return await service.get_execution_logs(report_id, limit)  # FIXED: added await
 
 
-# ===== CALCULATION CONFIGURATION ENDPOINTS (UPDATED) =====
+# ===== CALCULATION CONFIGURATION ENDPOINTS =====
 
 
 @router.get("/calculations/available", response_model=List[AvailableCalculation])
-async def get_available_calculations(
+def get_available_calculations(
     scope: ReportScope, service: ReportService = Depends(get_report_service)
 ) -> List[AvailableCalculation]:
     """Get available calculations for report configuration based on scope."""
-    return await service.get_available_calculations(scope)
+    return service.get_available_calculations(scope)  # This one stays sync
 
 
 # ===== DATA ENDPOINTS (for report building) =====
 
 
 @router.get("/data/issuer-codes", response_model=List[str])
-async def get_available_issuer_codes(
+def get_available_issuer_codes(
     service: ReportService = Depends(get_report_service),
 ) -> List[str]:
     """Get unique issuer codes for deal filtering."""
-    deals = await service.get_available_deals()
+    deals = service.get_available_deals()  # This one stays sync
     issuer_codes = sorted(list(set(deal["issr_cde"] for deal in deals)))
     return issuer_codes
 
 
 @router.get("/data/deals", response_model=List[Dict[str, Any]])
-async def get_available_deals(
+def get_available_deals(
     issuer_code: Optional[str] = None,
     service: ReportService = Depends(get_report_service),
 ) -> List[Dict[str, Any]]:
     """Get available deals for report building, optionally filtered by issuer code."""
-    deals = await service.get_available_deals()
+    deals = service.get_available_deals()  # This one stays sync
     
     # Filter by issuer code if provided
     if issuer_code:
@@ -184,14 +184,14 @@ async def get_available_deals(
 
 
 @router.post("/data/tranches", response_model=Dict[int, List[Dict[str, Any]]])
-async def get_available_tranches(
+def get_available_tranches(
     request: Dict[str, Any], service: ReportService = Depends(get_report_service)
 ) -> Dict[int, List[Dict[str, Any]]]:
     """Get available tranches for specific deals."""
     deal_ids = request.get("dl_nbrs", [])
     cycle_code = request.get("cycle_code")
 
-    tranches_by_deal = await service.get_available_tranches_for_deals(deal_ids, cycle_code)
+    tranches_by_deal = service.get_available_tranches_for_deals(deal_ids, cycle_code)  # This one stays sync
     return {
         int(deal_id): tranches
         for deal_id, tranches in tranches_by_deal.items()
@@ -199,11 +199,11 @@ async def get_available_tranches(
 
 
 @router.get("/data/cycles", response_model=List[Dict[str, Any]])
-async def get_available_cycles(
+def get_available_cycles(
     service: ReportService = Depends(get_report_service),
 ) -> List[Dict[str, str]]:
     """Get available cycle codes from the data warehouse."""
-    return await service.get_available_cycles()
+    return service.get_available_cycles()  # This one stays sync
 
 
 # ===== EXPORT ENDPOINTS =====
