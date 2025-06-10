@@ -1,17 +1,18 @@
-"""Pydantic schemas for the reporting module - Updated for calculation-based reporting."""
+"""Simplified Pydantic schemas for the reporting module."""
 
-from typing import Optional, List, Any
+from typing import Optional, List
 from datetime import datetime
 from enum import Enum
-from pydantic import BaseModel, field_validator, model_validator, ConfigDict
+from pydantic import BaseModel, field_validator, ConfigDict
 
 
 class ReportScope(str, Enum):
-    """Enumeration of report scope options."""
-
+    """Report scope options."""
     DEAL = "DEAL"
     TRANCHE = "TRANCHE"
 
+
+# ===== CALCULATION SCHEMAS =====
 
 class ReportCalculationBase(BaseModel):
     """Base schema for report calculation associations."""
@@ -31,10 +32,12 @@ class ReportCalculation(ReportCalculationBase):
     report_id: int
 
 
+# ===== TRANCHE SCHEMAS =====
+
 class ReportTrancheBase(BaseModel):
     """Base schema for report tranche associations."""
     tr_id: str
-    dl_nbr: Optional[int] = None  # Make optional for backwards compatibility
+    dl_nbr: Optional[int] = None  # Auto-populated from parent deal
 
 class ReportTrancheCreate(ReportTrancheBase):
     pass
@@ -45,6 +48,8 @@ class ReportTranche(ReportTrancheBase):
     
     model_config = ConfigDict(from_attributes=True)
 
+
+# ===== DEAL SCHEMAS =====
 
 class ReportDealBase(BaseModel):
     """Base schema for report deal associations."""
@@ -61,9 +66,10 @@ class ReportDeal(ReportDealBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+# ===== CORE REPORT SCHEMAS =====
+
 class ReportBase(BaseModel):
     """Base schema for report configuration objects."""
-
     name: str
     description: Optional[str] = None
     scope: ReportScope
@@ -83,7 +89,7 @@ class ReportBase(BaseModel):
 
 
 class ReportCreate(ReportBase):
-    """Create schema for reports with calculation-based structure."""
+    """Create schema for reports."""
     selected_deals: List[ReportDealCreate] = []
     selected_calculations: List[ReportCalculationCreate] = []
     
@@ -113,25 +119,9 @@ class ReportCreate(ReportBase):
         
         return v
 
-    @model_validator(mode='after')
-    def validate_tranche_selections(self):
-        # Auto-populate dl_nbr in tranches if missing
-        for deal in self.selected_deals:
-            for tranche in deal.selected_tranches:
-                if tranche.dl_nbr is None:
-                    tranche.dl_nbr = deal.dl_nbr
-        
-        # Check for duplicate tranche keys within each deal
-        for deal in self.selected_deals:
-            tranche_keys = [(tranche.dl_nbr, tranche.tr_id) for tranche in deal.selected_tranches]
-            if len(set(tranche_keys)) != len(tranche_keys):
-                raise ValueError(f"Duplicate tranche keys found for deal {deal.dl_nbr}")
-
-        return self
-
 
 class ReportRead(ReportBase):
-    """Read schema for reports with calculation-based structure."""
+    """Read schema for reports."""
     id: int
     created_date: datetime
     updated_date: datetime
@@ -141,7 +131,6 @@ class ReportRead(ReportBase):
 
 class ReportUpdate(BaseModel):
     """Update schema - allows partial updates."""
-
     name: Optional[str] = None
     description: Optional[str] = None
     scope: Optional[ReportScope] = None
@@ -163,9 +152,10 @@ class ReportUpdate(BaseModel):
         return v
 
 
+# ===== AVAILABLE CALCULATION SCHEMA =====
+
 class AvailableCalculation(BaseModel):
     """Schema for available calculations that can be selected for reports."""
-    
     id: int
     name: str
     description: Optional[str] = None
@@ -174,14 +164,15 @@ class AvailableCalculation(BaseModel):
     source_field: str
     group_level: str
     weight_field: Optional[str] = None
-    scope: ReportScope  # Which report scope this calculation is available for
-    category: str  # e.g., "Balance", "Rates", "Distribution"
-    is_default: bool = False  # Whether this calculation should be selected by default
+    scope: ReportScope
+    category: str
+    is_default: bool = False
 
+
+# ===== SUMMARY SCHEMAS =====
 
 class ReportSummary(BaseModel):
     """Summary schema for report listings."""
-
     id: int
     name: str
     description: Optional[str] = None
@@ -190,7 +181,7 @@ class ReportSummary(BaseModel):
     created_date: datetime
     deal_count: int
     tranche_count: int
-    calculation_count: int  # Changed from field_count
+    calculation_count: int
     is_active: bool
     # Execution statistics
     total_executions: int = 0
@@ -200,9 +191,10 @@ class ReportSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# ===== EXECUTION SCHEMAS =====
+
 class RunReportRequest(BaseModel):
     """Request schema for running a saved report."""
-
     report_id: int
     cycle_code: int
 
@@ -211,7 +203,6 @@ class RunReportRequest(BaseModel):
 
 class ReportExecutionLog(BaseModel):
     """Schema for report execution logs."""
-    
     id: int
     report_id: int
     cycle_code: int
@@ -223,14 +214,3 @@ class ReportExecutionLog(BaseModel):
     executed_at: datetime
     
     model_config = ConfigDict(from_attributes=True)
-
-
-class ReportExecutionSummary(BaseModel):
-    """Summary schema for report execution history."""
-    
-    total_executions: int
-    successful_executions: int
-    failed_executions: int
-    avg_execution_time_ms: Optional[float] = None
-    last_execution: Optional[ReportExecutionLog] = None
-    recent_executions: List[ReportExecutionLog] = []
