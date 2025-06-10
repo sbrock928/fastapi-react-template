@@ -7,7 +7,6 @@ import {
   getCalculationCategory,
   isSystemCalculation,
   isUserDefinedCalculation,
-  isSystemFieldCalculation,
   isSystemSqlCalculation
 } from '@/types/calculations';
 
@@ -36,8 +35,6 @@ const CalculationCard: React.FC<CalculationCardProps> = ({
   const getCalculationTypeIcon = () => {
     if (isUserDefinedCalculation(calculation)) {
       return 'bi-person-gear';
-    } else if (isSystemFieldCalculation(calculation)) {
-      return 'bi-database';
     } else if (isSystemSqlCalculation(calculation)) {
       return 'bi-code-square';
     }
@@ -47,8 +44,6 @@ const CalculationCard: React.FC<CalculationCardProps> = ({
   const getCalculationTypeBadge = () => {
     if (isUserDefinedCalculation(calculation)) {
       return 'bg-primary';
-    } else if (isSystemFieldCalculation(calculation)) {
-      return 'bg-success';
     } else if (isSystemSqlCalculation(calculation)) {
       return 'bg-warning text-dark';
     }
@@ -92,10 +87,10 @@ const CalculationCard: React.FC<CalculationCardProps> = ({
               <small className="text-muted">
                 <strong>Source:</strong> {sourceDescription}
                 {/* Show additional details based on calculation type */}
-                {isUserDefinedCalculation(calculation) && calculation.weight_field && (
+                {isUserDefinedCalculation(calculation) && calculation.weight_field && calculation.source_model && (
                   <span> | <strong>Weight:</strong> {calculation.source_model}.{calculation.weight_field}</span>
                 )}
-                {isSystemSqlCalculation(calculation) && (
+                {isSystemSqlCalculation(calculation) && calculation.result_column_name && (
                   <span> | <strong>Returns:</strong> {calculation.result_column_name}</span>
                 )}
               </small>
@@ -109,17 +104,15 @@ const CalculationCard: React.FC<CalculationCardProps> = ({
               </div>
             )}
             
-            {isSystemFieldCalculation(calculation) && (
-              <div className="d-flex align-items-center gap-1 text-muted mb-2">
-                <i className="bi bi-database"></i>
-                <small>Raw field from {calculation.source_model} model ({calculation.field_type})</small>
-              </div>
-            )}
-            
             {isUserDefinedCalculation(calculation) && (
               <div className="d-flex align-items-center gap-1 text-muted mb-2">
                 <i className="bi bi-calculator"></i>
-                <small>User-created aggregated calculation using {calculation.aggregation_function}</small>
+                <small>
+                  {calculation.aggregation_function 
+                    ? `User-created aggregated calculation using ${calculation.aggregation_function}`
+                    : 'User-created aggregated calculation'
+                  }
+                </small>
               </div>
             )}
             
@@ -246,8 +239,8 @@ const CalculationCard: React.FC<CalculationCardProps> = ({
                 {isSystemSqlCalculation(calculation) && (
                   <span> Contains validated custom SQL logic.</span>
                 )}
-                {isSystemFieldCalculation(calculation) && (
-                  <span> Provides direct access to model field data.</span>
+                {isUserDefinedCalculation(calculation) && (
+                  <span> User-created calculation.</span>
                 )}
               </small>
             </div>

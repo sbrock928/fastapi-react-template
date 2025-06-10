@@ -36,17 +36,19 @@ export interface Calculation {
   group_level: string;
   is_system_managed: boolean;
   
-  // User-defined calculation fields
+  // New API format properties
+  category?: string;
+  is_default?: boolean;
+  display_type?: string;
+  source_description?: string;
+  
+  // Legacy properties (may still exist for backward compatibility)
   aggregation_function?: string;
   source_model?: string;
   source_field?: string;
   weight_field?: string;
-  
-  // System field calculation fields
   field_name?: string;
   field_type?: string;
-  
-  // System SQL calculation fields
   raw_sql?: string;
   result_column_name?: string;
   
@@ -132,24 +134,25 @@ export const isUserDefinedCalculation = (calculation: Calculation): boolean => {
   return calculation.calculation_type === 'USER_DEFINED';
 };
 
-export const isSystemFieldCalculation = (calculation: Calculation): boolean => {
-  return calculation.calculation_type === 'SYSTEM_FIELD';
-};
-
 export const isSystemSqlCalculation = (calculation: Calculation): boolean => {
   return calculation.calculation_type === 'SYSTEM_SQL';
 };
 
 export const isSystemCalculation = (calculation: Calculation): boolean => {
   return calculation.is_system_managed || 
-         calculation.calculation_type === 'SYSTEM_FIELD' || 
          calculation.calculation_type === 'SYSTEM_SQL';
 };
 
 export const getCalculationDisplayType = (calculation: Calculation): string => {
+  // Use the new display_type property if available, otherwise fall back to old logic
+  if (calculation.display_type) {
+    return calculation.display_type;
+  }
+  
+  // Fallback for backward compatibility
   switch (calculation.calculation_type) {
     case 'USER_DEFINED':
-      return `User Defined (${calculation.aggregation_function})`;
+      return `User Defined (${calculation.aggregation_function || 'Unknown'})`;
     case 'SYSTEM_FIELD':
       return `System Field (${calculation.field_type || 'Unknown'})`;
     case 'SYSTEM_SQL':
@@ -160,19 +163,31 @@ export const getCalculationDisplayType = (calculation: Calculation): string => {
 };
 
 export const getCalculationSourceDescription = (calculation: Calculation): string => {
+  // Use the new source_description property if available, otherwise fall back to old logic
+  if (calculation.source_description) {
+    return calculation.source_description;
+  }
+  
+  // Fallback for backward compatibility
   switch (calculation.calculation_type) {
     case 'USER_DEFINED':
-      return `${calculation.source_model}.${calculation.source_field}`;
+      return `${calculation.source_model || 'Unknown'}.${calculation.source_field || 'Unknown'}`;
     case 'SYSTEM_FIELD':
-      return `${calculation.source_model}.${calculation.field_name}`;
+      return `${calculation.source_model || 'Unknown'}.${calculation.field_name || 'Unknown'}`;
     case 'SYSTEM_SQL':
-      return `Custom SQL (${calculation.result_column_name})`;
+      return `Custom SQL (${calculation.result_column_name || 'Unknown'})`;
     default:
-      return 'Unknown';
+      return 'Unknown source';
   }
 };
 
 export const getCalculationCategory = (calculation: Calculation): string => {
+  // Use the new category property if available, otherwise fall back to old logic
+  if (calculation.category) {
+    return calculation.category;
+  }
+  
+  // Fallback for backward compatibility
   if (calculation.calculation_type === 'USER_DEFINED') {
     const sourceModel = calculation.source_model;
     if (sourceModel === 'Deal') {

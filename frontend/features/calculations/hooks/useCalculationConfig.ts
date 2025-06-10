@@ -105,24 +105,32 @@ export const useCalculationForm = (editingCalculation: Calculation | null) => {
     if (calc) {
       // Edit mode - map calculation to form
       if (calc.calculation_type === 'USER_DEFINED') {
+        // Extract aggregation function from display_type (e.g., "User Defined (SUM)" -> "SUM")
+        let aggregationFunction = calc.aggregation_function || '';
+        if (!aggregationFunction && calc.display_type) {
+          const match = calc.display_type.match(/\(([^)]+)\)/);
+          aggregationFunction = match ? match[1] : '';
+        }
+
+        // Extract source model and field from source_description (e.g., "TrancheBal.tr_pass_thru_rte")
+        let sourceModel = calc.source_model || '';
+        let sourceField = calc.source_field || '';
+        if (!sourceModel && !sourceField && calc.source_description) {
+          const parts = calc.source_description.split('.');
+          if (parts.length >= 2) {
+            sourceModel = parts[0];
+            sourceField = parts.slice(1).join('.'); // Handle cases with multiple dots
+          }
+        }
+
         setCalculation({
           name: calc.name,
           description: calc.description || '',
-          function_type: calc.aggregation_function || '',
-          source: calc.source_model || '',
-          source_field: calc.source_field || '',
+          function_type: aggregationFunction,
+          source: sourceModel,
+          source_field: sourceField,
           level: calc.group_level,
           weight_field: calc.weight_field || ''
-        });
-      } else if (calc.calculation_type === 'SYSTEM_FIELD') {
-        setCalculation({
-          name: calc.name,
-          description: calc.description || '',
-          function_type: 'SYSTEM_FIELD',
-          source: calc.source_model || '',
-          source_field: calc.field_name || '',
-          level: calc.group_level,
-          weight_field: calc.field_type || ''
         });
       } else if (calc.calculation_type === 'SYSTEM_SQL') {
         setCalculation({
