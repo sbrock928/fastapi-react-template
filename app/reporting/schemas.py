@@ -159,9 +159,9 @@ class AvailableCalculation(BaseModel):
     id: int
     name: str
     description: Optional[str] = None
-    aggregation_function: str
-    source_model: str
-    source_field: str
+    aggregation_function: Optional[str] = None  # None for system SQL calculations
+    source_model: Optional[str] = None  # None for system SQL calculations
+    source_field: Optional[str] = None  # None for system SQL calculations
     group_level: str
     weight_field: Optional[str] = None
     scope: ReportScope

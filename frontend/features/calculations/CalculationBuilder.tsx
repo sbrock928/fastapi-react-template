@@ -50,7 +50,6 @@ const CalculationBuilder: React.FC = () => {
     isLoading: systemLoading,
     systemUsage,
     fetchSystemCalculations,
-    createSystemFieldCalculation,
     createSystemSqlCalculation
   } = useSystemCalculations();
 
@@ -70,7 +69,7 @@ const CalculationBuilder: React.FC = () => {
 
   // Modal states
   const [showModal, setShowModal] = useState<boolean>(false);
-  const [modalType, setModalType] = useState<'user-defined' | 'system-field' | 'system-sql'>('user-defined');
+  const [modalType, setModalType] = useState<'user-defined' | 'system-sql'>('user-defined');
   const [editingCalculation, setEditingCalculation] = useState<Calculation | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState<boolean>(false);
   const [previewData, setPreviewData] = useState<PreviewData | null>(null);
@@ -112,7 +111,7 @@ const CalculationBuilder: React.FC = () => {
 
   // Handle opening modal for create/edit
   const handleOpenModal = (
-    type: 'user-defined' | 'system-field' | 'system-sql',
+    type: 'user-defined' | 'system-sql',
     calc: Calculation | null = null
   ) => {
     setModalType(type);
@@ -152,11 +151,6 @@ const CalculationBuilder: React.FC = () => {
       success = await saveCalculation(() => {
         handleCloseModal();
         fetchUserCalculations();
-      });
-    } else if (modalType === 'system-field') {
-      success = await createSystemFieldCalculation(calculation, () => {
-        handleCloseModal();
-        fetchSystemCalculations();
       });
     } else if (modalType === 'system-sql') {
       success = await createSystemSqlCalculation(calculation, () => {
@@ -398,7 +392,6 @@ const CalculationBuilder: React.FC = () => {
                     setSelectedFilter={setSystemFilter}
                     loading={systemLoading}
                     usage={systemUsage}
-                    onCreateSystemField={() => handleOpenModal('system-field')}
                     onCreateSystemSql={() => handleOpenModal('system-sql')}
                     onPreviewSQL={handlePreviewSQL}
                     onShowUsage={handleShowUsage}

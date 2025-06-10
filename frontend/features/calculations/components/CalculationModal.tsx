@@ -22,7 +22,7 @@ import { useToast } from '@/context/ToastContext';
 
 interface CalculationModalProps {
   isOpen: boolean;
-  modalType: 'user-defined' | 'system-field' | 'system-sql';
+  modalType: 'user-defined' | 'system-sql';
   editingCalculation: Calculation | null;
   calculation: CalculationForm;
   error: string | null;
@@ -64,8 +64,6 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
     switch (modalType) {
       case 'user-defined':
         return editingCalculation ? 'Edit User Calculation' : 'Create New User Calculation';
-      case 'system-field':
-        return 'Create System Field Calculation';
       case 'system-sql':
         return 'Create System SQL Calculation';
       default:
@@ -77,8 +75,6 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
     switch (modalType) {
       case 'user-defined':
         return 'bg-primary';
-      case 'system-field':
-        return 'bg-success';
       case 'system-sql':
         return 'bg-warning text-dark';
       default:
@@ -303,97 +299,6 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
     );
   };
 
-  const renderSystemFieldForm = () => {
-    const availableFields = getAvailableFields(calculation.source, allAvailableFields);
-
-    return (
-      <>
-        <div className="alert alert-success">
-          <i className="bi bi-info-circle me-2"></i>
-          <strong>System Field Calculation:</strong> Exposes a raw model field for use in reports and user calculations.
-        </div>
-
-        <div className="row g-3">
-          <div className="col-md-6">
-            <label className="form-label">Field Name *</label>
-            <input
-              type="text"
-              value={calculation.name}
-              onChange={(e) => onUpdateCalculation({ name: e.target.value })}
-              className="form-control"
-              placeholder="e.g., Deal Number"
-            />
-          </div>
-
-          <div className="col-md-6">
-            <label className="form-label">Group Level *</label>
-            <select
-              value={calculation.level}
-              onChange={(e) => onUpdateCalculation({ level: e.target.value })}
-              className="form-select"
-            >
-              {groupLevels.map((level: GroupLevel) => (
-                <option key={level.value} value={level.value}>
-                  {level.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="col-12">
-            <label className="form-label">Description</label>
-            <textarea
-              value={calculation.description}
-              onChange={(e) => onUpdateCalculation({ description: e.target.value })}
-              className="form-control"
-              rows={2}
-              placeholder="Describe this field..."
-            />
-          </div>
-
-          <div className="col-md-6">
-            <label className="form-label">Source Model *</label>
-            <select
-              value={calculation.source}
-              onChange={(e) => onUpdateCalculation({ source: e.target.value, source_field: '' })}
-              className="form-select"
-            >
-              <option value="">Select a source model...</option>
-              {sourceModels.map((model: SourceModel) => (
-                <option key={model.value} value={model.value}>
-                  {model.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="col-md-6">
-            <label className="form-label">Field *</label>
-            <select
-              value={calculation.source_field}
-              onChange={(e) => onUpdateCalculation({ source_field: e.target.value })}
-              className="form-select"
-              disabled={!calculation.source}
-            >
-              <option value="">Select a field...</option>
-              {availableFields.map((field: CalculationField) => (
-                <option key={field.value} value={field.value}>
-                  {field.label} ({field.type})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="col-12">
-            <div className="bg-light rounded p-3">
-              <strong>Preview:</strong> {calculation.source}.{calculation.source_field || '[field]'}
-            </div>
-          </div>
-        </div>
-      </>
-    );
-  };
-
   const renderSystemSqlForm = () => {
     // Perform basic client-side SQL validation
     const clientValidation = calculation.source_field ? validateSqlSyntax(calculation.source_field) : null;
@@ -580,8 +485,6 @@ FROM deal${calculation.level === 'tranche' ? '\nJOIN tranche ON deal.dl_nbr = tr
     switch (modalType) {
       case 'user-defined':
         return renderUserDefinedForm();
-      case 'system-field':
-        return renderSystemFieldForm();
       case 'system-sql':
         return renderSystemSqlForm();
       default:
@@ -640,8 +543,7 @@ FROM deal${calculation.level === 'tranche' ? '\nJOIN tranche ON deal.dl_nbr = tr
               onClick={onSave}
               disabled={isSaving || fieldsLoading}
               className={`btn ${
-                modalType === 'user-defined' ? 'btn-primary' :
-                modalType === 'system-field' ? 'btn-success' : 'btn-warning'
+                modalType === 'user-defined' ? 'btn-primary' : 'btn-warning'
               }`}
             >
               {isSaving ? (

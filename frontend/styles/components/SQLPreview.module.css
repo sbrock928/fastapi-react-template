@@ -167,3 +167,59 @@
     margin-top: 0.5rem;
     font-style: italic;
   }
+  
+  /* SQL Syntax Highlighting Styles */
+.sql-keyword {
+  color: #0066cc;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.sql-string {
+  color: #008000;
+}
+
+.sql-number {
+  color: #ff6600;
+}
+
+.sql-comment {
+  color: #808080;
+  font-style: italic;
+}
+
+/* Enhanced SQL Code Container */
+.sql-code-enhanced {
+  background-color: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 1.5rem;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: #212529;
+  overflow-x: auto;
+  white-space: pre;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.sql-code-enhanced::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.sql-code-enhanced::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.sql-code-enhanced::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.sql-code-enhanced::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+}

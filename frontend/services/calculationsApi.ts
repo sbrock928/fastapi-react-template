@@ -56,33 +56,6 @@ export const calculationsApi = {
     return apiClient.put<Calculation>(`/calculations/user-defined/${id}`, data);
   },
 
-  // ===== SYSTEM FIELD CALCULATION ENDPOINTS =====
-
-  // Create system field calculation
-  createSystemFieldCalculation: async (data: {
-    name: string;
-    description?: string;
-    source_model: string;
-    field_name: string;
-    field_type: string;
-    group_level: string;
-  }) => {
-    return apiClient.post<Calculation>('/calculations/system-field', data);
-  },
-
-  // Auto-generate system field calculations
-  autoGenerateSystemFields: async () => {
-    return apiClient.post<{
-      success: boolean;
-      message: string;
-      details: {
-        generated_count: number;
-        skipped_count: number;
-        errors: string[];
-      };
-    }>('/calculations/system-field/auto-generate');
-  },
-
   // ===== SYSTEM SQL CALCULATION ENDPOINTS =====
 
   // Create system SQL calculation

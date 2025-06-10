@@ -50,8 +50,8 @@ class ReportService:
             id=calc.id,
             name=calc.name,
             description=calc.description,
-            aggregation_function=calc.aggregation_function.value,
-            source_model=calc.source_model.value,
+            aggregation_function=calc.aggregation_function.value if calc.aggregation_function else None,
+            source_model=calc.source_model.value if calc.source_model else None,
             source_field=calc.source_field,
             group_level=calc.group_level.value,
             weight_field=calc.weight_field,
@@ -62,8 +62,14 @@ class ReportService:
 
     def _categorize_calculation(self, calc: Calculation) -> str:
         """Categorize calculation for UI grouping."""
+        if not calc.source_model:
+            # Handle system SQL calculations or other calculations without source_model
+            if hasattr(calc, 'calculation_type') and calc.calculation_type.value == 'SYSTEM_SQL':
+                return "Custom SQL Calculations"
+            return "Other"
+            
         source_model = calc.source_model.value
-        source_field = calc.source_field
+        source_field = calc.source_field or ""
         
         if source_model == "Deal":
             return "Deal Information"

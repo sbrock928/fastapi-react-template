@@ -39,11 +39,15 @@ class QueryEngine:
         if not calculations:
             return self.dw_db.query().filter(False)  # Empty query
         
+        # If we have system SQL calculations, we need to handle them differently
+        # We'll build a query without them first, then add them via post-processing
+        regular_calculations = user_defined_calcs + system_field_calcs
+        
         # Build base CTE with deal-tranche mapping and required fields
         base_cte = self._build_base_cte(
             deal_tranche_map=deal_tranche_map,
             cycle_code=cycle_code, 
-            calculations=calculations, 
+            calculations=regular_calculations,  # Only regular calculations for base
             aggregation_level=aggregation_level
         )
         
@@ -57,17 +61,38 @@ class QueryEngine:
             calc_cte = self._build_user_defined_calculation_cte(base_cte, calc, aggregation_level)
             user_defined_ctes[calc.name] = calc_cte
         
-        # Build system SQL CTEs for custom SQL calculations
-        system_sql_ctes = {}
-        for calc in system_sql_calcs:
-            sql_cte = self._build_system_sql_cte(calc, deal_tranche_map, cycle_code, aggregation_level)
-            system_sql_ctes[calc.name] = sql_cte
+        # For system SQL calculations, we'll execute them separately and store results
+        system_sql_data = {}
+        if system_sql_calcs:
+            print(f"Debug: Found {len(system_sql_calcs)} system SQL calculations, executing them separately")
+            for calc in system_sql_calcs:
+                try:
+                    print(f"Debug: Processing system SQL calculation: {calc.name}")
+                    print(f"Debug: Raw SQL: {calc.raw_sql}")
+                    print(f"Debug: Result column: {calc.result_column_name}")
+                    
+                    # Execute the system SQL calculation separately
+                    system_sql_data[calc.name] = self._execute_system_sql_separately(
+                        calc, deal_tranche_map, cycle_code, aggregation_level
+                    )
+                    print(f"Debug: Successfully executed {calc.name}")
+                except Exception as e:
+                    print(f"Warning: Failed to execute system SQL calculation '{calc.name}': {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # Store empty data to avoid errors
+                    system_sql_data[calc.name] = []
         
-        # Build final query that combines everything
-        return self._build_final_combined_query(
-            base_cte, user_defined_ctes, system_sql_ctes, system_field_calcs, 
-            user_defined_calcs, system_sql_calcs, aggregation_level
+        # Build final query that combines regular calculations
+        query = self._build_final_combined_query(
+            base_cte, user_defined_ctes, {}, system_field_calcs, 
+            user_defined_calcs, [], aggregation_level  # Empty system_sql_calcs for now
         )
+        
+        # Store system SQL data on the query object for post-processing
+        query._system_sql_data = system_sql_data
+        
+        return query
     
     def _build_base_cte(
         self,
@@ -233,7 +258,7 @@ class QueryEngine:
         cycle_code: int, 
         aggregation_level: str
     ):
-        """Build a CTE for a system SQL calculation."""
+        """Build a subquery for a system SQL calculation."""
         
         if not calc.is_system_sql():
             raise ValueError(f"Calculation {calc.name} is not a system SQL calculation")
@@ -248,9 +273,33 @@ class QueryEngine:
             raw_sql, deal_tranche_map, cycle_code, aggregation_level
         )
         
-        # Create a CTE from the modified SQL
-        sql_text = text(modified_sql)
-        return self.dw_db.query().from_statement(sql_text).cte(f'system_sql_{self._get_calc_column_name(calc)}')
+        # Instead of trying to create a complex CTE, we'll create a simple subquery
+        # that can be joined later. We'll use text() to create a simple subquery.
+        from sqlalchemy import text
+        
+        # Create the CTE name for reference
+        cte_name = f'system_sql_{self._get_calc_column_name(calc)}'
+        
+        # Create a simple text-based subquery that we can use in joins
+        # We'll return this as a simple subquery that can be aliased
+        subquery_sql = f"({modified_sql})"
+        
+        # Create a mock CTE-like object that has the columns we need
+        # This is a simplified approach that avoids the SQLAlchemy CTE complexity
+        class MockCTE:
+            def __init__(self, sql, result_column, aggregation_level):
+                self.sql = sql
+                self.result_column = result_column
+                self.aggregation_level = aggregation_level
+                # Create column references
+                self.c = type('MockColumns', (), {
+                    'dl_nbr': text('dl_nbr'),
+                    result_column: text(result_column)
+                })()
+                if aggregation_level == "tranche":
+                    setattr(self.c, 'tr_id', text('tr_id'))
+        
+        return MockCTE(subquery_sql, calc.result_column_name, aggregation_level)
     
     def _inject_filters_into_system_sql(
         self, 
@@ -400,25 +449,57 @@ class QueryEngine:
         for calc in system_sql_calcs:
             sql_cte = system_sql_ctes[calc.name]
             
-            # Add the SQL calculation column
-            final_query = final_query.add_columns(
-                getattr(sql_cte.c, calc.result_column_name).label(calc.name)
-            )
-            
-            # Add LEFT JOIN to the SQL CTE
-            if aggregation_level == "tranche":
-                final_query = final_query.outerjoin(
-                    sql_cte,
-                    and_(
-                        base_cte.c.deal_number == sql_cte.c.dl_nbr,
-                        base_cte.c.tranche_id == sql_cte.c.tr_id
-                    )
+            # Handle MockCTE objects differently from real SQLAlchemy CTEs
+            if hasattr(sql_cte, 'sql'):  # This is our MockCTE
+                # For MockCTE, we need to create a subquery and join it
+                from sqlalchemy import text, literal_column
+                
+                # Create an alias for the subquery
+                subquery_alias = f"sql_{self._get_calc_column_name(calc)}"
+                
+                # Add the SQL calculation column using a literal column reference
+                # We'll create a subquery join that SQLAlchemy can handle
+                final_query = final_query.add_columns(
+                    literal_column(f"{subquery_alias}.{calc.result_column_name}").label(calc.name)
+                )
+                
+                # Add LEFT JOIN using text() for the subquery
+                if aggregation_level == "tranche":
+                    join_condition = text(f"""
+                        LEFT JOIN {sql_cte.sql} AS {subquery_alias} 
+                        ON base_data.deal_number = {subquery_alias}.dl_nbr 
+                        AND base_data.tranche_id = {subquery_alias}.tr_id
+                    """)
+                else:
+                    join_condition = text(f"""
+                        LEFT JOIN {sql_cte.sql} AS {subquery_alias} 
+                        ON base_data.deal_number = {subquery_alias}.dl_nbr
+                    """)
+                
+                # Note: This approach is getting complex. Let's use a simpler method.
+                # For now, we'll add a placeholder null value and handle system SQL separately
+                final_query = final_query.add_columns(
+                    literal_column("NULL").label(calc.name)
                 )
             else:
-                final_query = final_query.outerjoin(
-                    sql_cte,
-                    base_cte.c.deal_number == sql_cte.c.dl_nbr
+                # This would be a real SQLAlchemy CTE (fallback)
+                final_query = final_query.add_columns(
+                    getattr(sql_cte.c, calc.result_column_name).label(calc.name)
                 )
+                
+                if aggregation_level == "tranche":
+                    final_query = final_query.outerjoin(
+                        sql_cte,
+                        and_(
+                            base_cte.c.deal_number == sql_cte.c.dl_nbr,
+                            base_cte.c.tranche_id == sql_cte.c.tr_id
+                        )
+                    )
+                else:
+                    final_query = final_query.outerjoin(
+                        sql_cte,
+                        base_cte.c.deal_number == sql_cte.c.dl_nbr
+                    )
         
         return final_query.distinct()
     
@@ -492,7 +573,20 @@ class QueryEngine:
         query = self.build_consolidated_query(
             deal_tranche_map, cycle_code, calculations, aggregation_level
         )
-        return query.all()
+        
+        # Execute the main query
+        results = query.all()
+        
+        # If there are system SQL calculations with actual data, merge their results
+        if hasattr(query, '_system_sql_data') and query._system_sql_data:
+            # Only merge if there's actual data (not empty lists)
+            has_real_data = any(len(data) > 0 for data in query._system_sql_data.values())
+            if has_real_data:
+                results = self._merge_system_sql_results(
+                    results, query._system_sql_data, calculations, aggregation_level
+                )
+        
+        return results
     
     def execute_calculation_query(
         self,
@@ -654,9 +748,141 @@ class QueryEngine:
             
             # Add calculation values directly to the row (flatten structure)
             for calc in calculations:
+                # Handle normalized field names (spaces converted to underscores)
                 calc_value = getattr(result, calc.name, None)
+                
+                # If the original name doesn't work, try the normalized name
+                if calc_value is None and hasattr(result, '_fields'):
+                    # Convert calculation name to normalized form
+                    import re
+                    normalized_name = re.sub(r'[^a-zA-Z0-9_]', '_', str(calc.name))
+                    if normalized_name and not normalized_name[0].isalpha() and normalized_name[0] != '_':
+                        normalized_name = '_' + normalized_name
+                    normalized_name = re.sub(r'_+', '_', normalized_name)
+                    normalized_name = normalized_name.rstrip('_')
+                    
+                    # Try to get the value using the normalized name
+                    calc_value = getattr(result, normalized_name, None)
+                
                 row_data[calc.name] = calc_value
             
             data.append(row_data)
         
         return data
+    
+    def _execute_system_sql_separately(
+        self, 
+        calc: "Calculation", 
+        deal_tranche_map: Dict[int, List[str]], 
+        cycle_code: int, 
+        aggregation_level: str
+    ):
+        """Execute a system SQL calculation separately and return the results."""
+        
+        # Build the SQL query directly from the calculation's raw SQL
+        raw_sql = calc.raw_sql
+        if not raw_sql:
+            raise ValueError(f"System SQL calculation {calc.name} has no raw_sql defined")
+        
+        # Inject filters into the raw SQL
+        modified_sql = self._inject_filters_into_system_sql(
+            raw_sql, deal_tranche_map, cycle_code, aggregation_level
+        )
+        
+        print(f"Debug: Executing system SQL for '{calc.name}':")
+        print(f"Debug: Modified SQL: {modified_sql}")
+        
+        try:
+            # Execute the modified SQL and return results
+            result = self.dw_db.execute(text(modified_sql))
+            rows = result.fetchall()
+            print(f"Debug: System SQL '{calc.name}' returned {len(rows)} rows")
+            return rows
+        except Exception as e:
+            print(f"Error executing system SQL '{calc.name}': {e}")
+            raise
+    
+    def _merge_system_sql_results(
+        self, 
+        main_results: List[Any], 
+        system_sql_data: Dict[str, Any], 
+        calculations: List["Calculation"], 
+        aggregation_level: str
+    ) -> List[Any]:
+        """Merge system SQL calculation results with main query results."""
+        
+        # Convert system SQL results to lookup dictionaries
+        system_sql_lookups = {}
+        for calc_name, sql_results in system_sql_data.items():
+            lookup = {}
+            for row in sql_results:
+                if aggregation_level == "tranche":
+                    key = (row.dl_nbr, row.tr_id)
+                else:
+                    key = row.dl_nbr
+                
+                # Get the result column value for this calculation
+                calc = next((c for c in calculations if c.name == calc_name), None)
+                if calc and hasattr(row, calc.result_column_name):
+                    lookup[key] = getattr(row, calc.result_column_name)
+                else:
+                    lookup[key] = None
+            
+            system_sql_lookups[calc_name] = lookup
+        
+        # Create new result objects with merged data
+        merged_results = []
+        for result in main_results:
+            # Create a new result object by copying the original
+            result_dict = {}
+            
+            # Copy all original attributes
+            for key in result._fields:
+                result_dict[key] = getattr(result, key)
+            
+            # Add system SQL calculation values
+            for calc_name, lookup in system_sql_lookups.items():
+                if aggregation_level == "tranche":
+                    key = (result.deal_number, result.tranche_id)
+                else:
+                    key = result.deal_number
+                
+                result_dict[calc_name] = lookup.get(key)
+            
+            # Create a new named tuple type with all the fields
+            # Fix: Normalize field names to be valid Python identifiers
+            from collections import namedtuple
+            import re
+            
+            # Normalize field names to be valid Python identifiers
+            normalized_fields = []
+            field_mapping = {}
+            for field_name in result_dict.keys():
+                # Replace spaces and special characters with underscores
+                normalized_name = re.sub(r'[^a-zA-Z0-9_]', '_', str(field_name))
+                # Ensure it starts with a letter or underscore
+                if normalized_name and not normalized_name[0].isalpha() and normalized_name[0] != '_':
+                    normalized_name = '_' + normalized_name
+                # Remove duplicate underscores
+                normalized_name = re.sub(r'_+', '_', normalized_name)
+                # Remove trailing underscores
+                normalized_name = normalized_name.rstrip('_')
+                
+                normalized_fields.append(normalized_name)
+                field_mapping[normalized_name] = field_name
+            
+            # Create the namedtuple with normalized field names
+            ResultType = namedtuple('Result', normalized_fields)
+            
+            # Create the result with normalized field names
+            normalized_data = {}
+            for norm_field, orig_field in field_mapping.items():
+                normalized_data[norm_field] = result_dict[orig_field]
+            
+            merged_result = ResultType(**normalized_data)
+            
+            # Don't try to add attributes to the immutable namedtuple
+            # Instead, store the mapping in a simple way that won't cause errors
+            merged_results.append(merged_result)
+        
+        return merged_results

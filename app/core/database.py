@@ -101,10 +101,10 @@ def drop_all_tables():
 
 
 def create_standard_calculations():
-    """Create standard calculation system with User Defined, System Field, and System SQL types."""
+    """Create standard calculation system with User Defined and System SQL types."""
     from app.calculations.models import Calculation, CalculationType, AggregationFunction, SourceModel, GroupLevel
     from app.calculations.service import CalculationService
-    from app.calculations.schemas import UserDefinedCalculationCreate, SystemFieldCalculationCreate, SystemSQLCalculationCreate
+    from app.calculations.schemas import UserDefinedCalculationCreate, SystemSQLCalculationCreate
     
     # Create config database session
     config_db = SessionLocal()
@@ -116,19 +116,12 @@ def create_standard_calculations():
             print(f"Calculations already exist ({existing_count} found). Skipping creation.")
             return
         
-        print("Creating enhanced calculation system...")
+        print("Creating calculation system...")
         
         # Initialize calculation service
         calc_service = CalculationService(config_db)
         
-        # ===== 1. AUTO-GENERATE SYSTEM FIELD CALCULATIONS =====
-        print("Auto-generating system field calculations from model introspection...")
-        auto_gen_result = calc_service.auto_generate_system_fields()
-        print(f"✅ Auto-generated {auto_gen_result['generated_count']} system field calculations")
-        if auto_gen_result['errors']:
-            print(f"⚠️  Errors during auto-generation: {auto_gen_result['errors']}")
-        
-        # ===== 2. CREATE SAMPLE USER DEFINED CALCULATIONS =====
+        # ===== 1. CREATE SAMPLE USER DEFINED CALCULATIONS =====
         print("Creating sample user-defined calculations...")
         
         user_defined_calcs = [
@@ -203,7 +196,7 @@ def create_standard_calculations():
         
         print(f"✅ Created {user_defined_count} user-defined calculations")
         
-        # ===== 3. CREATE SAMPLE SYSTEM SQL CALCULATIONS =====
+        # ===== 2. CREATE SAMPLE SYSTEM SQL CALCULATIONS =====
         print("Creating sample system SQL calculations...")
         
         system_sql_calcs = [
@@ -215,7 +208,8 @@ def create_standard_calculations():
                 SELECT 
                     deal.dl_nbr,
                     CASE 
-                        WHEN deal.issr_cde LIKE '%FHLMC%' OR deal.issr_cde LIKE '%FNMA%' THEN 'GSE'
+                        WHEN deal.issr_cde LIKE '%FHLMC%' THEN 'GSE'
+                        WHEN deal.issr_cde LIKE '%FNMA%' THEN 'GSE'
                         WHEN deal.issr_cde LIKE '%GNMA%' THEN 'Government'
                         ELSE 'Private'
                     END AS issuer_type
@@ -224,42 +218,42 @@ def create_standard_calculations():
                 "result_column_name": "issuer_type"
             },
             {
-                "name": "Deal Performance Category",
-                "description": "Performance categorization based on average pass through rate",
+                "name": "Deal Size Category",
+                "description": "Categorizes deals by total balance size",
                 "group_level": GroupLevel.DEAL,
                 "raw_sql": """
                 SELECT 
                     deal.dl_nbr,
                     CASE 
-                        WHEN AVG(tranchebal.tr_pass_thru_rte) >= 0.06 THEN 'High Rate'
-                        WHEN AVG(tranchebal.tr_pass_thru_rte) >= 0.04 THEN 'Medium Rate'
-                        ELSE 'Low Rate'
-                    END AS performance_category
+                        WHEN SUM(tranchebal.tr_end_bal_amt) >= 100000000 THEN 'Large'
+                        WHEN SUM(tranchebal.tr_end_bal_amt) >= 25000000 THEN 'Medium'
+                        ELSE 'Small'
+                    END AS size_category
                 FROM deal
                 JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
                 JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr AND tranche.tr_id = tranchebal.tr_id
                 GROUP BY deal.dl_nbr
                 """,
-                "result_column_name": "performance_category"
+                "result_column_name": "size_category"
             },
             {
-                "name": "Tranche Size Category",
-                "description": "Size categorization of individual tranches",
+                "name": "Tranche Performance Category",
+                "description": "Performance classification at tranche level",
                 "group_level": GroupLevel.TRANCHE,
                 "raw_sql": """
                 SELECT 
                     deal.dl_nbr,
                     tranche.tr_id,
                     CASE 
-                        WHEN tranchebal.tr_end_bal_amt >= 25000000 THEN 'Large'
-                        WHEN tranchebal.tr_end_bal_amt >= 10000000 THEN 'Medium'
-                        ELSE 'Small'
-                    END AS size_category
+                        WHEN tranchebal.tr_pass_thru_rte >= 0.05 THEN 'High Yield'
+                        WHEN tranchebal.tr_pass_thru_rte >= 0.03 THEN 'Medium Yield'
+                        ELSE 'Low Yield'
+                    END AS performance_category
                 FROM deal
                 JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
                 JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr AND tranche.tr_id = tranchebal.tr_id
                 """,
-                "result_column_name": "size_category"
+                "result_column_name": "performance_category"
             }
         ]
         
@@ -275,12 +269,12 @@ def create_standard_calculations():
         print(f"✅ Created {system_sql_count} system SQL calculations")
         
         # ===== SUMMARY =====
-        total_calculations = auto_gen_result['generated_count'] + user_defined_count + system_sql_count
-        print(f"\n🎉 Successfully created enhanced calculation system:")
-        print(f"   📊 {auto_gen_result['generated_count']} system field calculations (auto-generated)")
+        total_calculations = user_defined_count + system_sql_count
+        print(f"\n🎉 Successfully created calculation system:")
         print(f"   👤 {user_defined_count} user-defined calculations")
         print(f"   🔧 {system_sql_count} system SQL calculations")
         print(f"   📈 {total_calculations} total calculations")
+        print(f"\n📋 Note: System field calculations are now auto-generated via schema introspection")
         
         # Print breakdown by type
         config_db.commit()  # Commit changes before querying counts
@@ -293,7 +287,7 @@ def create_standard_calculations():
         
     except Exception as e:
         config_db.rollback()
-        print(f"❌ Error creating enhanced calculation system: {e}")
+        print(f"❌ Error creating calculation system: {e}")
         import traceback
         traceback.print_exc()
         raise

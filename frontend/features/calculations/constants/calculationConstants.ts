@@ -56,7 +56,6 @@ export const SYSTEM_FILTER_OPTIONS = [
   { value: 'all', label: 'All System Calculations' },
   { value: 'deal', label: 'Deal Level' },
   { value: 'tranche', label: 'Tranche Level' },
-  { value: 'system-field', label: 'Field Calculations Only' },
   { value: 'system-sql', label: 'SQL Calculations Only' }
 ];
 

@@ -11,8 +11,7 @@ if TYPE_CHECKING:
 from .dao import CalculationDAO
 from .models import Calculation, CalculationType, AggregationFunction, SourceModel, GroupLevel
 from .schemas import (
-    CalculationResponse, UserDefinedCalculationCreate, SystemFieldCalculationCreate, 
-    SystemSQLCalculationCreate, AvailableCalculation
+    CalculationResponse, UserDefinedCalculationCreate, SystemSQLCalculationCreate, AvailableCalculation
 )
 from .sql_validator import CustomSQLValidator, SQLValidationError
 
@@ -47,11 +46,11 @@ class CalculationService:
         """Get only user-defined calculations."""
         return [calc for calc in self.get_available_calculations(group_level, "USER_DEFINED")]
     
-    def get_system_calculations(self, group_level: Optional[str] = None) -> List[CalculationResponse]:
+    def get_system_calculations(self, group_level: Optional[str] = None) -> List[AvailableCalculation]:
         """Get only system-defined calculations (both field and SQL types)."""
-        field_calcs = self.get_available_calculations(group_level, "SYSTEM_FIELD")
-        sql_calcs = self.get_available_calculations(group_level, "SYSTEM_SQL")
-        return field_calcs + sql_calcs
+        # Only return system SQL calculations since field calculations are now auto-generated
+        calculations = self.dao.get_all_calculations(group_level, CalculationType.SYSTEM_SQL)
+        return [self._convert_to_available_calculation(calc) for calc in calculations]
     
     # ===== USER DEFINED CALCULATION METHODS =====
     
@@ -116,31 +115,6 @@ class CalculationService:
         calculation = self.dao.update(calculation)
         return CalculationResponse.model_validate(calculation)
     
-    # ===== SYSTEM FIELD CALCULATION METHODS =====
-    
-    def create_system_field_calculation(self, request: SystemFieldCalculationCreate, user_id: str = "system") -> CalculationResponse:
-        """Create a new system field calculation."""
-        # Check if calculation name already exists at this group level
-        existing = self.dao.get_by_name_and_group_level(request.name, request.group_level)
-        if existing:
-            raise CalculationAlreadyExistsError(f"Calculation with name '{request.name}' already exists at {request.group_level} level")
-        
-        # Create new system field calculation
-        calculation = Calculation(
-            name=request.name,
-            description=request.description,
-            calculation_type=CalculationType.SYSTEM_FIELD,
-            source_model=request.source_model,
-            field_name=request.field_name,
-            field_type=request.field_type,
-            group_level=request.group_level,
-            is_system_managed=True,
-            created_by=user_id
-        )
-        
-        calculation = self.dao.create(calculation)
-        return CalculationResponse.model_validate(calculation)
-    
     # ===== SYSTEM SQL CALCULATION METHODS =====
     
     def create_system_sql_calculation(self, request: SystemSQLCalculationCreate, user_id: str = "system") -> CalculationResponse:
@@ -187,66 +161,6 @@ class CalculationService:
             "extracted_columns": validation_result.extracted_columns,
             "detected_tables": list(validation_result.detected_tables),
             "result_column_name": validation_result.result_column_name
-        }
-    
-    # ===== SYSTEM FIELD AUTO-GENERATION =====
-    
-    def auto_generate_system_fields(self) -> Dict[str, Any]:
-        """Auto-generate system field calculations from model introspection."""
-        from .config import calculation_config_generator
-        
-        generated_count = 0
-        skipped_count = 0
-        errors = []
-        
-        try:
-            # Get field mappings from config generator
-            field_mappings = calculation_config_generator.generate_field_mappings()
-            
-            for model_name, fields in field_mappings.items():
-                for field in fields:
-                    try:
-                        # Determine appropriate group level based on model
-                        if model_name == "Deal":
-                            group_level = GroupLevel.DEAL
-                        elif model_name in ["Tranche", "TrancheBal"]:
-                            # Fields from Tranche/TrancheBal can be used at both levels,
-                            # but we'll create them at tranche level by default
-                            group_level = GroupLevel.TRANCHE
-                        else:
-                            group_level = GroupLevel.DEAL
-                        
-                        # Check if this field calculation already exists
-                        calc_name = f"{field['label']}"
-                        existing = self.dao.get_by_name_and_group_level(calc_name, group_level)
-                        
-                        if existing:
-                            skipped_count += 1
-                            continue
-                        
-                        # Create system field calculation
-                        request = SystemFieldCalculationCreate(
-                            name=calc_name,
-                            description=field.get('description', f"{field['label']} from {model_name} model"),
-                            source_model=SourceModel(model_name),
-                            field_name=field['value'],
-                            field_type=field['type'],
-                            group_level=group_level
-                        )
-                        
-                        self.create_system_field_calculation(request, "system_auto_generator")
-                        generated_count += 1
-                        
-                    except Exception as e:
-                        errors.append(f"Error creating field {model_name}.{field['value']}: {str(e)}")
-        
-        except Exception as e:
-            errors.append(f"Error during auto-generation: {str(e)}")
-        
-        return {
-            "generated_count": generated_count,
-            "skipped_count": skipped_count,
-            "errors": errors
         }
     
     # ===== COMMON METHODS =====

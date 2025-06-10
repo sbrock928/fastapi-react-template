@@ -9,7 +9,7 @@ from app.core.exceptions import CalculationNotFoundError, CalculationAlreadyExis
 from app.query import QueryEngine
 from .service import CalculationService
 from .schemas import (
-    CalculationResponse, UserDefinedCalculationCreate, SystemFieldCalculationCreate, 
+    CalculationResponse, UserDefinedCalculationCreate, 
     SystemSQLCalculationCreate, AvailableCalculation
 )
 from .config import get_calculation_configuration
@@ -107,34 +107,6 @@ def update_user_defined_calculation(
         raise HTTPException(status_code=404, detail=str(e))
     except (CalculationAlreadyExistsError, InvalidCalculationError) as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-# ===== SYSTEM FIELD CALCULATION ENDPOINTS =====
-
-@router.post("/calculations/system-field", response_model=CalculationResponse, status_code=201)
-def create_system_field_calculation(
-    request: SystemFieldCalculationCreate,
-    service: CalculationService = Depends(get_calculation_service)
-):
-    """Create a new system field calculation (admin only)"""
-    try:
-        return service.create_system_field_calculation(request)
-    except (CalculationAlreadyExistsError, InvalidCalculationError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.post("/calculations/system-field/auto-generate")
-def auto_generate_system_fields(
-    service: CalculationService = Depends(get_calculation_service)
-):
-    """Auto-generate system field calculations from model introspection (admin only)"""
-    try:
-        result = service.auto_generate_system_fields()
-        return {
-            "success": True,
-            "message": f"Auto-generation completed. Generated: {result['generated_count']}, Skipped: {result['skipped_count']}",
-            "details": result
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error during auto-generation: {str(e)}")
 
 # ===== SYSTEM SQL CALCULATION ENDPOINTS =====
 

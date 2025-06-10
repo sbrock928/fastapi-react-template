@@ -1,6 +1,7 @@
 import React from 'react';
 import useModal from '@/hooks/useModal';
 import styles from '@/styles/components/SQLPreview.module.css';
+import { formatSQL, highlightSQL } from '@/utils/sqlFormatter';
 
 interface SQLPreviewModalProps {
   show: boolean;
@@ -110,11 +111,12 @@ const SQLPreviewModal: React.FC<SQLPreviewModalProps> = ({
                       Copy
                     </button>
                   </div>
-                  <div className={styles.sqlCodeContainer}>
-                    <pre className={styles.sqlCode}>
-                      <code>{previewData.sql_query}</code>
-                    </pre>
-                  </div>
+                  <div 
+                    className={styles['sql-code-enhanced']}
+                    dangerouslySetInnerHTML={{
+                      __html: highlightSQL(formatSQL(previewData.sql_query))
+                    }}
+                  />
                   <div className={styles.sqlNote}>
                     This is the exact SQL that will execute when the report runs.
                   </div>

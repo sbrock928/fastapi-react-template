@@ -76,6 +76,7 @@ export interface PreviewData {
     deals?: string[];
     tranches?: string[];
     cycle?: string;
+    deal_tranche_mapping?: Record<string, string[]>; // Add the missing property
   };
 }
 
@@ -99,16 +100,6 @@ export interface CreateCalculationRequest {
 
 export interface UpdateCalculationRequest extends CreateCalculationRequest {
   id: number;
-}
-
-// System field calculation request
-export interface CreateSystemFieldRequest {
-  name: string;
-  description?: string;
-  source_model: string;
-  field_name: string;
-  field_type: string;
-  group_level: string;
 }
 
 // System SQL calculation request

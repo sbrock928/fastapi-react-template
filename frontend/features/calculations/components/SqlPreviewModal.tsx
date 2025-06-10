@@ -1,5 +1,7 @@
 import React from 'react';
 import type { PreviewData } from '@/types/calculations';
+import { formatSQL, highlightSQL } from '@/utils/sqlFormatter';
+import styles from '@/styles/components/SQLPreview.module.css';
 
 interface SqlPreviewModalProps {
   isOpen: boolean;
@@ -16,11 +18,17 @@ const SqlPreviewModal: React.FC<SqlPreviewModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
+  const handleCopySQL = () => {
+    if (previewData?.generated_sql) {
+      navigator.clipboard.writeText(previewData.generated_sql);
+    }
+  };
+
   return (
     <div className="modal show d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
       <div className="modal-dialog modal-xl modal-dialog-scrollable">
-        <div className="modal-content" style={{ borderRadius: '12px', overflow: 'hidden' }}>
-          <div className="modal-header bg-primary">
+        <div className={`modal-content ${styles.sqlPreviewModalContent}`}>
+          <div className={`modal-header ${styles.sqlPreviewModalHeader}`}>
             <h5 className="modal-title">
               <i className="bi bi-code-square me-2"></i>
               SQL Preview
@@ -32,104 +40,55 @@ const SqlPreviewModal: React.FC<SqlPreviewModalProps> = ({
             ></button>
           </div>
           
-          <div className="modal-body" style={{ padding: '1.5rem' }}>
+          <div className={`modal-body ${styles.sqlPreviewModalBody}`}>
             {previewLoading ? (
-              <div 
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  padding: '3rem 0'
-                }}
-              >
-                <div className="spinner-border text-primary mb-3" role="status">
+              <div className={styles.previewLoadingContainer}>
+                <div className={`spinner-border text-primary ${styles.previewLoadingSpinner}`} role="status">
                   <span className="visually-hidden">Loading...</span>
                 </div>
-                <span style={{ color: '#6c757d', fontSize: '0.9rem' }}>
+                <span className={styles.previewLoadingText}>
                   Generating SQL preview...
                 </span>
               </div>
             ) : previewData ? (
               <div>
                 {/* Calculation Details */}
-                <div 
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                    gap: '1rem',
-                    marginBottom: '1.5rem'
-                  }}
-                >
-                  <div 
-                    style={{
-                      backgroundColor: '#f8f9fa',
-                      borderRadius: '8px',
-                      padding: '1rem',
-                      border: '1px solid #e9ecef'
-                    }}
-                  >
-                    <h6 
-                      style={{
-                        color: '#6c757d',
-                        fontSize: '0.875rem',
-                        fontWeight: '600',
-                        marginBottom: '0.5rem',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px'
-                      }}
-                    >
+                <div className={styles.detailsGrid}>
+                  <div className={styles.detailsCard}>
+                    <h6 className={styles.detailsCardTitle}>
                       Calculation Details
                     </h6>
-                    <div style={{ fontSize: '0.9rem', color: '#495057' }}>
+                    <div className={styles.detailsCardContent}>
                       <div className="mb-2">
                         <strong>Name:</strong> {previewData.calculation_name}
                       </div>
+                      <div className="mb-2">
+                        <strong>Type:</strong>{' '}
+                        <span className={`${styles.badge} ${styles.badgePrimary}`}>
+                          {previewData.calculation_type}
+                        </span>
+                      </div>
                       <div>
                         <strong>Level:</strong>{' '}
-                        <span 
-                          style={{
-                            display: 'inline-block',
-                            padding: '0.25em 0.6em',
-                            fontSize: '0.75em',
-                            fontWeight: '700',
-                            backgroundColor: '#6c757d',
-                            color: '#fff',
-                            borderRadius: '0.375rem'
-                          }}
-                        >
+                        <span className={`${styles.badge} ${styles.badgeSecondary}`}>
                           {previewData.aggregation_level}
                         </span>
                       </div>
                     </div>
                   </div>
                   
-                  <div 
-                    style={{
-                      backgroundColor: '#f8f9fa',
-                      borderRadius: '8px',
-                      padding: '1rem',
-                      border: '1px solid #e9ecef'
-                    }}
-                  >
-                    <h6 
-                      style={{
-                        color: '#6c757d',
-                        fontSize: '0.875rem',
-                        fontWeight: '600',
-                        marginBottom: '0.5rem',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px'
-                      }}
-                    >
+                  <div className={styles.detailsCard}>
+                    <h6 className={styles.detailsCardTitle}>
                       Sample Parameters
                     </h6>
-                    <div style={{ fontSize: '0.9rem', color: '#495057' }}>
+                    <div className={styles.detailsCardContent}>
                       <div className="mb-1">
-                        <strong>Deals:</strong> {previewData.sample_parameters?.deals?.join(', ') || 'N/A'}
+                        <strong>Deals:</strong> {previewData.sample_parameters?.deal_tranche_mapping ? 
+                          Object.keys(previewData.sample_parameters.deal_tranche_mapping).join(', ') : 'N/A'}
                       </div>
                       <div className="mb-1">
-                        <strong>Tranches:</strong> {previewData.sample_parameters?.tranches?.join(', ') || 'N/A'}
+                        <strong>Tranches:</strong> {previewData.sample_parameters?.deal_tranche_mapping ? 
+                          Object.values(previewData.sample_parameters.deal_tranche_mapping).flat().join(', ') : 'N/A'}
                       </div>
                       <div>
                         <strong>Cycle:</strong> {previewData.sample_parameters?.cycle || 'N/A'}
@@ -140,98 +99,33 @@ const SqlPreviewModal: React.FC<SqlPreviewModalProps> = ({
                 
                 {/* SQL Query */}
                 <div className="mb-3">
-                  <div 
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      marginBottom: '0.75rem'
-                    }}
-                  >
-                    <h6 
-                      style={{
-                        color: '#6c757d',
-                        fontSize: '0.875rem',
-                        fontWeight: '600',
-                        marginBottom: '0',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px'
-                      }}
-                    >
+                  <div className={styles.sqlSectionHeader}>
+                    <h6 className={styles.sqlSectionTitle}>
                       Raw Execution SQL
                     </h6>
                     <button
-                      className="btn btn-sm btn-outline-secondary"
-                      onClick={() => {
-                        if (previewData?.generated_sql) {
-                          navigator.clipboard.writeText(previewData.generated_sql);
-                        }
-                      }}
+                      className={`btn btn-sm btn-outline-secondary ${styles.copyButton}`}
+                      onClick={handleCopySQL}
                       title="Copy SQL to clipboard"
-                      style={{
-                        border: '1px solid #dee2e6',
-                        backgroundColor: '#ffffff',
-                        color: '#495057'
-                      }}
                     >
                       <i className="bi bi-clipboard me-1"></i>
                       Copy
                     </button>
                   </div>
                   <div 
-                    style={{
-                      backgroundColor: '#ffffff',
-                      color: '#212529',
-                      border: '1px solid #dee2e6',
-                      borderRadius: '8px',
-                      padding: '1rem',
-                      maxHeight: '400px',
-                      overflowY: 'auto',
-                      fontFamily: "'Consolas', 'Monaco', 'Courier New', monospace",
-                      boxShadow: 'inset 0 1px 3px rgba(0, 0, 0, 0.1)'
+                    className={styles['sql-code-enhanced']}
+                    dangerouslySetInnerHTML={{
+                      __html: highlightSQL(formatSQL(previewData.generated_sql))
                     }}
-                  >
-                    <pre 
-                      style={{ 
-                        fontSize: '0.875rem',
-                        lineHeight: '1.4',
-                        margin: '0',
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word',
-                        color: '#212529'
-                      }}
-                    >
-                      {previewData.generated_sql}
-                    </pre>
-                  </div>
-                  <div 
-                    style={{
-                      fontSize: '0.8rem',
-                      color: '#6c757d',
-                      marginTop: '0.5rem',
-                      fontStyle: 'italic'
-                    }}
-                  >
+                  />
+                  <div className={styles.sqlNote}>
                     This is the exact same SQL that executes when this calculation runs in a report.
                   </div>
                 </div>
               </div>
             ) : (
-              <div 
-                style={{
-                  textAlign: 'center',
-                  padding: '3rem 0',
-                  color: '#6c757d'
-                }}
-              >
-                <i 
-                  className="bi bi-exclamation-circle"
-                  style={{
-                    fontSize: '3rem',
-                    marginBottom: '1rem',
-                    display: 'block'
-                  }}
-                ></i>
+              <div className={styles.previewEmptyState}>
+                <i className={`bi bi-exclamation-circle ${styles.previewEmptyIcon}`}></i>
                 <p>No preview data available</p>
               </div>
             )}

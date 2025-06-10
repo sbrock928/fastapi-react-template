@@ -42,47 +42,6 @@ export const useSystemCalculations = () => {
     setSystemUsage(usageMap);
   };
 
-  const createSystemFieldCalculation = async (
-    formState: CalculationForm,
-    onSuccess?: () => void
-  ): Promise<boolean> => {
-    if (!formState.name || !formState.source || !formState.source_field || !formState.level) {
-      showToast('Please fill in all required fields for system field calculation', 'error');
-      return false;
-    }
-
-    setIsLoading(true);
-    try {
-      // Map to backend API format for system field calculations
-      const payload = {
-        name: formState.name,
-        description: formState.description || undefined,
-        source_model: formState.source,
-        field_name: formState.source_field,
-        field_type: 'string', // Default, could be enhanced to detect from field
-        group_level: formState.level
-      };
-
-      const response = await calculationsApi.createSystemFieldCalculation(payload);
-      showToast(`System field calculation "${response.data.name}" created successfully!`, 'success');
-      
-      onSuccess?.();
-      return true;
-    } catch (error: any) {
-      console.error('Error creating system field calculation:', error);
-      
-      let errorMessage = 'Error creating system field calculation';
-      if (error.response?.data?.detail) {
-        errorMessage = error.response.data.detail;
-      }
-      
-      showToast(errorMessage, 'error');
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const createSystemSqlCalculation = async (
     formState: CalculationForm,
     onSuccess?: () => void
@@ -143,8 +102,6 @@ export const useSystemCalculations = () => {
       filtered = systemCalculations.filter(calc => calc.group_level === 'deal');
     } else if (selectedFilter === 'tranche') {
       filtered = systemCalculations.filter(calc => calc.group_level === 'tranche');
-    } else if (selectedFilter === 'system-field') {
-      filtered = systemCalculations.filter(calc => calc.calculation_type === 'SYSTEM_FIELD');
     } else if (selectedFilter === 'system-sql') {
       filtered = systemCalculations.filter(calc => calc.calculation_type === 'SYSTEM_SQL');
     }
@@ -174,7 +131,6 @@ export const useSystemCalculations = () => {
     isLoading,
     systemUsage,
     fetchSystemCalculations,
-    createSystemFieldCalculation,
     createSystemSqlCalculation
   };
 };

@@ -43,54 +43,26 @@ class UserDefinedCalculationCreate(CalculationBase):
             }
         }
 
-# System Field Calculation Schemas
-class SystemFieldCalculationCreate(CalculationBase):
-    """Schema for creating system field calculations."""
-    source_model: SourceModel
-    field_name: str = Field(..., min_length=1, max_length=100)
-    field_type: str = Field(..., min_length=1, max_length=50)  # 'string', 'number', 'currency', etc.
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "name": "Deal Number",
-                "description": "Unique deal identifier",
-                "source_model": "Deal",
-                "field_name": "dl_nbr",
-                "field_type": "number",
-                "group_level": "deal"
-            }
-        }
-
-# System SQL Calculation Schemas
+# System SQL calculation schemas
 class SystemSQLCalculationCreate(CalculationBase):
     """Schema for creating system SQL calculations."""
-    raw_sql: str = Field(..., min_length=10)
-    result_column_name: str = Field(..., min_length=1, max_length=100)
-    
-    @validator('result_column_name')
-    def validate_result_column_name(cls, v):
-        """Validate result column name format."""
-        import re
-        if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', v):
-            raise ValueError("result_column_name must be a valid SQL identifier")
-        return v
+    raw_sql: str = Field(..., min_length=10, description="SQL query text")
+    result_column_name: str = Field(..., min_length=1, max_length=100, pattern=r"^[a-zA-Z][a-zA-Z0-9_]*$")
     
     class Config:
         json_schema_extra = {
             "example": {
                 "name": "Issuer Type Classification",
-                "description": "Categorizes deals by issuer type",
-                "raw_sql": "SELECT deal.dl_nbr, CASE WHEN deal.issr_cde = 'FHLMC' THEN 'GSE' ELSE 'Other' END AS issuer_type FROM deal",
-                "result_column_name": "issuer_type",
-                "group_level": "deal"
+                "description": "Categorizes deals by issuer type (GSE, Government, Private)",
+                "group_level": "deal",
+                "raw_sql": "SELECT deal.dl_nbr, CASE WHEN deal.issr_cde LIKE '%FHLMC%' THEN 'GSE' ELSE 'Private' END AS issuer_type FROM deal",
+                "result_column_name": "issuer_type"
             }
         }
 
 # Union type for creation requests
 CalculationCreateRequest = Union[
     UserDefinedCalculationCreate,
-    SystemFieldCalculationCreate,
     SystemSQLCalculationCreate
 ]
 
@@ -109,10 +81,6 @@ class CalculationResponse(BaseModel):
     source_model: Optional[SourceModel] = None
     source_field: Optional[str] = None
     weight_field: Optional[str] = None
-    
-    # System field calculation fields
-    field_name: Optional[str] = None
-    field_type: Optional[str] = None
     
     # System SQL calculation fields
     raw_sql: Optional[str] = None
@@ -136,21 +104,6 @@ class UserDefinedCalculationResponse(CalculationBase):
     source_field: str
     weight_field: Optional[str] = None
     is_system_managed: bool = False
-    created_at: datetime
-    updated_at: datetime
-    created_by: Optional[str]
-
-    class Config:
-        from_attributes = True
-
-class SystemFieldCalculationResponse(CalculationBase):
-    """Response schema specifically for system field calculations."""
-    id: int
-    calculation_type: CalculationType = CalculationType.SYSTEM_FIELD
-    source_model: SourceModel
-    field_name: str
-    field_type: str
-    is_system_managed: bool = True
     created_at: datetime
     updated_at: datetime
     created_by: Optional[str]
