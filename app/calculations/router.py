@@ -62,12 +62,6 @@ async def get_calculation_configuration():
             "description": "Calculate weighted average using specified weight field",
             "category": "aggregated"
         },
-        {
-            "value": "RAW",
-            "label": "RAW - Individual field value",
-            "description": "Show the actual field value for each row without aggregation",
-            "category": "raw"
-        }
     ]
     
     # Source models available for calculations
