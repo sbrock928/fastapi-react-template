@@ -204,15 +204,20 @@ class ReportService:
         # Update relationships if provided
         if report_data.selected_deals is not None:
             report.selected_deals.clear()
-            # Rebuild using same logic as create
-            temp_data = ReportCreate(
-                name=report.name,
-                scope=ReportScope(report.scope),
-                selected_deals=report_data.selected_deals,
-                selected_calculations=[]
-            )
-            temp_report = self._build_report(temp_data)
-            report.selected_deals = temp_report.selected_deals
+            # Build deals directly without using ReportCreate validation
+            for deal_data in report_data.selected_deals:
+                report_deal = ReportDeal(dl_nbr=deal_data.dl_nbr)
+                
+                # Smart tranche logic: only store if explicitly provided
+                if hasattr(deal_data, 'selected_tranches') and deal_data.selected_tranches:
+                    for tranche_data in deal_data.selected_tranches:
+                        report_tranche = ReportTranche(
+                            dl_nbr=tranche_data.dl_nbr or deal_data.dl_nbr,
+                            tr_id=tranche_data.tr_id
+                        )
+                        report_deal.selected_tranches.append(report_tranche)
+                
+                report.selected_deals.append(report_deal)
 
         if report_data.selected_calculations is not None:
             report.selected_calculations.clear()
