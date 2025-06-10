@@ -658,15 +658,28 @@ class QueryEngine:
         calculations: List["Calculation"],
         aggregation_level: str
     ) -> Dict[str, Any]:
-        """Generate SQL preview for a full report."""
+        """Generate SQL preview for a full report that matches execution logic."""
         
-        # Build and compile query using the mapping
-        query = self.build_consolidated_query(
-            deal_tranche_map=deal_tranche_map,
-            cycle_code=cycle_code,
-            calculations=calculations,
-            aggregation_level=aggregation_level
-        )
+        # Separate calculations by type to handle them differently for preview
+        user_defined_calcs = [calc for calc in calculations if calc.is_user_defined()]
+        system_field_calcs = [calc for calc in calculations if calc.is_system_field()]
+        system_sql_calcs = [calc for calc in calculations if calc.is_system_sql()]
+        
+        # For preview, we want to show the actual SQL that would be generated
+        # including system SQL calculations as CTEs, not the execution approach
+        if system_sql_calcs:
+            # Build a modified query that includes system SQL calculations as actual CTEs
+            query = self._build_preview_query_with_system_sql(
+                deal_tranche_map, cycle_code, calculations, aggregation_level
+            )
+        else:
+            # No system SQL, use the normal consolidated query
+            query = self.build_consolidated_query(
+                deal_tranche_map=deal_tranche_map,
+                cycle_code=cycle_code,
+                calculations=calculations,
+                aggregation_level=aggregation_level
+            )
         
         # Analyze the calculations by type
         user_defined_count = sum(1 for calc in calculations if calc.is_user_defined())
@@ -696,15 +709,187 @@ class QueryEngine:
                 "tranche_ids": all_tranche_ids
             }
         }
+    
+    def _build_preview_query_with_system_sql(
+        self,
+        deal_tranche_map: Dict[int, List[str]],
+        cycle_code: int,
+        calculations: List["Calculation"],
+        aggregation_level: str
+    ):
+        """Build a query for preview that properly shows system SQL calculations as CTEs."""
+        
+        # Separate calculations by type
+        user_defined_calcs = [calc for calc in calculations if calc.is_user_defined()]
+        system_field_calcs = [calc for calc in calculations if calc.is_system_field()]
+        system_sql_calcs = [calc for calc in calculations if calc.is_system_sql()]
+        
+        # Build base CTE
+        regular_calculations = user_defined_calcs + system_field_calcs
+        base_cte = self._build_base_cte(
+            deal_tranche_map=deal_tranche_map,
+            cycle_code=cycle_code,
+            calculations=regular_calculations,
+            aggregation_level=aggregation_level
+        )
+        
+        # Build user-defined calculation CTEs
+        user_defined_ctes = {}
+        for calc in user_defined_calcs:
+            calc_cte = self._build_user_defined_calculation_cte(base_cte, calc, aggregation_level)
+            user_defined_ctes[calc.name] = calc_cte
+        
+        # Build system SQL calculation CTEs for preview
+        system_sql_ctes = {}
+        for calc in system_sql_calcs:
+            try:
+                # Generate the modified SQL for this calculation
+                modified_sql = self._inject_filters_into_system_sql(
+                    calc.raw_sql, deal_tranche_map, cycle_code, aggregation_level
+                )
+                
+                # Create a proper CTE using text() for the system SQL
+                from sqlalchemy import text
+                
+                # Create a text-based CTE that shows the actual SQL
+                cte_sql = text(f"""
+{calc.name.lower().replace(' ', '_')} AS (
+    {modified_sql}
+)""")
+                
+                # Store the CTE information for building the final query
+                system_sql_ctes[calc.name] = {
+                    'sql': modified_sql,
+                    'result_column': calc.result_column_name,
+                    'cte_name': calc.name.lower().replace(' ', '_')
+                }
+                
+            except Exception as e:
+                print(f"Warning: Could not build preview CTE for system SQL '{calc.name}': {e}")
+                # Create a placeholder for failed system SQL calculations
+                system_sql_ctes[calc.name] = {
+                    'sql': f"-- ERROR: Could not generate preview for {calc.name}: {str(e)}",
+                    'result_column': calc.result_column_name,
+                    'cte_name': calc.name.lower().replace(' ', '_')
+                }
+        
+        # Build the final query with proper CTE structure
+        return self._build_preview_final_query(
+            base_cte, user_defined_ctes, system_sql_ctes,
+            system_field_calcs, user_defined_calcs, system_sql_calcs,
+            aggregation_level
+        )
+    
+    def _build_preview_final_query(
+        self,
+        base_cte,
+        user_defined_ctes: Dict[str, Any],
+        system_sql_ctes: Dict[str, Dict[str, str]],
+        system_field_calcs: List["Calculation"],
+        user_defined_calcs: List["Calculation"],
+        system_sql_calcs: List["Calculation"],
+        aggregation_level: str
+    ):
+        """Build the final preview query with proper CTE structure."""
+        from sqlalchemy import text
+        
+        # Start building the SQL manually to ensure proper CTE structure
+        cte_parts = []
+        
+        # Add base CTE - get the original query from the CTE
+        # For CTEs created with .cte(), we need to get the original select
+        if hasattr(base_cte, 'original'):
+            base_sql = self._compile_query_to_sql(base_cte.original)
+        else:
+            # Alternative way to get the CTE's underlying query
+            base_sql = self._compile_query_to_sql(base_cte)
+        cte_parts.append(f"base_data AS (\n{base_sql}\n)")
+        
+        # Add user-defined calculation CTEs
+        for calc in user_defined_calcs:
+            calc_cte = user_defined_ctes[calc.name]
+            # For CTEs, compile the CTE directly
+            if hasattr(calc_cte, 'original'):
+                calc_sql = self._compile_query_to_sql(calc_cte.original)
+            else:
+                calc_sql = self._compile_query_to_sql(calc_cte)
+            cte_name = f"calc_{self._get_calc_column_name(calc)}"
+            cte_parts.append(f"{cte_name} AS (\n{calc_sql}\n)")
+        
+        # Add system SQL calculation CTEs
+        for calc in system_sql_calcs:
+            if calc.name in system_sql_ctes:
+                cte_info = system_sql_ctes[calc.name]
+                cte_parts.append(f"{cte_info['cte_name']} AS (\n{cte_info['sql']}\n)")
+        
+        # Build the main SELECT query
+        select_columns = ["base_data.deal_number", "base_data.cycle_code"]
+        join_clauses = []
+        
+        if aggregation_level == "tranche":
+            select_columns.append("base_data.tranche_id")
+        
+        # Add system field columns
+        for calc in system_field_calcs:
+            source_model_value = calc.source_model.value if hasattr(calc.source_model, 'value') else calc.source_model
+            field_name = f"{source_model_value}_{calc.field_name}"
+            select_columns.append(f"base_data.{field_name} AS \"{calc.name}\"")
+        
+        # Add user-defined calculation columns and joins
+        for calc in user_defined_calcs:
+            cte_name = f"calc_{self._get_calc_column_name(calc)}"
+            column_name = self._get_calc_column_name(calc)
+            select_columns.append(f"{cte_name}.{column_name} AS \"{calc.name}\"")
+            
+            if aggregation_level == "tranche":
+                join_clause = f"LEFT OUTER JOIN {cte_name} ON base_data.deal_number = {cte_name}.calc_deal_nbr AND base_data.tranche_id = {cte_name}.calc_tranche_id"
+            else:
+                join_clause = f"LEFT OUTER JOIN {cte_name} ON base_data.deal_number = {cte_name}.calc_deal_nbr"
+            join_clauses.append(join_clause)
+        
+        # Add system SQL calculation columns and joins
+        for calc in system_sql_calcs:
+            if calc.name in system_sql_ctes:
+                cte_info = system_sql_ctes[calc.name]
+                cte_name = cte_info['cte_name']
+                result_column = cte_info['result_column']
+                select_columns.append(f"{cte_name}.{result_column} AS \"{calc.name}\"")
+                
+                if aggregation_level == "tranche":
+                    join_clause = f"LEFT OUTER JOIN {cte_name} ON base_data.deal_number = {cte_name}.dl_nbr AND base_data.tranche_id = {cte_name}.tr_id"
+                else:
+                    join_clause = f"LEFT OUTER JOIN {cte_name} ON base_data.deal_number = {cte_name}.dl_nbr"
+                join_clauses.append(join_clause)
+        
+        # Construct the final SQL
+        final_sql = f"""WITH {',\n'.join(cte_parts)}
+SELECT DISTINCT {', '.join(select_columns)}
+FROM base_data
+{chr(10).join(join_clauses)}"""
+        
+        # Return a query-like object that can be compiled
+        return MockQuery(final_sql)
 
     # ===== UTILITY METHODS =====
     
     def _compile_query_to_sql(self, query) -> str:
         """Compile SQLAlchemy query to raw SQL string."""
-        return str(query.statement.compile(
-            dialect=self.dw_db.bind.dialect, 
-            compile_kwargs={"literal_binds": True}
-        ))
+        # Handle different types of SQLAlchemy objects
+        if hasattr(query, 'statement'):
+            # This is a Query object with a statement
+            return str(query.statement.compile(
+                dialect=self.dw_db.bind.dialect, 
+                compile_kwargs={"literal_binds": True}
+            ))
+        elif hasattr(query, 'compile'):
+            # This is a Select/CTE object that can be compiled directly
+            return str(query.compile(
+                dialect=self.dw_db.bind.dialect,
+                compile_kwargs={"literal_binds": True}
+            ))
+        else:
+            # Fallback - convert to string
+            return str(query)
     
     # ===== DATA ACCESS METHODS =====
     
@@ -886,3 +1071,29 @@ class QueryEngine:
             merged_results.append(merged_result)
         
         return merged_results
+
+
+class MockQuery:
+    """Mock query object for preview SQL generation."""
+    
+    def __init__(self, sql: str):
+        self.sql = sql
+        self.statement = MockStatement(sql)
+    
+class MockStatement:
+    """Mock statement object for SQL compilation."""
+    
+    def __init__(self, sql: str):
+        self._sql = sql
+    
+    def compile(self, dialect=None, compile_kwargs=None):
+        return MockCompiledStatement(self._sql)
+
+class MockCompiledStatement:
+    """Mock compiled statement that returns the SQL."""
+    
+    def __init__(self, sql: str):
+        self._sql = sql
+    
+    def __str__(self):
+        return self._sql

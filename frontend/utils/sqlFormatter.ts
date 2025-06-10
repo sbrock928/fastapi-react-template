@@ -20,11 +20,11 @@ export const formatSQL = (sql: string): string => {
     .replace(/\),\s*(\w+)\s+AS\s*\(/gi, '),\n\n$1 AS (')
     .replace(/\bAS\s*\(/gi, ' AS (\n  ')
     .replace(/\)\s*SELECT\b/gi, '\n)\nSELECT')
-    // Add proper spacing around operators
+    // Add proper spacing around operators - use word boundaries to avoid matching within words
     .replace(/\s*=\s*/g, ' = ')
-    .replace(/\s*AND\s*/gi, ' AND ')
-    .replace(/\s*OR\s*/gi, ' OR ')
-    .replace(/\s*ON\s*/gi, ' ON ')
+    .replace(/\s+\bAND\b\s+/gi, ' AND ')
+    .replace(/\s+\bOR\b\s+/gi, ' OR ')
+    .replace(/\s+\bON\b\s+/gi, ' ON ')
     // Clean up excessive whitespace
     .replace(/\n\s*\n\s*\n/g, '\n\n')
     .replace(/^\s+/gm, (match) => '  '.repeat(Math.floor(match.length / 2)))
