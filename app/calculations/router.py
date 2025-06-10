@@ -1,14 +1,17 @@
 # app/calculations/router.py
-"""Simplified calculations router with dynamic configuration"""
+"""Enhanced calculations router with support for multiple calculation types."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from app.core.dependencies import get_db, get_query_engine
 from app.core.exceptions import CalculationNotFoundError, CalculationAlreadyExistsError, InvalidCalculationError
 from app.query import QueryEngine
 from .service import CalculationService
-from .schemas import CalculationCreateRequest, CalculationResponse
+from .schemas import (
+    CalculationResponse, UserDefinedCalculationCreate, SystemFieldCalculationCreate, 
+    SystemSQLCalculationCreate, AvailableCalculation
+)
 from .config import get_calculation_configuration
 
 router = APIRouter()
@@ -20,6 +23,8 @@ def get_calculation_service(config_db: Session = Depends(get_db)) -> Calculation
 def get_calculation_service_with_preview(query_engine: QueryEngine = Depends(get_query_engine)) -> CalculationService:
     """Get calculation service with query engine for preview operations"""
     return CalculationService(query_engine.config_db, query_engine)
+
+# ===== CONFIGURATION ENDPOINTS =====
 
 @router.get("/calculations/configuration")
 def get_calculation_configuration_endpoint():
@@ -38,13 +43,32 @@ def get_calculation_configuration_endpoint():
             detail=f"Error generating calculation configuration: {str(e)}"
         )
 
-@router.get("/calculations", response_model=List[CalculationResponse])
+# ===== UNIFIED RETRIEVAL ENDPOINTS =====
+
+@router.get("/calculations", response_model=List[AvailableCalculation])
 def get_available_calculations(
+    service: CalculationService = Depends(get_calculation_service),
+    group_level: Optional[str] = Query(None, description="Filter by group level: 'deal', 'tranche'"),
+    calculation_type: Optional[str] = Query(None, description="Filter by type: 'USER_DEFINED', 'SYSTEM_FIELD', 'SYSTEM_SQL'")
+):
+    """Get list of available calculations, optionally filtered by group level and/or type"""
+    return service.get_available_calculations(group_level, calculation_type)
+
+@router.get("/calculations/user-defined", response_model=List[AvailableCalculation])
+def get_user_defined_calculations(
     service: CalculationService = Depends(get_calculation_service),
     group_level: Optional[str] = Query(None, description="Filter by group level: 'deal', 'tranche'")
 ):
-    """Get list of available calculations, optionally filtered by group level"""
-    return service.get_available_calculations(group_level)
+    """Get only user-defined calculations"""
+    return service.get_user_defined_calculations(group_level)
+
+@router.get("/calculations/system", response_model=List[AvailableCalculation])
+def get_system_calculations(
+    service: CalculationService = Depends(get_calculation_service),
+    group_level: Optional[str] = Query(None, description="Filter by group level: 'deal', 'tranche'")
+):
+    """Get only system-defined calculations (both field and SQL types)"""
+    return service.get_system_calculations(group_level)
 
 @router.get("/calculations/{calc_id}", response_model=CalculationResponse)
 def get_calculation_by_id(
@@ -57,16 +81,92 @@ def get_calculation_by_id(
         raise HTTPException(status_code=404, detail="Calculation not found")
     return calculation
 
-@router.post("/calculations", response_model=CalculationResponse, status_code=201)
-def create_calculation(
-    request: CalculationCreateRequest,
+# ===== USER DEFINED CALCULATION ENDPOINTS =====
+
+@router.post("/calculations/user-defined", response_model=CalculationResponse, status_code=201)
+def create_user_defined_calculation(
+    request: UserDefinedCalculationCreate,
     service: CalculationService = Depends(get_calculation_service)
 ):
-    """Create a new calculation"""
+    """Create a new user-defined calculation"""
     try:
-        return service.create_calculation(request)
+        return service.create_user_defined_calculation(request)
     except (CalculationAlreadyExistsError, InvalidCalculationError) as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.put("/calculations/user-defined/{calc_id}", response_model=CalculationResponse)
+def update_user_defined_calculation(
+    calc_id: int,
+    request: UserDefinedCalculationCreate,
+    service: CalculationService = Depends(get_calculation_service)
+):
+    """Update an existing user-defined calculation"""
+    try:
+        return service.update_user_defined_calculation(calc_id, request)
+    except CalculationNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (CalculationAlreadyExistsError, InvalidCalculationError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# ===== SYSTEM FIELD CALCULATION ENDPOINTS =====
+
+@router.post("/calculations/system-field", response_model=CalculationResponse, status_code=201)
+def create_system_field_calculation(
+    request: SystemFieldCalculationCreate,
+    service: CalculationService = Depends(get_calculation_service)
+):
+    """Create a new system field calculation (admin only)"""
+    try:
+        return service.create_system_field_calculation(request)
+    except (CalculationAlreadyExistsError, InvalidCalculationError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/calculations/system-field/auto-generate")
+def auto_generate_system_fields(
+    service: CalculationService = Depends(get_calculation_service)
+):
+    """Auto-generate system field calculations from model introspection (admin only)"""
+    try:
+        result = service.auto_generate_system_fields()
+        return {
+            "success": True,
+            "message": f"Auto-generation completed. Generated: {result['generated_count']}, Skipped: {result['skipped_count']}",
+            "details": result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error during auto-generation: {str(e)}")
+
+# ===== SYSTEM SQL CALCULATION ENDPOINTS =====
+
+@router.post("/calculations/system-sql", response_model=CalculationResponse, status_code=201)
+def create_system_sql_calculation(
+    request: SystemSQLCalculationCreate,
+    service: CalculationService = Depends(get_calculation_service)
+):
+    """Create a new system SQL calculation (admin only)"""
+    try:
+        return service.create_system_sql_calculation(request)
+    except (CalculationAlreadyExistsError, InvalidCalculationError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/calculations/system-sql/validate")
+def validate_system_sql(
+    sql_text: str = Body(..., embed=True),
+    group_level: str = Body(..., embed=True),
+    result_column_name: str = Body(..., embed=True),
+    service: CalculationService = Depends(get_calculation_service)
+):
+    """Validate system SQL without saving"""
+    try:
+        result = service.validate_system_sql(sql_text, group_level, result_column_name)
+        return {
+            "success": True,
+            "validation_result": result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Validation error: {str(e)}")
+
+# ===== PREVIEW AND USAGE ENDPOINTS =====
 
 @router.get("/calculations/{calc_id}/preview-sql")
 def preview_calculation_sql(
@@ -91,20 +191,6 @@ def preview_calculation_sql(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.put("/calculations/{calc_id}", response_model=CalculationResponse)
-def update_calculation(
-    calc_id: int,
-    request: CalculationCreateRequest,
-    service: CalculationService = Depends(get_calculation_service)
-):
-    """Update an existing calculation"""
-    try:
-        return service.update_calculation(calc_id, request)
-    except CalculationNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except InvalidCalculationError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
 @router.get("/calculations/{calc_id}/usage")
 def get_calculation_usage(
     calc_id: int,
@@ -122,12 +208,14 @@ def get_calculation_usage(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error checking calculation usage: {str(e)}")
 
+# ===== DELETE ENDPOINT (USER-DEFINED ONLY) =====
+
 @router.delete("/calculations/{calc_id}")
 def delete_calculation(
     calc_id: int,
     service: CalculationService = Depends(get_calculation_service)
 ):
-    """Delete a calculation"""
+    """Delete a calculation (only user-defined calculations can be deleted)"""
     try:
         return service.delete_calculation(calc_id)
     except CalculationNotFoundError as e:
@@ -135,7 +223,25 @@ def delete_calculation(
     except InvalidCalculationError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# Debug endpoint to see all available fields for a model (development only)
+# ===== STATISTICS AND DEBUG ENDPOINTS =====
+
+@router.get("/calculations/stats/counts")
+def get_calculation_counts(
+    service: CalculationService = Depends(get_calculation_service)
+):
+    """Get calculation counts by type"""
+    try:
+        counts = service.dao.count_by_type()
+        return {
+            "success": True,
+            "counts": counts,
+            "total": sum(counts.values())
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving calculation counts: {str(e)}")
+
+# ===== DEBUG ENDPOINTS (DEVELOPMENT ONLY) =====
+
 @router.get("/calculations/debug/model-fields/{model_name}")
 def get_model_fields(model_name: str):
     """Debug endpoint to see all available fields for a model"""

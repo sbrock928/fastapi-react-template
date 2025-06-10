@@ -1,5 +1,5 @@
 # app/query/engine.py
-"""Fixed query engine with proper WHERE clause parentheses for deal-tranche conditions"""
+"""Enhanced query engine supporting User Defined, System Field, and System SQL calculations."""
 
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, text, select, func
@@ -13,13 +13,14 @@ from app.datawarehouse.models import Deal, Tranche, TrancheBal
 
 
 class QueryEngine:
-    """Unified engine with fixed WHERE clause generation for deal-tranche mappings"""
+    """Enhanced query engine supporting multiple calculation types including custom SQL."""
     
     def __init__(self, dw_db: Session, config_db: Session):
         self.dw_db = dw_db
         self.config_db = config_db
     
-    # ===== SINGLE CONSOLIDATED QUERY METHOD =====
+    # ===== MAIN QUERY BUILDING METHOD =====
+    
     def build_consolidated_query(
         self, 
         deal_tranche_map: Dict[int, List[str]],
@@ -27,17 +28,18 @@ class QueryEngine:
         calculations: List["Calculation"], 
         aggregation_level: str
     ):
-        """Build consolidated query using deal-tranche mapping"""
+        """Build consolidated query supporting all calculation types."""
         
-        # Separate raw fields from aggregated calculations
-        raw_calculations = [calc for calc in calculations if calc.is_raw_field()]
-        aggregated_calculations = [calc for calc in calculations if not calc.is_raw_field()]
+        # Separate calculations by type
+        user_defined_calcs = [calc for calc in calculations if calc.is_user_defined()]
+        system_field_calcs = [calc for calc in calculations if calc.is_system_field()]
+        system_sql_calcs = [calc for calc in calculations if calc.is_system_sql()]
         
         # If we have no calculations, return empty result
         if not calculations:
             return self.dw_db.query().filter(False)  # Empty query
         
-        # Build base CTE with deal-tranche mapping
+        # Build base CTE with deal-tranche mapping and required fields
         base_cte = self._build_base_cte(
             deal_tranche_map=deal_tranche_map,
             cycle_code=cycle_code, 
@@ -45,19 +47,26 @@ class QueryEngine:
             aggregation_level=aggregation_level
         )
         
-        # If we only have raw fields, return the base CTE directly
-        if not aggregated_calculations:
-            return self._build_raw_fields_query(base_cte, raw_calculations, aggregation_level)
+        # If we only have system fields, return simplified query
+        if not user_defined_calcs and not system_sql_calcs:
+            return self._build_system_fields_only_query(base_cte, system_field_calcs, aggregation_level)
         
-        # Build calculation CTEs for aggregated calculations
-        calculation_ctes = {}
-        for calc in aggregated_calculations:
-            calc_cte = self._build_calculation_cte(base_cte, calc, aggregation_level)
-            calculation_ctes[calc.name] = calc_cte
+        # Build calculation CTEs for user-defined calculations
+        user_defined_ctes = {}
+        for calc in user_defined_calcs:
+            calc_cte = self._build_user_defined_calculation_cte(base_cte, calc, aggregation_level)
+            user_defined_ctes[calc.name] = calc_cte
         
-        # Build final query that joins base CTE with calculation CTEs
-        return self._build_final_cte_query(
-            base_cte, calculation_ctes, raw_calculations, aggregated_calculations, aggregation_level
+        # Build system SQL CTEs for custom SQL calculations
+        system_sql_ctes = {}
+        for calc in system_sql_calcs:
+            sql_cte = self._build_system_sql_cte(calc, deal_tranche_map, cycle_code, aggregation_level)
+            system_sql_ctes[calc.name] = sql_cte
+        
+        # Build final query that combines everything
+        return self._build_final_combined_query(
+            base_cte, user_defined_ctes, system_sql_ctes, system_field_calcs, 
+            user_defined_calcs, system_sql_calcs, aggregation_level
         )
     
     def _build_base_cte(
@@ -67,12 +76,17 @@ class QueryEngine:
         calculations: List["Calculation"],
         aggregation_level: str
     ):
-        """Build the base CTE with filtered dataset and all required fields"""
+        """Build the base CTE with filtered dataset and all required fields."""
         
         # Determine which models we need based on calculations
         required_models = set()
         for calc in calculations:
-            required_models.update(calc.get_required_models())
+            if calc.is_user_defined() or calc.is_system_field():
+                required_models.update(calc.get_required_models())
+            elif calc.is_system_sql():
+                # For system SQL, we include all models to be safe
+                # In a more sophisticated implementation, we could parse the SQL to determine requirements
+                required_models.update([Deal, Tranche, TrancheBal])
         
         # Start with base columns
         base_columns = [
@@ -83,16 +97,22 @@ class QueryEngine:
         if aggregation_level == "tranche":
             base_columns.append(Tranche.tr_id.label('tranche_id'))
         
-        # Add all fields that calculations will need (for both raw and aggregated)
+        # Add all fields that calculations will need
         fields_needed = set()
         for calc in calculations:
-            # Get the source model value (handle enum)
-            source_model_value = calc.source_model.value if hasattr(calc.source_model, 'value') else calc.source_model
-            # Add the main source field
-            fields_needed.add((source_model_value, calc.source_field))
-            # Add weight field if needed
-            if calc.weight_field:
-                fields_needed.add((source_model_value, calc.weight_field))
+            if calc.is_user_defined():
+                # Get the source model value (handle enum)
+                source_model_value = calc.source_model.value if hasattr(calc.source_model, 'value') else calc.source_model
+                # Add the main source field
+                fields_needed.add((source_model_value, calc.source_field))
+                # Add weight field if needed
+                if calc.weight_field:
+                    fields_needed.add((source_model_value, calc.weight_field))
+            elif calc.is_system_field():
+                # Add system field
+                source_model_value = calc.source_model.value if hasattr(calc.source_model, 'value') else calc.source_model
+                fields_needed.add((source_model_value, calc.field_name))
+            # For system SQL calculations, we don't add specific fields since they define their own
         
         # Map source models to SQLAlchemy models
         model_map = {
@@ -126,7 +146,7 @@ class QueryEngine:
         # Apply filters with proper deal-tranche relationships
         filter_conditions = [TrancheBal.cycle_cde == cycle_code]
         
-        # Build optimized deal-specific tranche filters with FIXED PARENTHESES
+        # Build optimized deal-specific tranche filters
         if Tranche in required_models and deal_tranche_map:
             deal_conditions = self._build_deal_tranche_conditions_fixed(deal_tranche_map)
             if deal_conditions is not None:
@@ -140,61 +160,8 @@ class QueryEngine:
         
         return base_query.cte('base_data')
     
-    def _build_deal_tranche_conditions_fixed(self, deal_tranche_map: Dict[int, List[str]]):
-        """Build optimized WHERE conditions with MANUAL EXPLICIT PARENTHESES for deal-tranche filtering."""
-        from app.datawarehouse.dao import DatawarehouseDAO
-        from sqlalchemy import and_, or_, text
-        
-        if not deal_tranche_map:
-            return None
-        
-        # Get all available tranches for each deal to determine "all vs specific"
-        dw_dao = DatawarehouseDAO(self.dw_db)
-        
-        deals_with_specific_tranches = []
-        deals_with_all_tranches = []
-        
-        for dl_nbr, selected_tranches in deal_tranche_map.items():
-            if selected_tranches:
-                # Get all available tranches for this deal
-                all_deal_tranches = dw_dao.get_tranches_by_dl_nbr(dl_nbr)
-                all_tranche_ids = [t.tr_id for t in all_deal_tranches]
-                
-                # Check if selected tranches == all available tranches
-                if set(selected_tranches) == set(all_tranche_ids):
-                    # This deal has ALL tranches selected - no need for explicit tranche filtering
-                    deals_with_all_tranches.append(dl_nbr)
-                else:
-                    # This deal has specific tranche selections - needs explicit filtering
-                    deals_with_specific_tranches.append((dl_nbr, selected_tranches))
-            else:
-                # Empty list means all tranches (should have been populated by service layer)
-                deals_with_all_tranches.append(dl_nbr)
-        
-        # Build SQL condition string manually with explicit parentheses
-        condition_parts = []
-        
-        # For deals with all tranches: simple deal filter
-        if deals_with_all_tranches:
-            deal_numbers = ','.join(map(str, deals_with_all_tranches))
-            condition_parts.append(f"deal.dl_nbr IN ({deal_numbers})")
-        
-        # For deals with specific tranches: manual SQL with explicit parentheses
-        for dl_nbr, selected_tranches in deals_with_specific_tranches:
-            # Escape tranche IDs for SQL safety
-            escaped_tranches = ','.join(f"'{t.replace(chr(39), chr(39)+chr(39))}'" for t in selected_tranches)
-            condition_parts.append(f"(deal.dl_nbr = {dl_nbr} AND tranche.tr_id IN ({escaped_tranches}))")
-        
-        # Combine all conditions with OR and return as text()
-        if condition_parts:
-            full_condition = " OR ".join(condition_parts)
-            return text(full_condition)
-        else:
-            # Fallback if no valid conditions
-            return Deal.dl_nbr.in_(list(deal_tranche_map.keys()))
-    
-    def _build_calculation_cte(self, base_cte, calc: "Calculation", aggregation_level: str):
-        """Build a CTE for a single aggregated calculation"""
+    def _build_user_defined_calculation_cte(self, base_cte, calc: "Calculation", aggregation_level: str):
+        """Build a CTE for a single user-defined aggregated calculation."""
         
         # Get the source model value (handle enum)
         source_model_value = calc.source_model.value if hasattr(calc.source_model, 'value') else calc.source_model
@@ -259,8 +226,91 @@ class QueryEngine:
         
         return calc_query.cte(f'calc_{self._get_calc_column_name(calc)}')
     
-    def _build_raw_fields_query(self, base_cte, raw_calculations: List["Calculation"], aggregation_level: str):
-        """Build query for raw fields only (no aggregation needed)"""
+    def _build_system_sql_cte(
+        self, 
+        calc: "Calculation", 
+        deal_tranche_map: Dict[int, List[str]], 
+        cycle_code: int, 
+        aggregation_level: str
+    ):
+        """Build a CTE for a system SQL calculation."""
+        
+        if not calc.is_system_sql():
+            raise ValueError(f"Calculation {calc.name} is not a system SQL calculation")
+        
+        # Get the raw SQL from the calculation
+        raw_sql = calc.raw_sql
+        if not raw_sql:
+            raise ValueError(f"System SQL calculation {calc.name} has no raw_sql defined")
+        
+        # Parse and modify the SQL to include our filters
+        modified_sql = self._inject_filters_into_system_sql(
+            raw_sql, deal_tranche_map, cycle_code, aggregation_level
+        )
+        
+        # Create a CTE from the modified SQL
+        sql_text = text(modified_sql)
+        return self.dw_db.query().from_statement(sql_text).cte(f'system_sql_{self._get_calc_column_name(calc)}')
+    
+    def _inject_filters_into_system_sql(
+        self, 
+        raw_sql: str, 
+        deal_tranche_map: Dict[int, List[str]], 
+        cycle_code: int, 
+        aggregation_level: str
+    ) -> str:
+        """Inject our filtering conditions into custom SQL."""
+        
+        # This is a simplified implementation. In a production system, you might want to use
+        # a more sophisticated SQL parser to inject filters properly.
+        
+        # For now, we'll inject basic filters by appending WHERE conditions
+        # This assumes the SQL doesn't already have complex WHERE clauses
+        
+        deal_numbers = list(deal_tranche_map.keys())
+        deal_filter = f"deal.dl_nbr IN ({','.join(map(str, deal_numbers))})"
+        
+        # Inject cycle filter if the SQL references tranchebal
+        cycle_filter = ""
+        if "tranchebal" in raw_sql.lower():
+            cycle_filter = f" AND tranchebal.cycle_cde = {cycle_code}"
+        
+        # Inject tranche filters if needed
+        tranche_filter = ""
+        if "tranche" in raw_sql.lower() and aggregation_level == "tranche":
+            # For tranche-level reports, we might need specific tranche filters
+            # This is a simplified implementation
+            all_tranches = []
+            for tranches in deal_tranche_map.values():
+                all_tranches.extend(tranches)
+            if all_tranches:
+                escaped_tranches = [f"'{t}'" for t in all_tranches]
+                tranche_filter = f" AND tranche.tr_id IN ({','.join(escaped_tranches)})"
+        
+        # Simple injection strategy: look for WHERE clause or add one
+        sql_upper = raw_sql.upper()
+        
+        if " WHERE " in sql_upper:
+            # SQL already has WHERE clause, append our conditions with AND
+            modified_sql = raw_sql + f" AND {deal_filter}{cycle_filter}{tranche_filter}"
+        else:
+            # No WHERE clause, add one
+            # Find a good place to insert it (before GROUP BY, ORDER BY, etc.)
+            insert_keywords = [" GROUP BY ", " ORDER BY ", " HAVING ", " LIMIT "]
+            insert_position = len(raw_sql)  # Default to end
+            
+            for keyword in insert_keywords:
+                pos = sql_upper.find(keyword)
+                if pos != -1 and pos < insert_position:
+                    insert_position = pos
+            
+            where_clause = f" WHERE {deal_filter}{cycle_filter}{tranche_filter}"
+            modified_sql = raw_sql[:insert_position] + where_clause + raw_sql[insert_position:]
+        
+        return modified_sql
+    
+    def _build_system_fields_only_query(self, base_cte, system_field_calcs: List["Calculation"], aggregation_level: str):
+        """Build query for system fields only (no aggregation needed)."""
         
         # Start with base columns
         select_columns = [
@@ -271,29 +321,31 @@ class QueryEngine:
         if aggregation_level == "tranche":
             select_columns.append(base_cte.c.tranche_id)
         
-        # Add raw field columns
-        for calc in raw_calculations:
+        # Add system field columns
+        for calc in system_field_calcs:
             source_model_value = calc.source_model.value if hasattr(calc.source_model, 'value') else calc.source_model
-            field_name = f"{source_model_value}_{calc.source_field}"
+            field_name = f"{source_model_value}_{calc.field_name}"
             
             if not hasattr(base_cte.c, field_name):
                 available_fields = [col.name for col in base_cte.c]
-                raise ValueError(f"Raw field '{field_name}' not found in base CTE. Available fields: {available_fields}")
+                raise ValueError(f"System field '{field_name}' not found in base CTE. Available fields: {available_fields}")
             
             field = getattr(base_cte.c, field_name)
             select_columns.append(field.label(calc.name))
         
         return self.dw_db.query(*select_columns).select_from(base_cte).distinct()
     
-    def _build_final_cte_query(
+    def _build_final_combined_query(
         self, 
         base_cte, 
-        calculation_ctes: Dict[str, Any], 
-        raw_calculations: List["Calculation"],
-        aggregated_calculations: List["Calculation"], 
+        user_defined_ctes: Dict[str, Any],
+        system_sql_ctes: Dict[str, Any],
+        system_field_calcs: List["Calculation"],
+        user_defined_calcs: List["Calculation"],
+        system_sql_calcs: List["Calculation"],
         aggregation_level: str
     ):
-        """Build the final query that joins base CTE with calculation CTEs"""
+        """Build the final query that combines all calculation types."""
         
         # Start with base columns
         select_columns = [
@@ -304,14 +356,14 @@ class QueryEngine:
         if aggregation_level == "tranche":
             select_columns.append(base_cte.c.tranche_id)
         
-        # Add raw field columns
-        for calc in raw_calculations:
+        # Add system field columns
+        for calc in system_field_calcs:
             source_model_value = calc.source_model.value if hasattr(calc.source_model, 'value') else calc.source_model
-            field_name = f"{source_model_value}_{calc.source_field}"
+            field_name = f"{source_model_value}_{calc.field_name}"
             
             if not hasattr(base_cte.c, field_name):
                 available_fields = [col.name for col in base_cte.c]
-                raise ValueError(f"Raw field '{field_name}' not found in base CTE. Available fields: {available_fields}")
+                raise ValueError(f"System field '{field_name}' not found in base CTE. Available fields: {available_fields}")
             
             field = getattr(base_cte.c, field_name)
             select_columns.append(field.label(calc.name))
@@ -319,9 +371,9 @@ class QueryEngine:
         # Start with base query
         final_query = self.dw_db.query(*select_columns).select_from(base_cte)
         
-        # Add calculation columns and joins
-        for calc in aggregated_calculations:
-            calc_cte = calculation_ctes[calc.name]
+        # Add user-defined calculation columns and joins
+        for calc in user_defined_calcs:
+            calc_cte = user_defined_ctes[calc.name]
             
             # Add the calculation column
             column_name = self._get_calc_column_name(calc)
@@ -344,13 +396,91 @@ class QueryEngine:
                     base_cte.c.deal_number == calc_cte.c.calc_deal_nbr
                 )
         
+        # Add system SQL calculation columns and joins
+        for calc in system_sql_calcs:
+            sql_cte = system_sql_ctes[calc.name]
+            
+            # Add the SQL calculation column
+            final_query = final_query.add_columns(
+                getattr(sql_cte.c, calc.result_column_name).label(calc.name)
+            )
+            
+            # Add LEFT JOIN to the SQL CTE
+            if aggregation_level == "tranche":
+                final_query = final_query.outerjoin(
+                    sql_cte,
+                    and_(
+                        base_cte.c.deal_number == sql_cte.c.dl_nbr,
+                        base_cte.c.tranche_id == sql_cte.c.tr_id
+                    )
+                )
+            else:
+                final_query = final_query.outerjoin(
+                    sql_cte,
+                    base_cte.c.deal_number == sql_cte.c.dl_nbr
+                )
+        
         return final_query.distinct()
     
+    def _build_deal_tranche_conditions_fixed(self, deal_tranche_map: Dict[int, List[str]]):
+        """Build optimized WHERE conditions with MANUAL EXPLICIT PARENTHESES for deal-tranche filtering."""
+        from app.datawarehouse.dao import DatawarehouseDAO
+        from sqlalchemy import and_, or_, text
+        
+        if not deal_tranche_map:
+            return None
+        
+        # Get all available tranches for each deal to determine "all vs specific"
+        dw_dao = DatawarehouseDAO(self.dw_db)
+        
+        deals_with_specific_tranches = []
+        deals_with_all_tranches = []
+        
+        for dl_nbr, selected_tranches in deal_tranche_map.items():
+            if selected_tranches:
+                # Get all available tranches for this deal
+                all_deal_tranches = dw_dao.get_tranches_by_dl_nbr(dl_nbr)
+                all_tranche_ids = [t.tr_id for t in all_deal_tranches]
+                
+                # Check if selected tranches == all available tranches
+                if set(selected_tranches) == set(all_tranche_ids):
+                    # This deal has ALL tranches selected - no need for explicit tranche filtering
+                    deals_with_all_tranches.append(dl_nbr)
+                else:
+                    # This deal has specific tranche selections - needs explicit filtering
+                    deals_with_specific_tranches.append((dl_nbr, selected_tranches))
+            else:
+                # Empty list means all tranches (should have been populated by service layer)
+                deals_with_all_tranches.append(dl_nbr)
+        
+        # Build SQL condition string manually with explicit parentheses
+        condition_parts = []
+        
+        # For deals with all tranches: simple deal filter
+        if deals_with_all_tranches:
+            deal_numbers = ','.join(map(str, deals_with_all_tranches))
+            condition_parts.append(f"deal.dl_nbr IN ({deal_numbers})")
+        
+        # For deals with specific tranches: manual SQL with explicit parentheses
+        for dl_nbr, selected_tranches in deals_with_specific_tranches:
+            # Escape tranche IDs for SQL safety
+            escaped_tranches = ','.join(f"'{t.replace(chr(39), chr(39)+chr(39))}'" for t in selected_tranches)
+            condition_parts.append(f"(deal.dl_nbr = {dl_nbr} AND tranche.tr_id IN ({escaped_tranches}))")
+        
+        # Combine all conditions with OR and return as text()
+        if condition_parts:
+            full_condition = " OR ".join(condition_parts)
+            return text(full_condition)
+        else:
+            # Fallback if no valid conditions
+            return Deal.dl_nbr.in_(list(deal_tranche_map.keys()))
+    
     def _get_calc_column_name(self, calc: "Calculation") -> str:
-        """Get normalized column name for calculation"""
+        """Get normalized column name for calculation."""
         return calc.name.lower().replace(" ", "_").replace("-", "_")
     
     # ===== EXECUTION METHODS =====
+    
     def execute_report_query(
         self,
         deal_tranche_map: Dict[int, List[str]],
@@ -358,7 +488,7 @@ class QueryEngine:
         calculations: List["Calculation"],
         aggregation_level: str
     ) -> List[Any]:
-        """Execute consolidated report query and return results"""
+        """Execute consolidated report query and return results."""
         query = self.build_consolidated_query(
             deal_tranche_map, cycle_code, calculations, aggregation_level
         )
@@ -371,12 +501,13 @@ class QueryEngine:
         cycle_code: int,
         aggregation_level: str
     ) -> List[Any]:
-        """Execute single calculation query and return results"""
+        """Execute single calculation query and return results."""
         return self.execute_report_query(
             deal_tranche_map, cycle_code, [calculation], aggregation_level
         )
     
     # ===== PREVIEW METHODS =====
+    
     def preview_calculation_sql(
         self,
         calculation: "Calculation",
@@ -385,7 +516,7 @@ class QueryEngine:
         sample_tranches: List[str] = None,
         sample_cycle: int = None
     ) -> Dict[str, Any]:
-        """Generate SQL preview for a single calculation using mapping approach"""
+        """Generate SQL preview for a single calculation using mapping approach."""
         
         # Use defaults if not provided
         sample_deals = sample_deals or [101, 102, 103]
@@ -404,10 +535,20 @@ class QueryEngine:
             aggregation_level=aggregation_level
         )
         
+        # Determine calculation type for display
+        if calculation.is_system_sql():
+            calc_type = "Custom SQL"
+        elif calculation.is_system_field():
+            calc_type = "System Field"
+        elif calculation.is_user_defined():
+            calc_type = f"User Defined ({calculation.aggregation_function.value})"
+        else:
+            calc_type = "Unknown"
+        
         return {
             "calculation_name": calculation.name,
             "aggregation_level": aggregation_level,
-            "calculation_type": "Raw Field" if calculation.is_raw_field() else "Aggregated Calculation",
+            "calculation_type": calc_type,
             "generated_sql": self._compile_query_to_sql(query),
             "sample_parameters": {
                 "deal_tranche_mapping": deal_tranche_map,
@@ -423,7 +564,7 @@ class QueryEngine:
         calculations: List["Calculation"],
         aggregation_level: str
     ) -> Dict[str, Any]:
-        """Generate SQL preview for a full report"""
+        """Generate SQL preview for a full report."""
         
         # Build and compile query using the mapping
         query = self.build_consolidated_query(
@@ -433,9 +574,10 @@ class QueryEngine:
             aggregation_level=aggregation_level
         )
         
-        # Analyze the calculations
-        raw_count = sum(1 for calc in calculations if calc.is_raw_field())
-        aggregated_count = len(calculations) - raw_count
+        # Analyze the calculations by type
+        user_defined_count = sum(1 for calc in calculations if calc.is_user_defined())
+        system_field_count = sum(1 for calc in calculations if calc.is_system_field())
+        system_sql_count = sum(1 for calc in calculations if calc.is_system_sql())
         
         # Extract deal numbers and tranche IDs for the response
         deal_numbers = list(deal_tranche_map.keys())
@@ -448,8 +590,9 @@ class QueryEngine:
             "aggregation_level": aggregation_level,
             "calculation_summary": {
                 "total_calculations": len(calculations),
-                "raw_fields": raw_count,
-                "aggregated_calculations": aggregated_count
+                "user_defined_calculations": user_defined_count,
+                "system_field_calculations": system_field_count,
+                "system_sql_calculations": system_sql_count
             },
             "deal_tranche_mapping": deal_tranche_map,
             "sql_query": self._compile_query_to_sql(query),
@@ -461,16 +604,18 @@ class QueryEngine:
         }
 
     # ===== UTILITY METHODS =====
+    
     def _compile_query_to_sql(self, query) -> str:
-        """Compile SQLAlchemy query to raw SQL string"""
+        """Compile SQLAlchemy query to raw SQL string."""
         return str(query.statement.compile(
             dialect=self.dw_db.bind.dialect, 
             compile_kwargs={"literal_binds": True}
         ))
     
     # ===== DATA ACCESS METHODS =====
+    
     def get_calculations_by_names(self, names: List[str]) -> List["Calculation"]:
-        """Get calculations by names from config database"""
+        """Get calculations by names from config database."""
         from app.calculations.models import Calculation
         return self.config_db.query(Calculation).filter(
             Calculation.name.in_(names),
@@ -478,7 +623,7 @@ class QueryEngine:
         ).all()
     
     def get_calculation_by_id(self, calc_id: int) -> Optional["Calculation"]:
-        """Get calculation by ID from config database"""
+        """Get calculation by ID from config database."""
         from app.calculations.models import Calculation
         return self.config_db.query(Calculation).filter(
             Calculation.id == calc_id,
@@ -486,13 +631,14 @@ class QueryEngine:
         ).first()
 
     # ===== RESULT PROCESSING =====
+    
     def process_report_results(
         self, 
         results: List[Any], 
         calculations: List["Calculation"], 
         aggregation_level: str
     ) -> List[Dict[str, Any]]:
-        """Process raw query results into structured report data"""
+        """Process raw query results into structured report data."""
         
         data = []
         for result in results:

@@ -1,67 +1,62 @@
 # app/calculations/service.py
-"""Simplified calculation service focused on CRUD operations"""
+"""Enhanced calculation service supporting multiple calculation types."""
 
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from app.core.exceptions import CalculationNotFoundError, CalculationAlreadyExistsError, InvalidCalculationError
 
-# Use TYPE_CHECKING to avoid circular imports
 if TYPE_CHECKING:
     from app.query import QueryEngine
 
 from .dao import CalculationDAO
-from .models import Calculation, AggregationFunction, SourceModel, GroupLevel
-from .schemas import CalculationCreateRequest, CalculationResponse
+from .models import Calculation, CalculationType, AggregationFunction, SourceModel, GroupLevel
+from .schemas import (
+    CalculationResponse, UserDefinedCalculationCreate, SystemFieldCalculationCreate, 
+    SystemSQLCalculationCreate, AvailableCalculation
+)
+from .sql_validator import CustomSQLValidator, SQLValidationError
 
 class CalculationService:
-    """Simplified calculation service focused on CRUD operations"""
+    """Enhanced calculation service supporting User Defined and System Defined calculations."""
     
     def __init__(self, config_db: Session, query_engine: "QueryEngine" = None):
         self.config_db = config_db
         self.query_engine = query_engine
         self.dao = CalculationDAO(config_db)
+        self.sql_validator = CustomSQLValidator()
     
-    def get_available_calculations(self, group_level: Optional[str] = None) -> List[CalculationResponse]:
-        """Get list of available calculations, optionally filtered by group level"""
+    # ===== UNIFIED RETRIEVAL METHODS =====
+    
+    def get_available_calculations(self, group_level: Optional[str] = None, calculation_type: Optional[str] = None) -> List[AvailableCalculation]:
+        """Get list of available calculations, optionally filtered by group level and/or type."""
         group_level_enum = GroupLevel(group_level) if group_level else None
-        calculations = self.dao.get_all_calculations(group_level_enum)
+        calc_type_enum = CalculationType(calculation_type) if calculation_type else None
         
-        return [CalculationResponse.model_validate(calc) for calc in calculations]
+        calculations = self.dao.get_all_calculations(group_level_enum, calc_type_enum)
+        
+        return [self._convert_to_available_calculation(calc) for calc in calculations]
     
     def get_calculation_by_id(self, calc_id: int) -> Optional[CalculationResponse]:
-        """Get a single calculation by ID"""
+        """Get a single calculation by ID."""
         calculation = self.dao.get_by_id(calc_id)
         if not calculation:
             return None
         return CalculationResponse.model_validate(calculation)
     
-    def preview_calculation_sql(
-        self,
-        calc_id: int,
-        aggregation_level: str = "deal",
-        sample_deals: List[int] = None,
-        sample_tranches: List[str] = None,
-        sample_cycle: int = None
-    ) -> Dict[str, Any]:
-        """Generate SQL preview using query engine"""
-        if not self.query_engine:
-            raise ValueError("Query engine required for SQL preview operations")
-        
-        calculation = self.dao.get_by_id(calc_id)
-        if not calculation:
-            raise CalculationNotFoundError(f"Calculation with ID {calc_id} not found")
-        
-        # Use simplified preview method
-        return self.query_engine.preview_calculation_sql(
-            calculation=calculation,
-            aggregation_level=aggregation_level,
-            sample_deals=sample_deals or [1001, 1002, 1003],
-            sample_tranches=sample_tranches or ["A", "B"],
-            sample_cycle=sample_cycle or 202404
-        )
+    def get_user_defined_calculations(self, group_level: Optional[str] = None) -> List[CalculationResponse]:
+        """Get only user-defined calculations."""
+        return [calc for calc in self.get_available_calculations(group_level, "USER_DEFINED")]
     
-    def create_calculation(self, request: CalculationCreateRequest, user_id: str = "api_user") -> CalculationResponse:
-        """Create a new calculation"""
+    def get_system_calculations(self, group_level: Optional[str] = None) -> List[CalculationResponse]:
+        """Get only system-defined calculations (both field and SQL types)."""
+        field_calcs = self.get_available_calculations(group_level, "SYSTEM_FIELD")
+        sql_calcs = self.get_available_calculations(group_level, "SYSTEM_SQL")
+        return field_calcs + sql_calcs
+    
+    # ===== USER DEFINED CALCULATION METHODS =====
+    
+    def create_user_defined_calculation(self, request: UserDefinedCalculationCreate, user_id: str = "api_user") -> CalculationResponse:
+        """Create a new user-defined calculation."""
         # Check if calculation name already exists at this group level
         existing = self.dao.get_by_name_and_group_level(request.name, request.group_level)
         if existing:
@@ -75,22 +70,30 @@ class CalculationService:
         calculation = Calculation(
             name=request.name,
             description=request.description,
+            calculation_type=CalculationType.USER_DEFINED,
             aggregation_function=request.aggregation_function,
             source_model=request.source_model,
             source_field=request.source_field,
             group_level=request.group_level,
             weight_field=request.weight_field,
+            is_system_managed=False,
             created_by=user_id
         )
         
         calculation = self.dao.create(calculation)
         return CalculationResponse.model_validate(calculation)
     
-    def update_calculation(self, calc_id: int, request: CalculationCreateRequest) -> CalculationResponse:
-        """Update an existing calculation"""
+    def update_user_defined_calculation(self, calc_id: int, request: UserDefinedCalculationCreate) -> CalculationResponse:
+        """Update an existing user-defined calculation."""
         calculation = self.dao.get_by_id(calc_id)
         if not calculation:
             raise CalculationNotFoundError(f"Calculation with ID {calc_id} not found")
+        
+        if calculation.calculation_type != CalculationType.USER_DEFINED:
+            raise InvalidCalculationError("Only user-defined calculations can be updated via this method")
+        
+        if calculation.is_system_managed:
+            raise InvalidCalculationError("System-managed calculations cannot be updated by users")
         
         # Check if another calculation with the same name exists at this group level (excluding current one)
         existing = self.dao.get_by_name_and_group_level(request.name, request.group_level)
@@ -113,8 +116,168 @@ class CalculationService:
         calculation = self.dao.update(calculation)
         return CalculationResponse.model_validate(calculation)
     
+    # ===== SYSTEM FIELD CALCULATION METHODS =====
+    
+    def create_system_field_calculation(self, request: SystemFieldCalculationCreate, user_id: str = "system") -> CalculationResponse:
+        """Create a new system field calculation."""
+        # Check if calculation name already exists at this group level
+        existing = self.dao.get_by_name_and_group_level(request.name, request.group_level)
+        if existing:
+            raise CalculationAlreadyExistsError(f"Calculation with name '{request.name}' already exists at {request.group_level} level")
+        
+        # Create new system field calculation
+        calculation = Calculation(
+            name=request.name,
+            description=request.description,
+            calculation_type=CalculationType.SYSTEM_FIELD,
+            source_model=request.source_model,
+            field_name=request.field_name,
+            field_type=request.field_type,
+            group_level=request.group_level,
+            is_system_managed=True,
+            created_by=user_id
+        )
+        
+        calculation = self.dao.create(calculation)
+        return CalculationResponse.model_validate(calculation)
+    
+    # ===== SYSTEM SQL CALCULATION METHODS =====
+    
+    def create_system_sql_calculation(self, request: SystemSQLCalculationCreate, user_id: str = "system") -> CalculationResponse:
+        """Create a new system SQL calculation with validation."""
+        # Check if calculation name already exists at this group level
+        existing = self.dao.get_by_name_and_group_level(request.name, request.group_level)
+        if existing:
+            raise CalculationAlreadyExistsError(f"Calculation with name '{request.name}' already exists at {request.group_level} level")
+        
+        # Validate the SQL
+        validation_result = self.sql_validator.validate_custom_sql(
+            request.raw_sql, 
+            request.group_level.value, 
+            request.result_column_name
+        )
+        
+        if not validation_result.is_valid:
+            error_details = "; ".join(validation_result.errors)
+            raise InvalidCalculationError(f"SQL validation failed: {error_details}")
+        
+        # Create new system SQL calculation
+        calculation = Calculation(
+            name=request.name,
+            description=request.description,
+            calculation_type=CalculationType.SYSTEM_SQL,
+            raw_sql=request.raw_sql,
+            result_column_name=request.result_column_name,
+            group_level=request.group_level,
+            is_system_managed=True,
+            created_by=user_id
+        )
+        
+        calculation = self.dao.create(calculation)
+        return CalculationResponse.model_validate(calculation)
+    
+    def validate_system_sql(self, sql_text: str, group_level: str, result_column_name: str) -> Dict[str, Any]:
+        """Validate system SQL without saving."""
+        validation_result = self.sql_validator.validate_custom_sql(sql_text, group_level, result_column_name)
+        
+        return {
+            "is_valid": validation_result.is_valid,
+            "errors": validation_result.errors,
+            "warnings": validation_result.warnings,
+            "extracted_columns": validation_result.extracted_columns,
+            "detected_tables": list(validation_result.detected_tables),
+            "result_column_name": validation_result.result_column_name
+        }
+    
+    # ===== SYSTEM FIELD AUTO-GENERATION =====
+    
+    def auto_generate_system_fields(self) -> Dict[str, Any]:
+        """Auto-generate system field calculations from model introspection."""
+        from .config import calculation_config_generator
+        
+        generated_count = 0
+        skipped_count = 0
+        errors = []
+        
+        try:
+            # Get field mappings from config generator
+            field_mappings = calculation_config_generator.generate_field_mappings()
+            
+            for model_name, fields in field_mappings.items():
+                for field in fields:
+                    try:
+                        # Determine appropriate group level based on model
+                        if model_name == "Deal":
+                            group_level = GroupLevel.DEAL
+                        elif model_name in ["Tranche", "TrancheBal"]:
+                            # Fields from Tranche/TrancheBal can be used at both levels,
+                            # but we'll create them at tranche level by default
+                            group_level = GroupLevel.TRANCHE
+                        else:
+                            group_level = GroupLevel.DEAL
+                        
+                        # Check if this field calculation already exists
+                        calc_name = f"{field['label']}"
+                        existing = self.dao.get_by_name_and_group_level(calc_name, group_level)
+                        
+                        if existing:
+                            skipped_count += 1
+                            continue
+                        
+                        # Create system field calculation
+                        request = SystemFieldCalculationCreate(
+                            name=calc_name,
+                            description=field.get('description', f"{field['label']} from {model_name} model"),
+                            source_model=SourceModel(model_name),
+                            field_name=field['value'],
+                            field_type=field['type'],
+                            group_level=group_level
+                        )
+                        
+                        self.create_system_field_calculation(request, "system_auto_generator")
+                        generated_count += 1
+                        
+                    except Exception as e:
+                        errors.append(f"Error creating field {model_name}.{field['value']}: {str(e)}")
+        
+        except Exception as e:
+            errors.append(f"Error during auto-generation: {str(e)}")
+        
+        return {
+            "generated_count": generated_count,
+            "skipped_count": skipped_count,
+            "errors": errors
+        }
+    
+    # ===== COMMON METHODS =====
+    
+    def preview_calculation_sql(
+        self,
+        calc_id: int,
+        aggregation_level: str = "deal",
+        sample_deals: List[int] = None,
+        sample_tranches: List[str] = None,
+        sample_cycle: int = None
+    ) -> Dict[str, Any]:
+        """Generate SQL preview using query engine."""
+        if not self.query_engine:
+            raise ValueError("Query engine required for SQL preview operations")
+        
+        calculation = self.dao.get_by_id(calc_id)
+        if not calculation:
+            raise CalculationNotFoundError(f"Calculation with ID {calc_id} not found")
+        
+        # Use simplified preview method
+        return self.query_engine.preview_calculation_sql(
+            calculation=calculation,
+            aggregation_level=aggregation_level,
+            sample_deals=sample_deals or [1001, 1002, 1003],
+            sample_tranches=sample_tranches or ["A", "B"],
+            sample_cycle=sample_cycle or 202404
+        )
+    
     def get_calculation_usage_in_reports(self, calc_id: int) -> List[Dict[str, Any]]:
-        """Get list of reports that are using this calculation"""
+        """Get list of reports that are using this calculation."""
         from app.reporting.models import Report, ReportCalculation
         
         # Query for reports using this calculation
@@ -141,14 +304,14 @@ class CalculationService:
         ]
     
     def delete_calculation(self, calc_id: int) -> dict:
-        """Delete a calculation (soft delete) - only if not used in any reports"""
+        """Delete a calculation (soft delete) - only if not used in any reports and not system-managed."""
         calculation = self.dao.get_by_id(calc_id)
         if not calculation:
             raise CalculationNotFoundError(f"Calculation with ID {calc_id} not found")
         
-        # Prevent deletion of system-created calculations
-        if calculation.created_by == "system":
-            raise InvalidCalculationError(f"Cannot delete system calculation '{calculation.name}'. System calculations are read-only.")
+        # Prevent deletion of system-managed calculations
+        if calculation.is_system_managed:
+            raise InvalidCalculationError(f"Cannot delete system-managed calculation '{calculation.name}'. System calculations are read-only.")
         
         # Check if calculation is being used in any reports
         reports_using_calc = self.get_calculation_usage_in_reports(calc_id)
@@ -161,3 +324,48 @@ class CalculationService:
         
         self.dao.soft_delete(calculation)
         return {"message": f"Calculation '{calculation.name}' deleted successfully"}
+    
+    # ===== HELPER METHODS =====
+    
+    def _convert_to_available_calculation(self, calc: Calculation) -> AvailableCalculation:
+        """Convert a Calculation model to AvailableCalculation schema."""
+        return AvailableCalculation(
+            id=calc.id,
+            name=calc.name,
+            description=calc.description,
+            calculation_type=calc.calculation_type,
+            group_level=calc.group_level,
+            category=self._categorize_calculation(calc),
+            is_default=calc.name in ["Deal Number", "Total Ending Balance", "Tranche ID", "Ending Balance Amount"],
+            is_system_managed=calc.is_system_managed,
+            display_type=calc.get_display_type(),
+            source_description=calc.get_source_description()
+        )
+    
+    def _categorize_calculation(self, calc: Calculation) -> str:
+        """Categorize calculation for UI grouping."""
+        if calc.is_user_defined():
+            if calc.source_model == SourceModel.DEAL:
+                return "Deal Information"
+            elif calc.source_model == SourceModel.TRANCHE:
+                return "Tranche Structure"
+            elif calc.source_model == SourceModel.TRANCHE_BAL:
+                if "bal" in calc.source_field.lower() or "amt" in calc.source_field.lower():
+                    return "Balance & Amount Calculations"
+                elif "rte" in calc.source_field.lower():
+                    return "Rate Calculations"
+                elif "dstrb" in calc.source_field.lower():
+                    return "Distribution Calculations"
+                else:
+                    return "Performance Calculations"
+        elif calc.is_system_field():
+            if calc.source_model == SourceModel.DEAL:
+                return "Deal Fields"
+            elif calc.source_model == SourceModel.TRANCHE:
+                return "Tranche Fields"
+            elif calc.source_model == SourceModel.TRANCHE_BAL:
+                return "Tranche Balance Fields"
+        elif calc.is_system_sql():
+            return "Custom SQL Calculations"
+        
+        return "Other"

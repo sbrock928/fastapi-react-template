@@ -1,4 +1,5 @@
-"""Enhanced database configuration with dual database support and calculation seeding."""
+# app/core/database.py
+"""Enhanced database configuration with dual database support and updated calculation system."""
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -84,7 +85,8 @@ def drop_all_tables():
     """Drop all tables in both databases (use with caution!)."""
     # Import models to ensure they're registered with Base classes
     from app.reporting.models import Report  # noqa: F401
-    from app.datawarehouse.models import Deal, Tranche  # noqa: F401
+    from app.calculations.models import Calculation  # noqa: F401
+    from app.datawarehouse.models import Deal, Tranche, TrancheBal  # noqa: F401
 
     print("Dropping config database tables...")
     Base.metadata.drop_all(bind=engine)
@@ -95,12 +97,14 @@ def drop_all_tables():
     print("All tables dropped!")
 
 
-# ===== CALCULATION SEEDING =====
+# ===== UPDATED CALCULATION SEEDING =====
 
 
 def create_standard_calculations():
-    """Create standard RAW field and common aggregated calculations."""
-    from app.calculations.models import Calculation, AggregationFunction, SourceModel, GroupLevel
+    """Create standard calculation system with User Defined, System Field, and System SQL types."""
+    from app.calculations.models import Calculation, CalculationType, AggregationFunction, SourceModel, GroupLevel
+    from app.calculations.service import CalculationService
+    from app.calculations.schemas import UserDefinedCalculationCreate, SystemFieldCalculationCreate, SystemSQLCalculationCreate
     
     # Create config database session
     config_db = SessionLocal()
@@ -109,67 +113,25 @@ def create_standard_calculations():
         # Check if calculations already exist
         existing_count = config_db.query(Calculation).count()
         if existing_count > 0:
-            print(f"Standard calculations already exist ({existing_count} found). Skipping creation.")
+            print(f"Calculations already exist ({existing_count} found). Skipping creation.")
             return
         
-        print("Creating standard calculations...")
+        print("Creating enhanced calculation system...")
         
-        # ===== RAW FIELD CALCULATIONS =====
+        # Initialize calculation service
+        calc_service = CalculationService(config_db)
         
-        # Deal-level RAW fields (available for both DEAL and TRANCHE scope reports)
-        deal_raw_fields = [
-            {
-                "name": "Deal Number",
-                "description": "Unique deal identifier",
-                "source_model": SourceModel.DEAL,
-                "source_field": "dl_nbr",
-                "group_level": GroupLevel.DEAL
-            },
-            {
-                "name": "Issuer Code", 
-                "description": "Deal issuer code",
-                "source_model": SourceModel.DEAL,
-                "source_field": "issr_cde",
-                "group_level": GroupLevel.DEAL
-            },
-            {
-                "name": "CDI File Name",
-                "description": "CDI file name", 
-                "source_model": SourceModel.DEAL,
-                "source_field": "cdi_file_nme",
-                "group_level": GroupLevel.DEAL
-            },
-            {
-                "name": "CDB CDI File Name",
-                "description": "CDB CDI file name",
-                "source_model": SourceModel.DEAL, 
-                "source_field": "CDB_cdi_file_nme",
-                "group_level": GroupLevel.DEAL
-            }
-        ]
+        # ===== 1. AUTO-GENERATE SYSTEM FIELD CALCULATIONS =====
+        print("Auto-generating system field calculations from model introspection...")
+        auto_gen_result = calc_service.auto_generate_system_fields()
+        print(f"✅ Auto-generated {auto_gen_result['generated_count']} system field calculations")
+        if auto_gen_result['errors']:
+            print(f"⚠️  Errors during auto-generation: {auto_gen_result['errors']}")
         
-        # Tranche-level RAW fields (only available for TRANCHE scope reports)
-        tranche_raw_fields = [
-            {
-                "name": "Tranche ID",
-                "description": "Tranche identifier within the deal",
-                "source_model": SourceModel.TRANCHE,
-                "source_field": "tr_id", 
-                "group_level": GroupLevel.TRANCHE
-            },
-            {
-                "name": "Tranche CUSIP ID",
-                "description": "CUSIP identifier for the tranche",
-                "source_model": SourceModel.TRANCHE,
-                "source_field": "tr_cusip_id",
-                "group_level": GroupLevel.TRANCHE
-            }
-        ]
+        # ===== 2. CREATE SAMPLE USER DEFINED CALCULATIONS =====
+        print("Creating sample user-defined calculations...")
         
-        # ===== COMMON AGGREGATED CALCULATIONS =====
-        
-        # Deal-level aggregated calculations
-        deal_aggregated = [
+        user_defined_calcs = [
             {
                 "name": "Total Ending Balance",
                 "description": "Sum of all tranche ending balance amounts",
@@ -202,91 +164,136 @@ def create_standard_calculations():
                 "source_model": SourceModel.TRANCHE_BAL,
                 "source_field": "tr_prin_dstrb_amt",
                 "group_level": GroupLevel.DEAL
-            }
-        ]
-        
-        # Tranche-level aggregated calculations (these don't aggregate, but provide TrancheBal data)
-        tranche_aggregated = [
+            },
+            {
+                "name": "Tranche Count",
+                "description": "Count of tranches per deal",
+                "aggregation_function": AggregationFunction.COUNT,
+                "source_model": SourceModel.TRANCHE,
+                "source_field": "tr_id",
+                "group_level": GroupLevel.DEAL
+            },
+            # Tranche-level calculations
             {
                 "name": "Ending Balance Amount",
-                "description": "Outstanding principal balance at period end",
-                "aggregation_function": AggregationFunction.SUM,  # Will be 1 record per tranche
+                "description": "Outstanding principal balance at period end (tranche level)",
+                "aggregation_function": AggregationFunction.SUM,
                 "source_model": SourceModel.TRANCHE_BAL,
                 "source_field": "tr_end_bal_amt",
                 "group_level": GroupLevel.TRANCHE
             },
             {
                 "name": "Pass Through Rate",
-                "description": "Interest rate passed through to investors", 
-                "aggregation_function": AggregationFunction.AVG,  # Will be 1 record per tranche
+                "description": "Interest rate passed through to investors (tranche level)", 
+                "aggregation_function": AggregationFunction.AVG,
                 "source_model": SourceModel.TRANCHE_BAL,
                 "source_field": "tr_pass_thru_rte",
                 "group_level": GroupLevel.TRANCHE
             },
+        ]
+        
+        user_defined_count = 0
+        for calc_data in user_defined_calcs:
+            try:
+                request = UserDefinedCalculationCreate(**calc_data)
+                calc_service.create_user_defined_calculation(request, "system_initializer")
+                user_defined_count += 1
+            except Exception as e:
+                print(f"⚠️  Error creating user-defined calculation {calc_data['name']}: {e}")
+        
+        print(f"✅ Created {user_defined_count} user-defined calculations")
+        
+        # ===== 3. CREATE SAMPLE SYSTEM SQL CALCULATIONS =====
+        print("Creating sample system SQL calculations...")
+        
+        system_sql_calcs = [
             {
-                "name": "Interest Distribution Amount",
-                "description": "Interest distributed to investors",
-                "aggregation_function": AggregationFunction.SUM,
-                "source_model": SourceModel.TRANCHE_BAL,
-                "source_field": "tr_int_dstrb_amt",
-                "group_level": GroupLevel.TRANCHE
+                "name": "Issuer Type Classification",
+                "description": "Categorizes deals by issuer type (GSE, Government, Private)",
+                "group_level": GroupLevel.DEAL,
+                "raw_sql": """
+                SELECT 
+                    deal.dl_nbr,
+                    CASE 
+                        WHEN deal.issr_cde LIKE '%FHLMC%' OR deal.issr_cde LIKE '%FNMA%' THEN 'GSE'
+                        WHEN deal.issr_cde LIKE '%GNMA%' THEN 'Government'
+                        ELSE 'Private'
+                    END AS issuer_type
+                FROM deal
+                """,
+                "result_column_name": "issuer_type"
             },
             {
-                "name": "Principal Distribution Amount", 
-                "description": "Principal distributed to investors",
-                "aggregation_function": AggregationFunction.SUM,
-                "source_model": SourceModel.TRANCHE_BAL,
-                "source_field": "tr_prin_dstrb_amt",
-                "group_level": GroupLevel.TRANCHE
+                "name": "Deal Performance Category",
+                "description": "Performance categorization based on average pass through rate",
+                "group_level": GroupLevel.DEAL,
+                "raw_sql": """
+                SELECT 
+                    deal.dl_nbr,
+                    CASE 
+                        WHEN AVG(tranchebal.tr_pass_thru_rte) >= 0.06 THEN 'High Rate'
+                        WHEN AVG(tranchebal.tr_pass_thru_rte) >= 0.04 THEN 'Medium Rate'
+                        ELSE 'Low Rate'
+                    END AS performance_category
+                FROM deal
+                JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
+                JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr AND tranche.tr_id = tranchebal.tr_id
+                GROUP BY deal.dl_nbr
+                """,
+                "result_column_name": "performance_category"
+            },
+            {
+                "name": "Tranche Size Category",
+                "description": "Size categorization of individual tranches",
+                "group_level": GroupLevel.TRANCHE,
+                "raw_sql": """
+                SELECT 
+                    deal.dl_nbr,
+                    tranche.tr_id,
+                    CASE 
+                        WHEN tranchebal.tr_end_bal_amt >= 25000000 THEN 'Large'
+                        WHEN tranchebal.tr_end_bal_amt >= 10000000 THEN 'Medium'
+                        ELSE 'Small'
+                    END AS size_category
+                FROM deal
+                JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
+                JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr AND tranche.tr_id = tranchebal.tr_id
+                """,
+                "result_column_name": "size_category"
             }
         ]
         
-        # Create all calculations
-        all_calculations = []
+        system_sql_count = 0
+        for calc_data in system_sql_calcs:
+            try:
+                request = SystemSQLCalculationCreate(**calc_data)
+                calc_service.create_system_sql_calculation(request, "system_initializer")
+                system_sql_count += 1
+            except Exception as e:
+                print(f"⚠️  Error creating system SQL calculation {calc_data['name']}: {e}")
         
-        # Add RAW field calculations
-        for field_data in deal_raw_fields + tranche_raw_fields:
-            calc = Calculation(
-                name=field_data["name"],
-                description=field_data["description"],
-                aggregation_function=AggregationFunction.RAW,
-                source_model=field_data["source_model"],
-                source_field=field_data["source_field"],
-                group_level=field_data["group_level"],
-                created_by="system"
-            )
-            all_calculations.append(calc)
+        print(f"✅ Created {system_sql_count} system SQL calculations")
         
-        # Add aggregated calculations
-        for field_data in deal_aggregated + tranche_aggregated:
-            calc = Calculation(
-                name=field_data["name"],
-                description=field_data["description"],
-                aggregation_function=field_data["aggregation_function"],
-                source_model=field_data["source_model"],
-                source_field=field_data["source_field"],
-                group_level=field_data["group_level"],
-                weight_field=field_data.get("weight_field"),
-                created_by="system"
-            )
-            all_calculations.append(calc)
+        # ===== SUMMARY =====
+        total_calculations = auto_gen_result['generated_count'] + user_defined_count + system_sql_count
+        print(f"\n🎉 Successfully created enhanced calculation system:")
+        print(f"   📊 {auto_gen_result['generated_count']} system field calculations (auto-generated)")
+        print(f"   👤 {user_defined_count} user-defined calculations")
+        print(f"   🔧 {system_sql_count} system SQL calculations")
+        print(f"   📈 {total_calculations} total calculations")
         
-        # Bulk insert
-        config_db.add_all(all_calculations)
-        config_db.commit()
-        
-        print(f"✅ Created {len(all_calculations)} standard calculations:")
-        print(f"   📊 {len(deal_raw_fields + tranche_raw_fields)} RAW field calculations")
-        print(f"   📈 {len(deal_aggregated + tranche_aggregated)} aggregated calculations")
-        
-        # Print breakdown by group level
-        deal_count = len([c for c in all_calculations if c.group_level == GroupLevel.DEAL])
-        tranche_count = len([c for c in all_calculations if c.group_level == GroupLevel.TRANCHE])
-        print(f"   🎯 {deal_count} deal-level, {tranche_count} tranche-level calculations")
+        # Print breakdown by type
+        config_db.commit()  # Commit changes before querying counts
+        from app.calculations.dao import CalculationDAO
+        dao = CalculationDAO(config_db)
+        counts = dao.count_by_type()
+        print(f"\n📋 Final counts by type:")
+        for calc_type, count in counts.items():
+            print(f"   {calc_type}: {count}")
         
     except Exception as e:
         config_db.rollback()
-        print(f"❌ Error creating standard calculations: {e}")
+        print(f"❌ Error creating enhanced calculation system: {e}")
         import traceback
         traceback.print_exc()
         raise
@@ -294,7 +301,7 @@ def create_standard_calculations():
         config_db.close()
 
 
-# ===== SAMPLE DATA CREATION =====
+# ===== SAMPLE DATA CREATION (unchanged) =====
 
 
 def create_sample_data():
@@ -478,41 +485,6 @@ def create_sample_data():
             issuer_deals = [d for d in created_deals if d.issr_cde == issuer["issuer_code"]]
             issuer_tranches = [t for t in created_tranches if any(d.dl_nbr == t.dl_nbr for d in issuer_deals)]
             print(f"   {issuer['issuer_code']}: {len(issuer_deals)} deals, {len(issuer_tranches)} tranches")
-            
-            # Show sample deal numbers for this issuer
-            deal_numbers = [str(d.dl_nbr) for d in issuer_deals[:3]]
-            if len(issuer_deals) > 3:
-                deal_numbers.append(f"... +{len(issuer_deals) - 3} more")
-            print(f"     Sample deals: {', '.join(deal_numbers)}")
-
-        # Highlight the high-tranche deals for UI testing
-        print(f"\n🎯 High-tranche deals for UI testing:")
-        complex_deals = [d for d in created_deals if d.issr_cde == "COMPLEX24"]
-        for deal in complex_deals:
-            deal_tranches = [t for t in created_tranches if t.dl_nbr == deal.dl_nbr]
-            print(f"   Deal {deal.dl_nbr} ({deal.cdi_file_nme}): {len(deal_tranches)} tranches")
-            # Show first few and last few tranche IDs as a preview
-            tranche_ids = [t.tr_id for t in deal_tranches]
-            if len(tranche_ids) > 8:
-                preview = ", ".join(tranche_ids[:4]) + f" ... {len(tranche_ids) - 8} more ... " + ", ".join(tranche_ids[-4:])
-            else:
-                preview = ", ".join(tranche_ids)
-            print(f"     Tranches: {preview}")
-
-        # Print deal number range
-        print(f"\n📋 Deal number range: {min(d.dl_nbr for d in created_deals)} - {max(d.dl_nbr for d in created_deals)}")
-        
-        # Print unique tranche IDs by issuer
-        print(f"\n📈 Tranche patterns by issuer:")
-        for issuer in issuers_config:
-            issuer_deals = [d for d in created_deals if d.issr_cde == issuer["issuer_code"]]
-            issuer_tranches = [t for t in created_tranches if any(d.dl_nbr == t.dl_nbr for d in issuer_deals)]
-            tranche_ids = sorted(set(t.tr_id for t in issuer_tranches))
-            if len(tranche_ids) > 10:
-                preview = ", ".join(tranche_ids[:8]) + f" ... +{len(tranche_ids) - 8} more"
-            else:
-                preview = ", ".join(tranche_ids)
-            print(f"   {issuer['issuer_code']}: {preview}")
 
     except Exception as e:
         dw_db.rollback()
@@ -529,7 +501,7 @@ def create_sample_data():
 
 def initialize_databases(force_recreate: bool = False):
     """Initialize both databases with tables, calculations, and sample data."""
-    print("Initializing dual database system...")
+    print("Initializing dual database system with enhanced calculation support...")
 
     if force_recreate:
         print("🔄 Force recreate mode: Dropping existing tables...")
@@ -538,13 +510,13 @@ def initialize_databases(force_recreate: bool = False):
     # Create all tables
     create_all_tables()
 
-    # Create standard calculations (must come before sample data)
+    # Create enhanced calculation system (must come before sample data)
     create_standard_calculations()
 
     # Create sample data for development
     create_sample_data()
 
-    print("Database initialization complete!")
+    print("Enhanced database initialization complete! 🎉")
 
 
 if __name__ == "__main__":

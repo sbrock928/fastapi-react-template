@@ -1,20 +1,35 @@
-# app/features/calculations/schemas.py
-"""Pydantic schemas for refactored calculations API"""
+# app/calculations/schemas.py
+"""Updated Pydantic schemas for different calculation types."""
 
-from pydantic import BaseModel, Field
-from typing import Optional
+from pydantic import BaseModel, Field, validator
+from typing import Optional, Union
 from datetime import datetime
-from .models import AggregationFunction, SourceModel, GroupLevel
+from .models import CalculationType, AggregationFunction, SourceModel, GroupLevel
 
-class CalculationCreateRequest(BaseModel):
-    """Request model for creating calculations"""
+# Base schemas
+class CalculationBase(BaseModel):
+    """Base schema for all calculations."""
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
+    group_level: GroupLevel
+
+    class Config:
+        from_attributes = True
+
+# User Defined Calculation Schemas
+class UserDefinedCalculationCreate(CalculationBase):
+    """Schema for creating user-defined calculations."""
     aggregation_function: AggregationFunction
     source_model: SourceModel
     source_field: str = Field(..., min_length=1, max_length=100)
-    group_level: GroupLevel
-    weight_field: Optional[str] = Field(None, max_length=100, description="Required for weighted averages")
+    weight_field: Optional[str] = Field(None, max_length=100)
+    
+    @validator('weight_field')
+    def validate_weight_field_for_weighted_avg(cls, v, values):
+        """Validate weight field is provided for weighted averages."""
+        if values.get('aggregation_function') == AggregationFunction.WEIGHTED_AVG and not v:
+            raise ValueError('weight_field is required for weighted average calculations')
+        return v
 
     class Config:
         json_schema_extra = {
@@ -28,19 +43,173 @@ class CalculationCreateRequest(BaseModel):
             }
         }
 
+# System Field Calculation Schemas
+class SystemFieldCalculationCreate(CalculationBase):
+    """Schema for creating system field calculations."""
+    source_model: SourceModel
+    field_name: str = Field(..., min_length=1, max_length=100)
+    field_type: str = Field(..., min_length=1, max_length=50)  # 'string', 'number', 'currency', etc.
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "name": "Deal Number",
+                "description": "Unique deal identifier",
+                "source_model": "Deal",
+                "field_name": "dl_nbr",
+                "field_type": "number",
+                "group_level": "deal"
+            }
+        }
+
+# System SQL Calculation Schemas
+class SystemSQLCalculationCreate(CalculationBase):
+    """Schema for creating system SQL calculations."""
+    raw_sql: str = Field(..., min_length=10)
+    result_column_name: str = Field(..., min_length=1, max_length=100)
+    
+    @validator('result_column_name')
+    def validate_result_column_name(cls, v):
+        """Validate result column name format."""
+        import re
+        if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', v):
+            raise ValueError("result_column_name must be a valid SQL identifier")
+        return v
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "name": "Issuer Type Classification",
+                "description": "Categorizes deals by issuer type",
+                "raw_sql": "SELECT deal.dl_nbr, CASE WHEN deal.issr_cde = 'FHLMC' THEN 'GSE' ELSE 'Other' END AS issuer_type FROM deal",
+                "result_column_name": "issuer_type",
+                "group_level": "deal"
+            }
+        }
+
+# Union type for creation requests
+CalculationCreateRequest = Union[
+    UserDefinedCalculationCreate,
+    SystemFieldCalculationCreate,
+    SystemSQLCalculationCreate
+]
+
+# Response schemas
 class CalculationResponse(BaseModel):
-    """Response model for calculation definitions"""
+    """Unified response schema for all calculation types."""
     id: int
     name: str
     description: Optional[str]
-    aggregation_function: AggregationFunction
-    source_model: SourceModel
-    source_field: str
+    calculation_type: CalculationType
     group_level: GroupLevel
-    weight_field: Optional[str]
+    is_system_managed: bool
+    
+    # User-defined calculation fields
+    aggregation_function: Optional[AggregationFunction] = None
+    source_model: Optional[SourceModel] = None
+    source_field: Optional[str] = None
+    weight_field: Optional[str] = None
+    
+    # System field calculation fields
+    field_name: Optional[str] = None
+    field_type: Optional[str] = None
+    
+    # System SQL calculation fields
+    raw_sql: Optional[str] = None
+    result_column_name: Optional[str] = None
+    
+    # Metadata
     created_at: datetime
     updated_at: datetime
     created_by: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+# Simplified schemas for specific types
+class UserDefinedCalculationResponse(CalculationBase):
+    """Response schema specifically for user-defined calculations."""
+    id: int
+    calculation_type: CalculationType = CalculationType.USER_DEFINED
+    aggregation_function: AggregationFunction
+    source_model: SourceModel
+    source_field: str
+    weight_field: Optional[str] = None
+    is_system_managed: bool = False
+    created_at: datetime
+    updated_at: datetime
+    created_by: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+class SystemFieldCalculationResponse(CalculationBase):
+    """Response schema specifically for system field calculations."""
+    id: int
+    calculation_type: CalculationType = CalculationType.SYSTEM_FIELD
+    source_model: SourceModel
+    field_name: str
+    field_type: str
+    is_system_managed: bool = True
+    created_at: datetime
+    updated_at: datetime
+    created_by: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+class SystemSQLCalculationResponse(CalculationBase):
+    """Response schema specifically for system SQL calculations."""
+    id: int
+    calculation_type: CalculationType = CalculationType.SYSTEM_SQL
+    raw_sql: str
+    result_column_name: str
+    is_system_managed: bool = True
+    created_at: datetime
+    updated_at: datetime
+    created_by: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+# Update schemas for editing
+class UserDefinedCalculationUpdate(BaseModel):
+    """Update schema for user-defined calculations."""
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    aggregation_function: Optional[AggregationFunction] = None
+    source_model: Optional[SourceModel] = None
+    source_field: Optional[str] = Field(None, min_length=1, max_length=100)
+    weight_field: Optional[str] = Field(None, max_length=100)
+    group_level: Optional[GroupLevel] = None
+
+    class Config:
+        from_attributes = True
+
+# System calculations should not be updatable by users
+class SystemCalculationUpdate(BaseModel):
+    """Limited update schema for system calculations (admin use only)."""
+    description: Optional[str] = Field(None, max_length=500)
+    is_active: Optional[bool] = None
+
+    class Config:
+        from_attributes = True
+
+# Available calculation schema for reporting (simplified)
+class AvailableCalculation(BaseModel):
+    """Schema for available calculations that can be selected for reports."""
+    id: int
+    name: str
+    description: Optional[str] = None
+    calculation_type: CalculationType
+    group_level: GroupLevel
+    category: str
+    is_default: bool = False
+    is_system_managed: bool
+    
+    # Display fields (computed)
+    display_type: str  # "User Defined (SUM)", "System Field (number)", "System SQL"
+    source_description: str  # "Deal.dl_nbr", "Custom SQL (issuer_type)", etc.
 
     class Config:
         from_attributes = True
