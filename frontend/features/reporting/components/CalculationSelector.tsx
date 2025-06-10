@@ -23,8 +23,27 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
   // Validation logic to check if a calculation is compatible with the current scope
   const isCalculationCompatible = (calc: AvailableCalculation): boolean => {
     if (scope === 'TRANCHE') {
-      // Tranche-level reports can include any calculation (deal or tranche level)
-      return true;
+      // Tranche-level reports should only include:
+      // 1. Tranche-level calculations (group_level === 'tranche')
+      // 2. RAW fields from Deal, Tranche, or TrancheBal models
+      // 3. Aggregated calculations that are designed for tranche-level aggregation
+      
+      if (calc.group_level === 'tranche') {
+        return true; // Tranche-level calculations are OK for tranche reports
+      }
+      
+      if (calc.aggregation_function === 'RAW') {
+        // RAW fields: allow fields from any model in tranche-level reports
+        return true;
+      }
+      
+      // For aggregated calculations, only allow those designed for tranche-level
+      if (calc.aggregation_function !== 'RAW' && calc.group_level === 'tranche') {
+        return true;
+      }
+      
+      // Don't allow deal-level calculations in tranche reports
+      return false;
     }
     
     if (scope === 'DEAL') {
@@ -62,6 +81,16 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
       
       if (calc.group_level === 'tranche') {
         return `This tranche-level calculation would create multiple rows per deal.`;
+      }
+    }
+    
+    if (scope === 'TRANCHE') {
+      if (calc.group_level === 'deal') {
+        return `This deal-level calculation is designed for deal-level aggregation and not appropriate for tranche-level reports.`;
+      }
+      
+      if (calc.aggregation_function !== 'RAW' && calc.group_level !== 'tranche') {
+        return `This aggregated calculation is not designed for tranche-level reporting.`;
       }
     }
     
@@ -341,6 +370,22 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
               <li><strong>Raw Tranche/TrancheBal fields:</strong> Would show individual tranche data, creating multiple rows per deal</li>
               <li><strong>Tranche-level calculations:</strong> Designed to aggregate at tranche level, not deal level</li>
               <li><strong>Solution:</strong> Use deal-level aggregated calculations instead (SUM, AVG, etc.)</li>
+            </ul>
+          </details>
+        </div>
+      )}
+
+      {scope === 'TRANCHE' && incompatibleCalculations.length > 0 && (
+        <div className="alert alert-warning mb-3">
+          <i className="bi bi-exclamation-triangle me-2"></i>
+          <strong>Tranche-Level Report Compatibility:</strong> Some calculations are not compatible with tranche-level reports 
+          because they are designed for deal-level aggregation. These have been filtered out or disabled.
+          <details className="mt-2">
+            <summary>Why are some calculations incompatible?</summary>
+            <ul className="mt-2 mb-0">
+              <li><strong>Deal-level calculations:</strong> Designed to aggregate data at the deal level, not appropriate for tranche-level analysis</li>
+              <li><strong>Deal-level custom SQL:</strong> Contains business logic specific to deal-level aggregation</li>
+              <li><strong>Solution:</strong> Use tranche-level calculations or raw fields instead</li>
             </ul>
           </details>
         </div>

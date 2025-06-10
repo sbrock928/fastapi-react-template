@@ -33,14 +33,14 @@ class ReportService:
             
         calc_dao = CalculationDAO(self.query_engine.config_db)
         
-        # Get calculations based on scope
+        # Get calculations based on scope - enforce proper scoping
         if scope == ReportScope.DEAL:
+            # Deal-level reports: only deal-level calculations
             calculations = calc_dao.get_all_calculations(group_level=GroupLevel.DEAL)
         else:
-            # For tranche scope, get both deal-level and tranche-level calculations
-            deal_calculations = calc_dao.get_all_calculations(group_level=GroupLevel.DEAL)
-            tranche_calculations = calc_dao.get_all_calculations(group_level=GroupLevel.TRANCHE)
-            calculations = deal_calculations + tranche_calculations
+            # Tranche-level reports: only tranche-level calculations
+            # Deal-level calculations should not be available for tranche reports
+            calculations = calc_dao.get_all_calculations(group_level=GroupLevel.TRANCHE)
         
         return [self._convert_to_available_calculation(calc, scope) for calc in calculations]
 
