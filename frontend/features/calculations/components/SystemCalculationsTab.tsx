@@ -34,7 +34,7 @@ const SystemCalculationsTab: React.FC<SystemCalculationsTabProps> = ({
   const systemSqlCalcs = filteredCalculations.filter(calc => calc.calculation_type === 'SYSTEM_SQL');
 
   // Dummy delete function (system calculations cannot be deleted)
-  const handleDeleteAttempt = (id: number, name: string) => {
+  const handleDeleteAttempt = (_id: number, name: string) => {
     // This will never actually delete, just show a warning
     console.warn(`Cannot delete system calculation: ${name}`);
   };
