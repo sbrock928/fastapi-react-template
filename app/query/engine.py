@@ -1,5 +1,5 @@
 # app/shared/query_engine.py
-"""Unified query engine for calculations and reports - Updated with CTE-based optimization"""
+"""Simplified query engine - single mapping-based approach for all queries"""
 
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, text, select, func
@@ -13,22 +13,21 @@ from app.datawarehouse.models import Deal, Tranche, TrancheBal
 
 
 class QueryEngine:
-    """Unified engine for all ORM query operations, execution, and SQL preview with CTE-based optimization"""
+    """Simplified unified engine using only mapping-based queries for consistency"""
     
     def __init__(self, dw_db: Session, config_db: Session):
         self.dw_db = dw_db
         self.config_db = config_db
     
-    # Core Query Building
+    # ===== SINGLE CONSOLIDATED QUERY METHOD =====
     def build_consolidated_query(
         self, 
-        deal_numbers: List[int], 
-        tranche_ids: List[str], 
+        deal_tranche_map: Dict[int, List[str]],
         cycle_code: int, 
         calculations: List["Calculation"], 
         aggregation_level: str
     ):
-        """Build the consolidated query using CTEs for optimal performance"""
+        """Build consolidated query using deal-tranche mapping (now the only method!)"""
         
         # Separate raw fields from aggregated calculations
         raw_calculations = [calc for calc in calculations if calc.is_raw_field()]
@@ -38,9 +37,12 @@ class QueryEngine:
         if not calculations:
             return self.dw_db.query().filter(False)  # Empty query
         
-        # Build base CTE with all required fields
+        # Build base CTE with deal-tranche mapping
         base_cte = self._build_base_cte(
-            deal_numbers, tranche_ids, cycle_code, calculations, aggregation_level
+            deal_tranche_map=deal_tranche_map,
+            cycle_code=cycle_code, 
+            calculations=calculations, 
+            aggregation_level=aggregation_level
         )
         
         # If we only have raw fields, return the base CTE directly
@@ -60,12 +62,10 @@ class QueryEngine:
     
     def _build_base_cte(
         self,
-        deal_numbers: List[int],
-        tranche_ids: List[str], 
+        deal_tranche_map: Dict[int, List[str]],
         cycle_code: int,
         calculations: List["Calculation"],
-        aggregation_level: str,
-        deal_tranche_map: Optional[Dict[int, List[str]]] = None
+        aggregation_level: str
     ):
         """Build the base CTE with filtered dataset and all required fields"""
         
@@ -127,7 +127,7 @@ class QueryEngine:
         filter_conditions = [TrancheBal.cycle_cde == cycle_code]
         
         # Build optimized deal-specific tranche filters
-        if deal_tranche_map and Tranche in required_models:
+        if Tranche in required_models and deal_tranche_map:
             # Separate deals into two categories for SQL optimization:
             # 1. Deals with specific tranche selections (need explicit filtering)
             # 2. Deals with all tranches (can use simple deal filter)
@@ -183,10 +183,8 @@ class QueryEngine:
                 # Fallback if no valid conditions
                 filter_conditions.append(Deal.dl_nbr.in_(list(deal_tranche_map.keys())))
         else:
-            # Simple filtering when no deal-tranche mapping provided (backward compatibility)
-            filter_conditions.append(Deal.dl_nbr.in_(deal_numbers))
-            if Tranche in required_models:
-                filter_conditions.append(Tranche.tr_id.in_(tranche_ids))
+            # Simple deal filtering when no tranche model needed
+            filter_conditions.append(Deal.dl_nbr.in_(list(deal_tranche_map.keys())))
         
         # Apply all filter conditions together using and_()
         base_query = base_query.filter(and_(*filter_conditions))
@@ -350,175 +348,33 @@ class QueryEngine:
         """Get normalized column name for calculation"""
         return calc.name.lower().replace(" ", "_").replace("-", "_")
     
-    def _build_single_calculation_query(
-        self,
-        calculation: "Calculation",
-        deal_numbers: List[int],
-        tranche_ids: List[str],
-        cycle_code: int,
-        aggregation_level: str
-    ):
-        """Build a clean, direct query for single calculation preview (handles both raw and aggregated)"""
-        
-        # For raw fields, build a simple select query
-        if calculation.is_raw_field():
-            if aggregation_level == "tranche":
-                query = self.dw_db.query(
-                    Deal.dl_nbr.label('deal_number'),
-                    Tranche.tr_id.label('tranche_id'),
-                    TrancheBal.cycle_cde.label('cycle_code'),
-                    calculation.get_sqlalchemy_function().label(calculation.name)
-                )
-            else:
-                query = self.dw_db.query(
-                    Deal.dl_nbr.label('deal_number'),
-                    TrancheBal.cycle_cde.label('cycle_code'),
-                    calculation.get_sqlalchemy_function().label(calculation.name)
-                )
-        else:
-            # For aggregated fields, build aggregated query
-            if aggregation_level == "tranche":
-                query = self.dw_db.query(
-                    Deal.dl_nbr.label('deal_number'),
-                    Tranche.tr_id.label('tranche_id'),
-                    TrancheBal.cycle_cde.label('cycle_code'),
-                    calculation.get_sqlalchemy_function().label(calculation.name)
-                )
-            else:
-                query = self.dw_db.query(
-                    Deal.dl_nbr.label('deal_number'),
-                    TrancheBal.cycle_cde.label('cycle_code'),
-                    calculation.get_sqlalchemy_function().label(calculation.name)
-                )
-        
-        # Add required joins based on calculation's source model
-        query = query.select_from(Deal)
-        required_models = calculation.get_required_models()
-        
-        if Tranche in required_models:
-            query = query.join(Tranche, Deal.dl_nbr == Tranche.dl_nbr)
-        
-        if TrancheBal in required_models:
-            query = query.join(TrancheBal, and_(
-                Tranche.dl_nbr == TrancheBal.dl_nbr,
-                Tranche.tr_id == TrancheBal.tr_id
-            ))
-        
-        # Apply filters
-        query = query.filter(Deal.dl_nbr.in_(deal_numbers))\
-            .filter(Tranche.tr_id.in_(tranche_ids))\
-            .filter(TrancheBal.cycle_cde == cycle_code)
-        
-        # Group by appropriate level only for aggregated calculations
-        if not calculation.is_raw_field():
-            if aggregation_level == "tranche":
-                query = query.group_by(Deal.dl_nbr, Tranche.tr_id, TrancheBal.cycle_cde)
-            else:
-                query = query.group_by(Deal.dl_nbr, TrancheBal.cycle_cde)
-        
-        return query
-    
-    # Execution Methods (unchanged)
+    # ===== EXECUTION METHODS (SIMPLIFIED) =====
     def execute_report_query(
         self,
-        deal_numbers: List[int],
-        tranche_ids: List[str], 
+        deal_tranche_map: Dict[int, List[str]],
         cycle_code: int,
         calculations: List["Calculation"],
         aggregation_level: str
     ) -> List[Any]:
         """Execute consolidated report query and return results"""
         query = self.build_consolidated_query(
-            deal_numbers, tranche_ids, cycle_code, calculations, aggregation_level
+            deal_tranche_map, cycle_code, calculations, aggregation_level
         )
         return query.all()
     
     def execute_calculation_query(
         self,
         calculation: "Calculation",
-        deal_numbers: List[int],
-        tranche_ids: List[str],
+        deal_tranche_map: Dict[int, List[str]],
         cycle_code: int,
         aggregation_level: str
     ) -> List[Any]:
         """Execute single calculation query and return results"""
         return self.execute_report_query(
-            deal_numbers, tranche_ids, cycle_code, [calculation], aggregation_level
+            deal_tranche_map, cycle_code, [calculation], aggregation_level
         )
     
-    # Execution Methods with deal-tranche mapping support
-    def execute_report_query_with_mapping(
-        self,
-        deal_tranche_map: Dict[int, List[str]],
-        cycle_code: int,
-        calculations: List["Calculation"],
-        aggregation_level: str
-    ) -> List[Any]:
-        """Execute consolidated report query with proper deal-tranche mapping"""
-        # Extract all deal numbers and tranche IDs for backward compatibility
-        deal_numbers = list(deal_tranche_map.keys())
-        all_tranche_ids = []
-        for tranches in deal_tranche_map.values():
-            all_tranche_ids.extend(tranches)
-        
-        # Build query with proper deal-tranche mapping
-        query = self.build_consolidated_query_with_mapping(
-            deal_tranche_map=deal_tranche_map,
-            cycle_code=cycle_code,
-            calculations=calculations,
-            aggregation_level=aggregation_level
-        )
-        return query.all()
-
-    def build_consolidated_query_with_mapping(
-        self, 
-        deal_tranche_map: Dict[int, List[str]],
-        cycle_code: int, 
-        calculations: List["Calculation"], 
-        aggregation_level: str
-    ):
-        """Build the consolidated query using CTEs with deal-tranche mapping"""
-        
-        # Separate raw fields from aggregated calculations
-        raw_calculations = [calc for calc in calculations if calc.is_raw_field()]
-        aggregated_calculations = [calc for calc in calculations if not calc.is_raw_field()]
-        
-        # If we have no calculations, return empty result
-        if not calculations:
-            return self.dw_db.query().filter(False)  # Empty query
-        
-        # Extract for backward compatibility
-        deal_numbers = list(deal_tranche_map.keys())
-        all_tranche_ids = []
-        for tranches in deal_tranche_map.values():
-            all_tranche_ids.extend(tranches)
-        
-        # Build base CTE with deal-tranche mapping
-        base_cte = self._build_base_cte(
-            deal_numbers=deal_numbers,
-            tranche_ids=all_tranche_ids, 
-            cycle_code=cycle_code, 
-            calculations=calculations, 
-            aggregation_level=aggregation_level,
-            deal_tranche_map=deal_tranche_map  # Pass the mapping
-        )
-        
-        # If we only have raw fields, return the base CTE directly
-        if not aggregated_calculations:
-            return self._build_raw_fields_query(base_cte, raw_calculations, aggregation_level)
-        
-        # Build calculation CTEs for aggregated calculations
-        calculation_ctes = {}
-        for calc in aggregated_calculations:
-            calc_cte = self._build_calculation_cte(base_cte, calc, aggregation_level)
-            calculation_ctes[calc.name] = calc_cte
-        
-        # Build final query that joins base CTE with calculation CTEs
-        return self._build_final_cte_query(
-            base_cte, calculation_ctes, raw_calculations, aggregated_calculations, aggregation_level
-        )
-
-    # Preview Methods
+    # ===== PREVIEW METHODS (SIMPLIFIED) =====
     def preview_calculation_sql(
         self,
         calculation: "Calculation",
@@ -527,15 +383,23 @@ class QueryEngine:
         sample_tranches: List[str] = None,
         sample_cycle: int = None
     ) -> Dict[str, Any]:
-        """Generate raw SQL preview for a single calculation (handles both raw and aggregated)"""
+        """Generate SQL preview for a single calculation using mapping approach"""
         
         # Use defaults if not provided
         sample_deals = sample_deals or [101, 102, 103]
         sample_tranches = sample_tranches or ["A", "B"]
         sample_cycle = sample_cycle or 202404
         
-        query = self._build_single_calculation_query(
-            calculation, sample_deals, sample_tranches, sample_cycle, aggregation_level
+        # Convert to mapping format - create a simple mapping for preview
+        deal_tranche_map = {}
+        for deal in sample_deals:
+            deal_tranche_map[deal] = sample_tranches  # Each deal gets the same sample tranches
+        
+        query = self.build_consolidated_query(
+            deal_tranche_map=deal_tranche_map,
+            cycle_code=sample_cycle,
+            calculations=[calculation],
+            aggregation_level=aggregation_level
         )
         
         return {
@@ -544,13 +408,12 @@ class QueryEngine:
             "calculation_type": "Raw Field" if calculation.is_raw_field() else "Aggregated Calculation",
             "generated_sql": self._compile_query_to_sql(query),
             "sample_parameters": {
-                "deals": sample_deals,
-                "tranches": sample_tranches,
+                "deal_tranche_mapping": deal_tranche_map,
                 "cycle": sample_cycle
             }
         }
     
-    def preview_report_sql_with_mapping(
+    def preview_report_sql(
         self,
         report_name: str,
         deal_tranche_map: Dict[int, List[str]],
@@ -558,10 +421,10 @@ class QueryEngine:
         calculations: List["Calculation"],
         aggregation_level: str
     ) -> Dict[str, Any]:
-        """Generate raw SQL preview for a full report with proper deal-tranche mapping"""
+        """Generate SQL preview for a full report"""
         
-        # Build and compile query using the mapping (identical to execution)
-        query = self.build_consolidated_query_with_mapping(
+        # Build and compile query using the mapping
+        query = self.build_consolidated_query(
             deal_tranche_map=deal_tranche_map,
             cycle_code=cycle_code,
             calculations=calculations,
@@ -586,7 +449,7 @@ class QueryEngine:
                 "raw_fields": raw_count,
                 "aggregated_calculations": aggregated_count
             },
-            "deal_tranche_mapping": deal_tranche_map,  # Include the mapping in response
+            "deal_tranche_mapping": deal_tranche_map,
             "sql_query": self._compile_query_to_sql(query),
             "parameters": {
                 "cycle_code": cycle_code,
@@ -595,7 +458,7 @@ class QueryEngine:
             }
         }
 
-    # Utility Methods (unchanged)
+    # ===== UTILITY METHODS =====
     def _compile_query_to_sql(self, query) -> str:
         """Compile SQLAlchemy query to raw SQL string"""
         return str(query.statement.compile(
@@ -603,7 +466,7 @@ class QueryEngine:
             compile_kwargs={"literal_binds": True}
         ))
     
-    # Data Warehouse Access Methods (unchanged)
+    # ===== DATA ACCESS METHODS =====
     def get_calculations_by_names(self, names: List[str]) -> List["Calculation"]:
         """Get calculations by names from config database"""
         from app.calculations.models import Calculation
@@ -620,7 +483,7 @@ class QueryEngine:
             Calculation.is_active == True
         ).first()
 
-    # Result Processing (unchanged)
+    # ===== RESULT PROCESSING =====
     def process_report_results(
         self, 
         results: List[Any], 

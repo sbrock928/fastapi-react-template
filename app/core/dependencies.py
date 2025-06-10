@@ -1,10 +1,10 @@
-"""Enhanced dependencies with dual database support."""
+"""Enhanced dependencies with dual database support and updated query engine import."""
 
 from typing import Annotated
 from fastapi import Depends
 from sqlalchemy.orm import Session
 from app.core.database import get_db, get_dw_db
-from app.shared.query_engine import QueryEngine
+from app.query import QueryEngine  # Updated import location
 
 # Existing dependency for config database
 SessionDep = Annotated[Session, Depends(get_db)]

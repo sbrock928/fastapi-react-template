@@ -18,7 +18,7 @@ from app.reporting.schemas import (
 )
 from app.core.dependencies import SessionDep, DWSessionDep, get_query_engine
 from app.datawarehouse.dao import DatawarehouseDAO
-from app.shared.query_engine import QueryEngine
+from app.query import QueryEngine
 
 
 router = APIRouter(prefix="/reports", tags=["reporting"])

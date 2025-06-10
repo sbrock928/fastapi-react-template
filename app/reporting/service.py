@@ -15,7 +15,7 @@ from app.datawarehouse.dao import DatawarehouseDAO
 from app.datawarehouse.schemas import DealRead, TrancheRead
 from app.calculations.dao import CalculationDAO
 from app.calculations.models import Calculation
-from app.shared.query_engine import QueryEngine
+from app.query import QueryEngine
 import time
 
 
@@ -388,7 +388,7 @@ class ReportService:
         return None
 
     async def run_saved_report(self, report_id: int, cycle_code: int) -> List[Dict[str, Any]]:
-        """Run a saved report using the QueryEngine with calculations and execution logging."""
+        """Run a saved report using the simplified QueryEngine"""
         if not self.query_engine:
             raise HTTPException(status_code=500, detail="Query engine not available")
             
@@ -400,8 +400,8 @@ class ReportService:
             # Use shared preparation logic
             deal_tranche_map, calculations = self._prepare_report_execution(report)
             
-            # Execute using QueryEngine with proper deal-tranche mapping
-            results = self.query_engine.execute_report_query_with_mapping(
+            # Execute using simplified QueryEngine - single method!
+            results = self.query_engine.execute_report_query(
                 deal_tranche_map=deal_tranche_map,
                 cycle_code=cycle_code,
                 calculations=calculations,
@@ -421,7 +421,7 @@ class ReportService:
             await self._log_execution(
                 report_id=report_id,
                 cycle_code=cycle_code,
-                executed_by="api_user",  # Could be made dynamic
+                executed_by="api_user",
                 execution_time_ms=execution_time,
                 row_count=len(processed_results),
                 success=True
@@ -447,7 +447,7 @@ class ReportService:
             raise
 
     async def preview_report_sql(self, report_id: int, cycle_code: int) -> Dict[str, Any]:
-        """Preview SQL that would be generated for a report - uses exact same logic as execution."""
+        """Preview SQL that would be generated for a report - uses simplified QueryEngine"""
         if not self.query_engine:
             raise HTTPException(status_code=500, detail="Query engine not available")
             
@@ -456,40 +456,14 @@ class ReportService:
         # Use the EXACT same preparation logic as execution
         deal_tranche_map, calculations = self._prepare_report_execution(report)
         
-        # Generate the query using the same method as execution, but extract SQL instead of executing
-        query = self.query_engine.build_consolidated_query_with_mapping(
+        # Generate the query using simplified method
+        return self.query_engine.preview_report_sql(
+            report_name=report.name,
             deal_tranche_map=deal_tranche_map,
             cycle_code=cycle_code,
             calculations=calculations,
             aggregation_level=report.scope.lower()
         )
-        
-        # Analyze the calculations
-        raw_count = sum(1 for calc in calculations if calc.is_raw_field())
-        aggregated_count = len(calculations) - raw_count
-        
-        # Extract deal numbers and tranche IDs for the response
-        deal_numbers = list(deal_tranche_map.keys())
-        all_tranche_ids = []
-        for tranches in deal_tranche_map.values():
-            all_tranche_ids.extend(tranches)
-        
-        return {
-            "template_name": report.name,
-            "aggregation_level": report.scope.lower(),
-            "calculation_summary": {
-                "total_calculations": len(calculations),
-                "raw_fields": raw_count,
-                "aggregated_calculations": aggregated_count
-            },
-            "deal_tranche_mapping": deal_tranche_map,  # Include the mapping in response
-            "sql_query": self.query_engine._compile_query_to_sql(query),
-            "parameters": {
-                "cycle_code": cycle_code,
-                "deal_numbers": deal_numbers,
-                "tranche_ids": all_tranche_ids
-            }
-        }
 
     async def get_execution_logs(self, report_id: int, limit: int = 50) -> List[Dict[str, Any]]:
         """Get execution logs for a report."""

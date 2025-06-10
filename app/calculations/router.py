@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from app.core.dependencies import get_db, get_query_engine
 from app.core.exceptions import CalculationNotFoundError, CalculationAlreadyExistsError, InvalidCalculationError
-from app.shared.query_engine import QueryEngine
+from app.query import QueryEngine
 from .service import CalculationService
 from .schemas import CalculationCreateRequest, CalculationResponse
 

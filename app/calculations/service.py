@@ -7,7 +7,7 @@ from app.core.exceptions import CalculationNotFoundError, CalculationAlreadyExis
 
 # Use TYPE_CHECKING to avoid circular imports
 if TYPE_CHECKING:
-    from app.shared.query_engine import QueryEngine
+    from app.query import QueryEngine
 
 from .dao import CalculationDAO
 from .models import Calculation, AggregationFunction, SourceModel, GroupLevel
@@ -36,7 +36,7 @@ class CalculationService:
         sample_tranches: List[str] = None,
         sample_cycle: int = None
     ) -> Dict[str, Any]:
-        """Generate SQL preview using unified query engine"""
+        """Generate SQL preview using simplified query engine"""
         if not self.query_engine:
             raise ValueError("Query engine required for SQL preview operations")
         
@@ -44,6 +44,7 @@ class CalculationService:
         if not calculation:
             raise CalculationNotFoundError(f"Calculation with ID {calc_id} not found")
         
+        # Use the simplified preview method - it handles the mapping conversion internally!
         return self.query_engine.preview_calculation_sql(
             calculation=calculation,
             aggregation_level=calculation.group_level,
@@ -51,7 +52,6 @@ class CalculationService:
             sample_tranches=sample_tranches,
             sample_cycle=sample_cycle
         )
-
     async def create_calculation(self, request: CalculationCreateRequest, user_id: str = "api_user") -> CalculationResponse:
         """Create a new calculation"""
         # Check if calculation name already exists at this group level
