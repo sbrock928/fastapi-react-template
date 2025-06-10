@@ -308,40 +308,77 @@ class QueryEngine:
         cycle_code: int, 
         aggregation_level: str
     ) -> str:
-        """Inject our filtering conditions into custom SQL."""
+        """Inject our filtering conditions into custom SQL using the same logic as base query."""
         
-        # This is a simplified implementation. In a production system, you might want to use
-        # a more sophisticated SQL parser to inject filters properly.
+        # Build the SAME deal-tranche filter conditions that are used in the base query
+        # This ensures consistency between base query and system SQL CTEs
+        filter_parts = []
         
-        # For now, we'll inject basic filters by appending WHERE conditions
-        # This assumes the SQL doesn't already have complex WHERE clauses
-        
-        deal_numbers = list(deal_tranche_map.keys())
-        deal_filter = f"deal.dl_nbr IN ({','.join(map(str, deal_numbers))})"
-        
-        # Inject cycle filter if the SQL references tranchebal
-        cycle_filter = ""
+        # Add cycle filter (always needed for tranchebal references)
         if "tranchebal" in raw_sql.lower():
-            cycle_filter = f" AND tranchebal.cycle_cde = {cycle_code}"
+            filter_parts.append(f"tranchebal.cycle_cde = {cycle_code}")
         
-        # Inject tranche filters if needed
-        tranche_filter = ""
-        if "tranche" in raw_sql.lower() and aggregation_level == "tranche":
-            # For tranche-level reports, we might need specific tranche filters
-            # This is a simplified implementation
-            all_tranches = []
-            for tranches in deal_tranche_map.values():
-                all_tranches.extend(tranches)
-            if all_tranches:
-                escaped_tranches = [f"'{t}'" for t in all_tranches]
-                tranche_filter = f" AND tranche.tr_id IN ({','.join(escaped_tranches)})"
+        # Build sophisticated deal-tranche filtering using the SAME logic as _build_deal_tranche_conditions_fixed
+        from app.datawarehouse.dao import DatawarehouseDAO
         
-        # Simple injection strategy: look for WHERE clause or add one
+        if not deal_tranche_map:
+            # If no deal mapping, just add basic deal filter
+            if filter_parts:
+                full_filter = " AND ".join(filter_parts)
+            else:
+                full_filter = "1=1"  # No filters
+        else:
+            # Get all available tranches for each deal to determine "all vs specific"
+            dw_dao = DatawarehouseDAO(self.dw_db)
+            
+            deals_with_specific_tranches = []
+            deals_with_all_tranches = []
+            
+            for dl_nbr, selected_tranches in deal_tranche_map.items():
+                if selected_tranches:
+                    # Get all available tranches for this deal
+                    all_deal_tranches = dw_dao.get_tranches_by_dl_nbr(dl_nbr)
+                    all_tranche_ids = [t.tr_id for t in all_deal_tranches]
+                    
+                    # Check if selected tranches == all available tranches
+                    if set(selected_tranches) == set(all_tranche_ids):
+                        # This deal has ALL tranches selected - no need for explicit tranche filtering
+                        deals_with_all_tranches.append(dl_nbr)
+                    else:
+                        # This deal has specific tranche selections - needs explicit filtering
+                        deals_with_specific_tranches.append((dl_nbr, selected_tranches))
+                else:
+                    # Empty list means all tranches
+                    deals_with_all_tranches.append(dl_nbr)
+            
+            # Build the EXACT SAME condition structure as the base query
+            deal_condition_parts = []
+            
+            # For deals with all tranches: simple deal filter
+            if deals_with_all_tranches:
+                deal_numbers = ','.join(map(str, deals_with_all_tranches))
+                deal_condition_parts.append(f"deal.dl_nbr IN ({deal_numbers})")
+            
+            # For deals with specific tranches: explicit deal + tranche combinations with proper parentheses
+            for dl_nbr, selected_tranches in deals_with_specific_tranches:
+                # Escape tranche IDs for SQL safety
+                escaped_tranches = ','.join(f"'{t.replace(chr(39), chr(39)+chr(39))}'" for t in selected_tranches)
+                deal_condition_parts.append(f"(deal.dl_nbr = {dl_nbr} AND tranche.tr_id IN ({escaped_tranches}))")
+            
+            # Combine deal conditions with OR (same as base query)
+            if deal_condition_parts:
+                deal_filter = "(" + " OR ".join(deal_condition_parts) + ")"
+                filter_parts.append(deal_filter)
+            
+            # Combine all filters with AND
+            full_filter = " AND ".join(filter_parts) if filter_parts else "1=1"
+        
+        # Inject the filter into the SQL
         sql_upper = raw_sql.upper()
         
         if " WHERE " in sql_upper:
             # SQL already has WHERE clause, append our conditions with AND
-            modified_sql = raw_sql + f" AND {deal_filter}{cycle_filter}{tranche_filter}"
+            modified_sql = raw_sql + f" AND {full_filter}"
         else:
             # No WHERE clause, add one
             # Find a good place to insert it (before GROUP BY, ORDER BY, etc.)
@@ -353,7 +390,7 @@ class QueryEngine:
                 if pos != -1 and pos < insert_position:
                     insert_position = pos
             
-            where_clause = f" WHERE {deal_filter}{cycle_filter}{tranche_filter}"
+            where_clause = f" WHERE {full_filter}"
             modified_sql = raw_sql[:insert_position] + where_clause + raw_sql[insert_position:]
         
         return modified_sql
