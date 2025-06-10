@@ -1,5 +1,5 @@
 // frontend/features/calculations/components/CalculationModal.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import type { 
   Calculation, 
   CalculationField, 
@@ -12,10 +12,13 @@ import {
   getPreviewFormula, 
   getScopeCompatibilityWarning, 
   getRecommendedLevel, 
-  getAvailableFields 
+  getAvailableFields,
+  validateSqlSyntax
 } from '../utils/calculationUtils';
 import { getFullSQLPreview } from '../utils/sqlPreviewUtils';
 import SqlEditor from './SqlEditor';
+import { calculationsApi } from '@/services/calculationsApi';
+import { useToast } from '@/context/ToastContext';
 
 interface CalculationModalProps {
   isOpen: boolean;
@@ -49,9 +52,9 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
   groupLevels,
   onClose,
   onSave,
-  onUpdateCalculation,
-  hasUnsavedChanges
+  onUpdateCalculation
 }) => {
+  const { showToast } = useToast();
   const [sqlValidationResult, setSqlValidationResult] = useState<any>(null);
   const [sqlValidating, setSqlValidating] = useState<boolean>(false);
 
@@ -80,6 +83,42 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
         return 'bg-warning text-dark';
       default:
         return 'bg-primary';
+    }
+  };
+
+  // Handle SQL validation for System SQL calculations
+  const handleValidateSQL = async () => {
+    if (!calculation.source_field || !calculation.weight_field || !calculation.level) {
+      showToast('Please provide SQL query, result column name, and group level before validating', 'warning');
+      return;
+    }
+
+    setSqlValidating(true);
+    try {
+      const response = await calculationsApi.validateSystemSql({
+        sql_text: calculation.source_field,
+        group_level: calculation.level,
+        result_column_name: calculation.weight_field
+      });
+
+      setSqlValidationResult(response.data.validation_result);
+      
+      if (response.data.validation_result.is_valid) {
+        showToast('SQL validation passed!', 'success');
+      } else {
+        showToast('SQL validation failed. Please check the errors below.', 'error');
+      }
+    } catch (error: any) {
+      console.error('Error validating SQL:', error);
+      const errorMessage = error.response?.data?.detail || 'Error validating SQL';
+      showToast(errorMessage, 'error');
+      setSqlValidationResult({
+        is_valid: false,
+        errors: [errorMessage],
+        warnings: []
+      });
+    } finally {
+      setSqlValidating(false);
     }
   };
 
@@ -356,6 +395,9 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
   };
 
   const renderSystemSqlForm = () => {
+    // Perform basic client-side SQL validation
+    const clientValidation = calculation.source_field ? validateSqlSyntax(calculation.source_field) : null;
+
     return (
       <>
         <div className="alert alert-warning">
@@ -420,11 +462,8 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
               <button
                 type="button"
                 className="btn btn-outline-info w-100"
-                disabled={!calculation.source_field || sqlValidating} // Using source_field to store SQL
-                onClick={() => {
-                  // Validate SQL function would go here
-                  console.log('Validating SQL:', calculation.source_field);
-                }}
+                disabled={!calculation.source_field || sqlValidating}
+                onClick={handleValidateSQL}
               >
                 {sqlValidating ? (
                   <>
@@ -445,7 +484,13 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
             <label className="form-label">SQL Query *</label>
             <SqlEditor
               value={calculation.source_field || ''} // Using source_field to store SQL
-              onChange={(sql) => onUpdateCalculation({ source_field: sql })}
+              onChange={(sql) => {
+                onUpdateCalculation({ source_field: sql });
+                // Clear previous validation when SQL changes
+                if (sqlValidationResult) {
+                  setSqlValidationResult(null);
+                }
+              }}
               groupLevel={calculation.level}
               disabled={isSaving}
               placeholder={`-- Example for ${calculation.level} level:
@@ -460,13 +505,33 @@ FROM deal${calculation.level === 'tranche' ? '\nJOIN tranche ON deal.dl_nbr = tr
             />
           </div>
 
-          {/* Validation Results */}
+          {/* Client-side SQL validation feedback */}
+          {clientValidation && !clientValidation.isValid && (
+            <div className="col-12">
+              <div className="alert alert-warning">
+                <h6 className="alert-heading">
+                  <i className="bi bi-exclamation-triangle me-2"></i>
+                  Basic SQL Issues Detected
+                </h6>
+                <ul className="mb-0">
+                  {clientValidation.errors.map((error: string, index: number) => (
+                    <li key={index}>{error}</li>
+                  ))}
+                </ul>
+                <small className="text-muted mt-2 d-block">
+                  Fix these issues before server validation.
+                </small>
+              </div>
+            </div>
+          )}
+
+          {/* Server validation results */}
           {sqlValidationResult && (
             <div className="col-12">
               <div className={`alert ${sqlValidationResult.is_valid ? 'alert-success' : 'alert-danger'}`}>
                 <h6 className="alert-heading">
                   <i className={`bi ${sqlValidationResult.is_valid ? 'bi-check-circle' : 'bi-exclamation-triangle'} me-2`}></i>
-                  SQL Validation {sqlValidationResult.is_valid ? 'Passed' : 'Failed'}
+                  Server SQL Validation {sqlValidationResult.is_valid ? 'Passed' : 'Failed'}
                 </h6>
                 {!sqlValidationResult.is_valid && sqlValidationResult.errors && (
                   <ul className="mb-0">
@@ -598,4 +663,4 @@ FROM deal${calculation.level === 'tranche' ? '\nJOIN tranche ON deal.dl_nbr = tr
   );
 };
 
-export default CalculationModal
+export default CalculationModal;

@@ -131,241 +131,232 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
     }
   };
 
+  // CSS styles as a constant object
+  const styles = {
+    container: {
+      position: 'relative' as const,
+      border: '2px solid #dee2e6',
+      borderRadius: '8px',
+      overflow: 'hidden' as const,
+      background: '#1e1e1e',
+      fontFamily: '"Consolas", "Monaco", "Courier New", monospace',
+      fontSize: '14px',
+      lineHeight: 1.4,
+      ...(focused && {
+        borderColor: '#0d6efd',
+        boxShadow: '0 0 0 0.2rem rgba(13, 110, 253, 0.25)'
+      }),
+      ...(disabled && {
+        opacity: 0.6,
+        pointerEvents: 'none' as const
+      })
+    },
+    wrapper: {
+      position: 'relative' as const,
+      height: height
+    },
+    highlight: {
+      position: 'absolute' as const,
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      padding: '12px',
+      margin: 0,
+      border: 'none',
+      background: 'transparent',
+      color: 'transparent',
+      whiteSpace: 'pre-wrap' as const,
+      wordWrap: 'break-word' as const,
+      overflow: 'auto' as const,
+      pointerEvents: 'none' as const,
+      fontFamily: 'inherit',
+      fontSize: 'inherit',
+      lineHeight: 'inherit'
+    },
+    textarea: {
+      position: 'absolute' as const,
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      width: '100%',
+      height: '100%',
+      padding: '12px',
+      margin: 0,
+      border: 'none',
+      background: 'transparent',
+      color: '#d4d4d4',
+      whiteSpace: 'pre-wrap' as const,
+      wordWrap: 'break-word' as const,
+      overflow: 'auto' as const,
+      resize: 'none' as const,
+      outline: 'none',
+      fontFamily: 'inherit',
+      fontSize: 'inherit',
+      lineHeight: 'inherit'
+    },
+    toolbar: {
+      background: '#2d2d30',
+      borderBottom: '1px solid #404040',
+      padding: '8px 12px',
+      display: 'flex',
+      justifyContent: 'space-between' as const,
+      alignItems: 'center',
+      color: '#cccccc',
+      fontSize: '12px'
+    },
+    status: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '12px'
+    },
+    actions: {
+      display: 'flex',
+      gap: '8px'
+    },
+    btn: {
+      background: '#0e639c',
+      border: 'none',
+      color: 'white',
+      padding: '4px 8px',
+      borderRadius: '4px',
+      cursor: 'pointer',
+      fontSize: '11px'
+    },
+    btnHover: {
+      background: '#1177bb'
+    },
+    btnDisabled: {
+      background: '#505050',
+      cursor: 'not-allowed'
+    }
+  };
+
   return (
-    <div className="sql-editor-container">
-      <style jsx>{`
-        .sql-editor-container {
-          position: relative;
-          border: 2px solid #dee2e6;
-          border-radius: 8px;
-          overflow: hidden;
-          background: #1e1e1e;
-          font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-          font-size: 14px;
-          line-height: 1.4;
-        }
-
-        .sql-editor-container.focused {
-          border-color: #0d6efd;
-          box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
-        }
-
-        .sql-editor-container.disabled {
-          opacity: 0.6;
-          pointer-events: none;
-        }
-
-        .sql-editor-wrapper {
-          position: relative;
-          height: ${height};
-        }
-
-        .sql-highlight {
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          padding: 12px;
-          margin: 0;
-          border: none;
-          background: transparent;
-          color: transparent;
-          white-space: pre-wrap;
-          word-wrap: break-word;
-          overflow: auto;
-          pointer-events: none;
-          font-family: inherit;
-          font-size: inherit;
-          line-height: inherit;
-        }
-
-        .sql-textarea {
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          width: 100%;
-          height: 100%;
-          padding: 12px;
-          margin: 0;
-          border: none;
-          background: transparent;
-          color: #d4d4d4;
-          white-space: pre-wrap;
-          word-wrap: break-word;
-          overflow: auto;
-          resize: none;
-          outline: none;
-          font-family: inherit;
-          font-size: inherit;
-          line-height: inherit;
-        }
-
-        .sql-textarea::placeholder {
-          color: #6c757d;
-        }
-
-        /* Syntax highlighting styles */
-        :global(.sql-keyword) {
-          color: #569cd6;
-          font-weight: bold;
-        }
-
-        :global(.sql-function) {
-          color: #dcdcaa;
-          font-weight: bold;
-        }
-
-        :global(.sql-table) {
-          color: #4ec9b0;
-          font-weight: bold;
-        }
-
-        :global(.sql-field) {
-          color: #9cdcfe;
-        }
-
-        :global(.sql-string) {
-          color: #ce9178;
-        }
-
-        :global(.sql-number) {
-          color: #b5cea8;
-        }
-
-        :global(.sql-comment) {
-          color: #6a9955;
-          font-style: italic;
-        }
-
-        :global(.line-number) {
-          color: #858585;
-          margin-right: 12px;
-          display: inline-block;
-          width: 30px;
-          text-align: right;
-          user-select: none;
-        }
-
-        .sql-toolbar {
-          background: #2d2d30;
-          border-bottom: 1px solid #404040;
-          padding: 8px 12px;
-          display: flex;
-          justify-content: between;
-          align-items: center;
-          color: #cccccc;
-          font-size: 12px;
-        }
-
-        .sql-status {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-
-        .sql-actions {
-          display: flex;
-          gap: 8px;
-        }
-
-        .sql-btn {
-          background: #0e639c;
-          border: none;
-          color: white;
-          padding: 4px 8px;
-          border-radius: 4px;
-          cursor: pointer;
-          font-size: 11px;
-        }
-
-        .sql-btn:hover {
-          background: #1177bb;
-        }
-
-        .sql-btn:disabled {
-          background: #505050;
-          cursor: not-allowed;
-        }
-      `}</style>
-
-      {/* Toolbar */}
-      <div className="sql-toolbar">
-        <div className="sql-status">
-          <span>SQL Editor</span>
-          <span className="text-muted">•</span>
-          <span>Target: {groupLevel} Level</span>
-          {value && (
-            <>
-              <span className="text-muted">•</span>
-              <span>{value.split('\n').length} lines</span>
-            </>
-          )}
+    <div>
+      {/* Global CSS for syntax highlighting */}
+      <style dangerouslySetInnerHTML={{
+        __html: `
+          .sql-keyword {
+            color: #569cd6;
+            font-weight: bold;
+          }
+          .sql-function {
+            color: #dcdcaa;
+            font-weight: bold;
+          }
+          .sql-table {
+            color: #4ec9b0;
+            font-weight: bold;
+          }
+          .sql-field {
+            color: #9cdcfe;
+          }
+          .sql-string {
+            color: #ce9178;
+          }
+          .sql-number {
+            color: #b5cea8;
+          }
+          .sql-comment {
+            color: #6a9955;
+            font-style: italic;
+          }
+          .line-number {
+            color: #858585;
+            margin-right: 12px;
+            display: inline-block;
+            width: 30px;
+            text-align: right;
+            user-select: none;
+          }
+        `
+      }} />
+      
+      <div style={styles.container}>
+        {/* Toolbar */}
+        <div style={styles.toolbar}>
+          <div style={styles.status}>
+            <span>SQL Editor</span>
+            <span className="text-muted">•</span>
+            <span>Target: {groupLevel} Level</span>
+            {value && (
+              <>
+                <span className="text-muted">•</span>
+                <span>{value.split('\n').length} lines</span>
+              </>
+            )}
+          </div>
+          <div style={styles.actions}>
+            <button
+              style={{
+                ...styles.btn,
+                ...(disabled || !value ? styles.btnDisabled : {})
+              }}
+              type="button"
+              onClick={() => {
+                const formatted = value
+                  .replace(/\bSELECT\b/gi, '\nSELECT')
+                  .replace(/\bFROM\b/gi, '\nFROM')
+                  .replace(/\bWHERE\b/gi, '\nWHERE')
+                  .replace(/\bJOIN\b/gi, '\nJOIN')
+                  .replace(/\bGROUP BY\b/gi, '\nGROUP BY')
+                  .replace(/\bORDER BY\b/gi, '\nORDER BY')
+                  .trim();
+                onChange(formatted);
+              }}
+              disabled={disabled || !value}
+            >
+              Format
+            </button>
+            <button
+              style={{
+                ...styles.btn,
+                ...(disabled || !value ? styles.btnDisabled : {})
+              }}
+              type="button"
+              onClick={() => onChange('')}
+              disabled={disabled || !value}
+            >
+              Clear
+            </button>
+          </div>
         </div>
-        <div className="sql-actions">
-          <button
-            className="sql-btn"
-            type="button"
-            onClick={() => {
-              const formatted = value
-                .replace(/\bSELECT\b/gi, '\nSELECT')
-                .replace(/\bFROM\b/gi, '\nFROM')
-                .replace(/\bWHERE\b/gi, '\nWHERE')
-                .replace(/\bJOIN\b/gi, '\nJOIN')
-                .replace(/\bGROUP BY\b/gi, '\nGROUP BY')
-                .replace(/\bORDER BY\b/gi, '\nORDER BY')
-                .trim();
-              onChange(formatted);
-            }}
-            disabled={disabled || !value}
-          >
-            Format
-          </button>
-          <button
-            className="sql-btn"
-            type="button"
-            onClick={() => onChange('')}
-            disabled={disabled || !value}
-          >
-            Clear
-          </button>
+
+        {/* Editor */}
+        <div style={styles.wrapper}>
+          <div
+            ref={highlightRef}
+            style={styles.highlight}
+            dangerouslySetInnerHTML={{ __html: highlightSql(value) }}
+          />
+          <textarea
+            ref={textareaRef}
+            style={styles.textarea}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            onScroll={handleScroll}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            onKeyDown={handleKeyDown}
+            disabled={disabled}
+            placeholder={placeholder}
+            spellCheck={false}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+          />
         </div>
-      </div>
 
-      {/* Editor */}
-      <div className={`sql-editor-wrapper ${focused ? 'focused' : ''} ${disabled ? 'disabled' : ''}`}>
-        <div
-          ref={highlightRef}
-          className="sql-highlight"
-          dangerouslySetInnerHTML={{ __html: highlightSql(value) }}
-        />
-        <textarea
-          ref={textareaRef}
-          className="sql-textarea"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onScroll={handleScroll}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          onKeyDown={handleKeyDown}
-          disabled={disabled}
-          placeholder={placeholder}
-          spellCheck={false}
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-        />
-      </div>
-
-      {/* Footer with tips */}
-      <div className="sql-toolbar">
-        <div className="sql-status">
-          <small className="text-muted">
-            <i className="bi bi-lightbulb me-1"></i>
-            Tips: Use Tab for indentation, Ctrl+A to select all, include required fields for {groupLevel} level
-          </small>
+        {/* Footer with tips */}
+        <div style={styles.toolbar}>
+          <div style={styles.status}>
+            <small className="text-muted">
+              <i className="bi bi-lightbulb me-1"></i>
+              Tips: Use Tab for indentation, Ctrl+A to select all, include required fields for {groupLevel} level
+            </small>
+          </div>
         </div>
       </div>
     </div>
