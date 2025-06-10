@@ -9,12 +9,12 @@ import {
 } from './hooks';
 import {
   ReportConfigurationStep,
-  DealSelectionStep,
-  TrancheSelectionStep,
-  CalculationSelectionStep, // Changed from FieldSelectionStep
+  CombinedDealTrancheSelectionStep, // New combined component
+  CalculationSelectionStep,
   ReviewConfigurationStep
 } from './wizardSteps';
 import WizardNavigation from './WizardNavigation';
+import { transformFormDataForApi } from './utils/reportBusinessLogic'; // Import the new function
 import type { ReportConfig, TrancheReportSummary } from '@/types/reporting';
 
 interface ReportBuilderWizardProps {
@@ -99,22 +99,36 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     setCurrentWizardStep(currentStep);
   }, [currentStep]);
 
-  // Handle deal selection
-  const handleDealToggle = (dlNbr: number) => {
+  // Handle deal addition (new method for combined component)
+  const handleDealAdd = (dlNbr: number) => {
     setSelectedDeals((prev: number[]) => {
-      if (prev.includes(dlNbr)) {
-        // Remove deal and its tranches
-        const newSelected = prev.filter((id: number) => id !== dlNbr);
-        setSelectedTranches((prevTranches: Record<number, string[]>) => {
-          const newTranches = { ...prevTranches };
-          delete newTranches[dlNbr];
-          return newTranches;
-        });
-        return newSelected;
-      } else {
+      if (!prev.includes(dlNbr)) {
         return [...prev, dlNbr];
       }
+      return prev;
     });
+  };
+
+  // Handle deal removal (new method for combined component)  
+  const handleDealRemove = (dlNbr: number) => {
+    setSelectedDeals((prev: number[]) => {
+      const newSelected = prev.filter((id: number) => id !== dlNbr);
+      // Also remove tranches for this deal
+      setSelectedTranches((prevTranches: Record<number, string[]>) => {
+        const newTranches = { ...prevTranches };
+        delete newTranches[dlNbr];
+        return newTranches;
+      });
+      return newSelected;
+    });
+  };
+
+  // Handle deselect all tranches for a deal (new method)
+  const handleDeselectAllTranches = (dlNbr: number) => {
+    setSelectedTranches((prev: Record<number, string[]>) => ({
+      ...prev,
+      [dlNbr]: []
+    }));
   };
 
   // Handle tranche selection
@@ -143,8 +157,8 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
 
   // Save or update report configuration
   const saveReportConfig = async () => {
-    // Final validation before saving
-    const finalValidation = validateSpecificStep(5);
+    // Final validation before saving - now step 4 instead of step 5
+    const finalValidation = validateSpecificStep(4);
     if (!finalValidation.isValid) {
       finalValidation.errors.forEach((error: any) => {
         showToast(error.message, 'error');
@@ -155,33 +169,16 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     setLoading(true);
     
     try {
-      // Updated payload structure - removed redundant dl_nbr from tranches
-      const transformedSelectedDeals = selectedDeals.map((dlNbr: number) => ({
-        dl_nbr: dlNbr,
-        selected_tranches: (selectedTranches[dlNbr] || []).map((trId: string) => ({
-          tr_id: trId  // Removed dl_nbr - backend will populate from parent deal
-        }))
-      }));
+      // Use the smart business logic function that only includes tranches when explicitly needed
+      const transformedData = transformFormDataForApi(formState, tranches);
 
       if (isEditMode && editingReport?.id) {
-        const updateData = {
-          name: reportName,
-          description: reportDescription || undefined,
-          scope: reportScope as 'DEAL' | 'TRANCHE',
-          selected_deals: transformedSelectedDeals,
-          selected_calculations: selectedCalculations
-        };
-
-        await reportingApi.updateReport(editingReport.id, updateData);
+        await reportingApi.updateReport(editingReport.id, transformedData);
         showToast('Report configuration updated successfully!', 'success');
       } else {
         const reportConfig = {
-          name: reportName,
-          description: reportDescription || undefined,
-          scope: reportScope as 'DEAL' | 'TRANCHE',
-          created_by: 'current_user',
-          selected_deals: transformedSelectedDeals,
-          selected_calculations: selectedCalculations
+          ...transformedData,
+          created_by: 'current_user'
         };
 
         await reportingApi.createReport(reportConfig);
@@ -223,37 +220,38 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     }
   };
 
-  // Auto-select all tranches when they are loaded (only for new reports)
+  // Auto-select tranches based on report scope (updated logic for smart defaults)
   React.useEffect(() => {
     // Only auto-select for new reports, not when editing
     if (!isEditMode && Object.keys(tranches).length > 0) {
       setSelectedTranches((prev: Record<number, string[]>) => {
-        const autoSelectedTranches: Record<number, string[]> = {};
+        const newSelectedTranches: Record<number, string[]> = {};
         let hasChanges = false;
         
-        // Auto-select all tranches for each deal only if no selections exist yet
         Object.entries(tranches).forEach(([dealId, dealTranches]) => {
           const dlNbr = parseInt(dealId);
           if (selectedDeals.includes(dlNbr)) {
             // Only auto-select if this deal has no existing tranche selections
             if (!prev[dlNbr] || prev[dlNbr].length === 0) {
-              autoSelectedTranches[dlNbr] = dealTranches.map((t: TrancheReportSummary) => t.tr_id);
+              // For BOTH scopes: Auto-select ALL tranches by default
+              // This enables the smart exclusionary behavior for both report types
+              newSelectedTranches[dlNbr] = dealTranches.map((t: TrancheReportSummary) => t.tr_id);
               hasChanges = true;
             } else {
               // Keep existing selections
-              autoSelectedTranches[dlNbr] = prev[dlNbr];
+              newSelectedTranches[dlNbr] = prev[dlNbr];
             }
           }
         });
         
         // Only update if there are actual changes
         if (hasChanges) {
-          return { ...prev, ...autoSelectedTranches };
+          return { ...prev, ...newSelectedTranches };
         }
         return prev;
       });
     }
-  }, [tranches, isEditMode, selectedDeals]);
+  }, [tranches, isEditMode, selectedDeals, reportScope]);
 
   // Render wizard step content
   const renderWizardStep = () => {
@@ -276,29 +274,21 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
 
       case 2:
         return (
-          <DealSelectionStep
-            deals={deals}
+          <CombinedDealTrancheSelectionStep
+            reportScope={reportScope}
             selectedDeals={selectedDeals}
-            onDealToggle={handleDealToggle}
-            loading={dealsLoading}
+            selectedTranches={selectedTranches}
+            tranches={tranches}
+            onDealAdd={handleDealAdd}
+            onDealRemove={handleDealRemove}
+            onTrancheToggle={handleTrancheToggle}
+            onSelectAllTranches={handleSelectAllTranches}
+            onDeselectAllTranches={handleDeselectAllTranches}
+            loading={dealsLoading || tranchesLoading}
           />
         );
 
       case 3:
-        return (
-          <TrancheSelectionStep
-            reportScope={reportScope}
-            deals={deals}
-            selectedDeals={selectedDeals}
-            tranches={tranches}
-            selectedTranches={selectedTranches}
-            onTrancheToggle={handleTrancheToggle}
-            onSelectAllTranches={handleSelectAllTranches}
-            loading={tranchesLoading}
-          />
-        );
-
-      case 4:
         return (
           <CalculationSelectionStep
             reportScope={reportScope}
@@ -309,7 +299,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
           />
         );
 
-      case 5:
+      case 4:
         return (
           <ReviewConfigurationStep
             reportName={reportName}

@@ -2,17 +2,42 @@ import type { ReportBuilderFormState } from '../hooks/useReportBuilderForm';
 
 /**
  * Transform form state data into the format expected by the API (simplified structure)
+ * Smart tranche handling for both DEAL and TRANCHE scope reports:
+ * - Only include tranches if they represent explicit exclusions from "all selected" default
+ * - If all available tranches are selected, don't include tranches (means "all included")
+ * - If some tranches are deselected, include only the remaining selected ones (exclusionary behavior)
  */
-export const transformFormDataForApi = (formState: ReportBuilderFormState) => {
+export const transformFormDataForApi = (formState: ReportBuilderFormState, availableTranches?: Record<number, any[]>) => {
   const { selectedDeals, selectedTranches, selectedCalculations, reportName, reportDescription, reportScope } = formState;
 
-  // Updated to remove redundant dl_nbr from tranches
-  const transformedSelectedDeals = selectedDeals.map((dlNbr: number) => ({
-    dl_nbr: dlNbr,
-    selected_tranches: (selectedTranches[dlNbr] || []).map((trId: string) => ({
-      tr_id: trId  // Removed dl_nbr - backend will infer from parent deal
-    }))
-  }));
+  const transformedSelectedDeals = selectedDeals.map((dlNbr: number) => {
+    const dealTranches = selectedTranches[dlNbr] || [];
+    const availableTrancheCount = availableTranches?.[dlNbr]?.length || 0;
+    
+    // Smart tranche handling: only include tranches if user explicitly excluded some
+    // This applies to both DEAL and TRANCHE scope reports for consistency
+    let shouldIncludeTranches = false;
+    
+    if (availableTrancheCount > 0 && dealTranches.length < availableTrancheCount) {
+      // User has explicitly deselected some tranches - include the remaining selected ones
+      shouldIncludeTranches = true;
+    }
+    // If dealTranches.length === availableTrancheCount, it means all are selected (default)
+    // If dealTranches.length === 0, it means none are selected (also don't store - let backend handle)
+
+    const dealData: any = {
+      dl_nbr: dlNbr
+    };
+
+    // Only add selected_tranches if they represent explicit exclusions
+    if (shouldIncludeTranches) {
+      dealData.selected_tranches = dealTranches.map((trId: string) => ({
+        tr_id: trId
+      }));
+    }
+
+    return dealData;
+  });
 
   return {
     name: reportName,
@@ -88,15 +113,6 @@ export const validateReportBeforeSave = (formState: ReportBuilderFormState): { i
 
   if (formState.selectedDeals.length === 0) {
     errors.push('At least one deal must be selected');
-  }
-
-  if (formState.reportScope === 'TRANCHE') {
-    const hasSelectedTranches = Object.values(formState.selectedTranches)
-      .some((tranches: string[]) => tranches && tranches.length > 0);
-    
-    if (!hasSelectedTranches) {
-      errors.push('At least one tranche must be selected for tranche-level reports');
-    }
   }
 
   if (formState.selectedCalculations.length === 0) {

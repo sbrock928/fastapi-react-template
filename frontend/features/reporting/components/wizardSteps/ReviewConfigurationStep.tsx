@@ -20,7 +20,7 @@ const ReviewConfigurationStep: React.FC<ReviewConfigurationStepProps> = ({
   selectedCalculations, // Changed from selectedFields
   deals
 }) => {
-  const stepNumber = reportScope === 'DEAL' ? '4' : '5';
+  const stepNumber = 4; // Fixed to step 4 since we now have 4 steps total
 
   return (
     <div className="row">

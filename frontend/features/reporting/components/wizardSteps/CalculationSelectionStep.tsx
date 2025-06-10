@@ -17,7 +17,7 @@ const CalculationSelectionStep: React.FC<CalculationSelectionStepProps> = ({
   onCalculationsChange,
   loading
 }) => {
-  const stepNumber = reportScope === 'DEAL' ? '3' : '4';
+  const stepNumber = 3; // Fixed step number since we now have 4 steps total
   
   return (
     <div className="col-12">

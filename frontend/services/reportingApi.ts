@@ -15,9 +15,16 @@ import type {
 const reportingApi = {
   // ===== DEAL & TRANCHE DATA ENDPOINTS =====
   
+  // Get available issuer codes for filtering
+  getIssuerCodes: (): Promise<{ data: string[] }> => {
+    return apiClient.get('/reports/data/issuer-codes');
+  },
+
   // Get available deals for report building
-  getDeals: (cycleCode?: number): Promise<{ data: Deal[] }> => {
-    const params = cycleCode ? { cycle_code: cycleCode } : {};
+  getDeals: (issuerCode?: string, cycleCode?: number): Promise<{ data: Deal[] }> => {
+    const params: any = {};
+    if (issuerCode) params.issuer_code = issuerCode;
+    if (cycleCode) params.cycle_code = cycleCode;
     return apiClient.get('/reports/data/deals', { params });
   },
 

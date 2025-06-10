@@ -22,8 +22,10 @@ HOSTNAME = socket.gethostname() or platform.node() or "unknown_host"
 
 def safe_json_dumps(obj):
     def default(o):
-        if isinstance(o, (datetime, )):
-            return o.isoformat()
+        if isinstance(o, (datetime, Exception)):
+            return str(o)
+        elif hasattr(o, '__dict__'):
+            return str(o)
         return str(o)
     return json.dumps(obj, indent=2, default=default)
 
@@ -137,9 +139,20 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
         except Exception as log_error:
             print(f"Error logging validation exception: {log_error}")
 
+    # Convert errors to a safe format for JSON response
+    def convert_error(error):
+        if isinstance(error, dict):
+            return {k: convert_error(v) for k, v in error.items()}
+        elif isinstance(error, list):
+            return [convert_error(item) for item in error]
+        else:
+            return str(error)
+
+    safe_errors = convert_error(exc.errors())
+
     return JSONResponse(
         status_code=422,
-        content={"detail": exc.errors()},
+        content={"detail": safe_errors},
     )
 
 async def http_exception_handler(request: Request, exc: HTTPException):

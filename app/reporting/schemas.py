@@ -121,17 +121,11 @@ class ReportCreate(ReportBase):
                 if tranche.dl_nbr is None:
                     tranche.dl_nbr = deal.dl_nbr
         
-        # For tranche-level reports, ensure at least one deal has tranches selected
-        if self.scope == ReportScope.TRANCHE:
-            has_tranches = any(deal.selected_tranches for deal in self.selected_deals)
-            if not has_tranches:
-                raise ValueError("Tranche-level reports must have at least one tranche selected")
-              
-            # Check for duplicate tranche keys within each deal
-            for deal in self.selected_deals:
-                tranche_keys = [(tranche.dl_nbr, tranche.tr_id) for tranche in deal.selected_tranches]
-                if len(set(tranche_keys)) != len(tranche_keys):
-                    raise ValueError(f"Duplicate tranche keys found for deal {deal.dl_nbr}")
+        # Check for duplicate tranche keys within each deal
+        for deal in self.selected_deals:
+            tranche_keys = [(tranche.dl_nbr, tranche.tr_id) for tranche in deal.selected_tranches]
+            if len(set(tranche_keys)) != len(tranche_keys):
+                raise ValueError(f"Duplicate tranche keys found for deal {deal.dl_nbr}")
 
         return self
 

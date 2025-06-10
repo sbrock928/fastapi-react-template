@@ -11,9 +11,9 @@ export const useWizardNavigation = ({
 }: UseWizardNavigationProps) => {
   const [currentStep, setCurrentStep] = useState<number>(1);
 
-  // Calculate total steps - always 5 steps now that tranche selection is required for both DEAL and TRANCHE reports
+  // Calculate total steps - reduced from 5 to 4 steps after combining deal and tranche selection
   const getTotalSteps = () => {
-    return 5;
+    return 4;
   };
 
   // Calculate display step - no adjustments needed since no steps are skipped
@@ -37,7 +37,7 @@ export const useWizardNavigation = ({
     
     // No longer skip step 3 for DEAL scope reports - tranches are now required for both
     
-    if (nextStepNum <= 5) setCurrentStep(nextStepNum);
+    if (nextStepNum <= 4) setCurrentStep(nextStepNum);
   };
 
   // Navigate to previous step
@@ -56,7 +56,7 @@ export const useWizardNavigation = ({
 
   // Jump to specific step (with validation)
   const goToStep = (step: number) => {
-    if (step >= 1 && step <= 5) {
+    if (step >= 1 && step <= 4) {
       setCurrentStep(step);
     }
   };

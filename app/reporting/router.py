@@ -158,13 +158,29 @@ async def get_available_calculations(
 # ===== DATA ENDPOINTS (for report building) =====
 
 
+@router.get("/data/issuer-codes", response_model=List[str])
+async def get_available_issuer_codes(
+    service: ReportService = Depends(get_report_service),
+) -> List[str]:
+    """Get unique issuer codes for deal filtering."""
+    deals = await service.get_available_deals()
+    issuer_codes = sorted(list(set(deal["issr_cde"] for deal in deals)))
+    return issuer_codes
+
+
 @router.get("/data/deals", response_model=List[Dict[str, Any]])
 async def get_available_deals(
+    issuer_code: Optional[str] = None,
     service: ReportService = Depends(get_report_service),
 ) -> List[Dict[str, Any]]:
-    """Get available deals for report building."""
+    """Get available deals for report building, optionally filtered by issuer code."""
     deals = await service.get_available_deals()
-    return deals  # Service already returns dictionaries, no need for model_dump()
+    
+    # Filter by issuer code if provided
+    if issuer_code:
+        deals = [deal for deal in deals if deal["issr_cde"] == issuer_code]
+    
+    return deals
 
 
 @router.post("/data/tranches", response_model=Dict[int, List[Dict[str, Any]]])

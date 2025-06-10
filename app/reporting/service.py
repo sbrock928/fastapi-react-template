@@ -524,23 +524,36 @@ class ReportService:
             return []
 
     def _populate_deals_and_tranches(self, report: Report, selected_deals: List[ReportDealCreate]) -> None:
-        """Populate deals and tranches for a report."""
+        """Populate deals and tranches for a report.
+        
+        Smart logic:
+        - For DEAL scope: Only store tranches if they represent explicit exclusions
+        - For TRANCHE scope: Always store selected tranches
+        - If no tranches are provided for a deal, it means all tranches are included (no storage needed)
+        """
         for deal_data in selected_deals:
             # Create ReportDeal
             report_deal = ReportDeal(
                 dl_nbr=deal_data.dl_nbr
             )
             
-            # Add tranches to the deal
-            for tranche_data in deal_data.selected_tranches:
-                # Auto-populate dl_nbr if missing
-                tranche_dl_nbr = tranche_data.dl_nbr if tranche_data.dl_nbr is not None else deal_data.dl_nbr
-                
-                report_tranche = ReportTranche(
-                    dl_nbr=tranche_dl_nbr,
-                    tr_id=tranche_data.tr_id
-                )
-                report_deal.selected_tranches.append(report_tranche)
+            # Only add tranches to the database if they were explicitly provided
+            # Frontend now only sends tranches when they represent explicit user selections
+            if hasattr(deal_data, 'selected_tranches') and deal_data.selected_tranches:
+                for tranche_data in deal_data.selected_tranches:
+                    # Auto-populate dl_nbr if missing
+                    tranche_dl_nbr = tranche_data.dl_nbr if tranche_data.dl_nbr is not None else deal_data.dl_nbr
+                    
+                    report_tranche = ReportTranche(
+                        dl_nbr=tranche_dl_nbr,
+                        tr_id=tranche_data.tr_id
+                    )
+                    report_deal.selected_tranches.append(report_tranche)
+            
+            # If no tranches are provided (empty list or missing), it means:
+            # - For DEAL scope: All tranches are included (default behavior)
+            # - For TRANCHE scope: No tranches selected (explicit empty selection)
+            # In both cases, we don't store anything in report_tranches table
             
             report.selected_deals.append(report_deal)
 

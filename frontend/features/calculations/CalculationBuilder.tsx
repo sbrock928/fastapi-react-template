@@ -797,6 +797,14 @@ const CalculationBuilder: React.FC = () => {
                     <>
                       <i className="bi bi-save me-2"></i>
                       {editingCalculation ? 'Update Calculation' : 'Save Calculation'}
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* SQL Preview Modal */}
       {showPreviewModal && (

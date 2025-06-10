@@ -115,20 +115,41 @@ def create_sample_data():
             print(f"Sample data already exists ({existing_deals} deals found). Skipping creation.")
             return
 
-        print("Creating comprehensive sample data with new schema...")
+        print("Creating comprehensive sample data with issuer-based structure...")
 
-        # Sample deals using new schema structure
-        deals_data = []
-        
-        # Create 20 sample deals with realistic issuer codes
-        for i in range(1, 21):
-            deal_data = {
-                "dl_nbr": 1000 + i,
-                "issr_cde": f"ISSUER{i:02d}24",
-                "cdi_file_nme": f"DL{i:02d}24A",
-                "CDB_cdi_file_nme": f"DL{i:02d}24CDB" if i % 3 == 0 else None,  # Not all deals have CDB files
+        # Define 3 main issuers with multiple deals each
+        issuers_config = [
+            {
+                "issuer_code": "FHLMC24",
+                "deal_count": 8,
+                "deal_prefix": "FH"
+            },
+            {
+                "issuer_code": "FNMA24", 
+                "deal_count": 7,
+                "deal_prefix": "FN"
+            },
+            {
+                "issuer_code": "GNMA24",
+                "deal_count": 5,
+                "deal_prefix": "GN"
             }
-            deals_data.append(deal_data)
+        ]
+
+        # Create deals for each issuer
+        deals_data = []
+        deal_counter = 1001
+        
+        for issuer in issuers_config:
+            for i in range(issuer["deal_count"]):
+                deal_data = {
+                    "dl_nbr": deal_counter,
+                    "issr_cde": issuer["issuer_code"],
+                    "cdi_file_nme": f"{issuer['deal_prefix']}{deal_counter:04d}_CDI",
+                    "CDB_cdi_file_nme": f"{issuer['deal_prefix']}{deal_counter:04d}_CDB" if i % 3 == 0 else None,  # About 1/3 have CDB files
+                }
+                deals_data.append(deal_data)
+                deal_counter += 1
 
         # Create deals
         created_deals = []
@@ -139,28 +160,42 @@ def create_sample_data():
 
         dw_db.flush()  # Flush to get IDs but don't commit yet
 
-        # Generate tranches for all deals
+        # Generate tranches for all deals with varied patterns by issuer
         print("Generating tranches for all deals...")
         tranches_data = []
         
-        tranche_patterns = [
-            ["A1", "A2", "B", "C"],
-            ["SENIOR", "MEZZ", "JUNIOR"],
-            ["A", "B", "C"],
-            ["CLASS-A", "CLASS-B"],
-            ["A1", "A2", "A3", "B", "C"],
-            ["SEN", "SUB", "JUN"],
-        ]
+        # Different tranche patterns for different issuers
+        issuer_tranche_patterns = {
+            "FHLMC24": [
+                ["A1", "A2", "B"],
+                ["SEN", "SUB", "JUN"],
+                ["CLASS-A", "CLASS-B", "CLASS-C"],
+                ["A", "B", "C"]
+            ],
+            "FNMA24": [
+                ["SENIOR", "MEZZ", "JUNIOR"],
+                ["A1", "A2", "A3", "B"],
+                ["PASS", "IO", "PO"],
+                ["X", "Y", "Z"]
+            ],
+            "GNMA24": [
+                ["A", "B"],
+                ["I", "II", "III"],
+                ["FLOAT", "FIXED"],
+                ["1A", "1B", "2"]
+            ]
+        }
         
         for deal in created_deals:
-            # Choose a random tranche pattern
-            pattern = random.choice(tranche_patterns)
+            # Get patterns for this issuer
+            patterns = issuer_tranche_patterns[deal.issr_cde]
+            pattern = random.choice(patterns)
             
             for tr_id in pattern:
                 tranche_data = {
                     "dl_nbr": deal.dl_nbr,
                     "tr_id": tr_id,
-                    "tr_cusip_id": f"{deal.issr_cde[:8]}{tr_id[:2]}{str(deal.dl_nbr)[-2:]}"  # Generate synthetic CUSIP
+                    "tr_cusip_id": f"{deal.issr_cde[:6]}{tr_id[:3]}{str(deal.dl_nbr)[-3:]}"  # Generate synthetic CUSIP
                 }
                 tranches_data.append(tranche_data)
 
@@ -171,10 +206,12 @@ def create_sample_data():
             dw_db.add(tranche)
             created_tranches.append(tranche)
 
-        dw_db.flush()        # Generate tranche balance records
+        dw_db.flush()
+
+        # Generate tranche balance records
         print("Generating tranche balance data...")
         
-        base_cycles = [202401, 202402, 202403]  # Different cycle codes
+        base_cycles = [202401, 202402, 202403, 202404]  # Different cycle codes
         tranche_bal_data = []
         for tranche in created_tranches:
             # Create 1-3 balance records per tranche with different cycle codes
@@ -206,24 +243,34 @@ def create_sample_data():
         print("Committing all data to database...")
         dw_db.commit()
 
-        print(f"✅ Successfully created sample data with new schema:")
-        print(f"   📊 {len(created_deals)} deals")
+        print(f"✅ Successfully created issuer-based sample data:")
+        print(f"   📊 {len(created_deals)} deals across 3 issuers")
         print(f"   📈 {len(created_tranches)} tranches")
         print(f"   📊 {len(tranche_bal_data)} tranche balance records")
 
-        # Print summary by deal number range
+        # Print summary by issuer
+        print(f"\n📋 Deals by issuer:")
+        for issuer in issuers_config:
+            issuer_deals = [d for d in created_deals if d.issr_cde == issuer["issuer_code"]]
+            issuer_tranches = [t for t in created_tranches if any(d.dl_nbr == t.dl_nbr for d in issuer_deals)]
+            print(f"   {issuer['issuer_code']}: {len(issuer_deals)} deals, {len(issuer_tranches)} tranches")
+            
+            # Show sample deal numbers for this issuer
+            deal_numbers = [str(d.dl_nbr) for d in issuer_deals[:3]]
+            if len(issuer_deals) > 3:
+                deal_numbers.append(f"... +{len(issuer_deals) - 3} more")
+            print(f"     Sample deals: {', '.join(deal_numbers)}")
+
+        # Print deal number range
         print(f"\n📋 Deal number range: {min(d.dl_nbr for d in created_deals)} - {max(d.dl_nbr for d in created_deals)}")
         
-        # Print sample of created deals
-        print(f"\n📋 Sample deals created:")
-        for deal in created_deals[:5]:
-            deal_tranches = [t for t in created_tranches if t.dl_nbr == deal.dl_nbr]
-            print(f"   Deal {deal.dl_nbr} ({deal.issr_cde}): {len(deal_tranches)} tranches")
-
-        # Print tranche summary
-        print(f"\n📈 Tranche ID patterns used:")
-        tranche_ids = set(t.tr_id for t in created_tranches)
-        print(f"   {', '.join(sorted(tranche_ids))}")
+        # Print unique tranche IDs by issuer
+        print(f"\n📈 Tranche patterns by issuer:")
+        for issuer in issuers_config:
+            issuer_deals = [d for d in created_deals if d.issr_cde == issuer["issuer_code"]]
+            issuer_tranches = [t for t in created_tranches if any(d.dl_nbr == t.dl_nbr for d in issuer_deals)]
+            tranche_ids = sorted(set(t.tr_id for t in issuer_tranches))
+            print(f"   {issuer['issuer_code']}: {', '.join(tranche_ids)}")
 
     except Exception as e:
         dw_db.rollback()
