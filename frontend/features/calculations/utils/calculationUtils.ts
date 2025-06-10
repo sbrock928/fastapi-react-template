@@ -220,7 +220,7 @@ const validateSystemSqlCalculation = (calculation: CalculationForm): string | nu
     return 'Result column name is required';
   }
   
-  // Basic SQL validation
+  // Enhanced basic SQL validation
   const sql = calculation.source_field.trim().toLowerCase();
   
   if (!sql.startsWith('select')) {
@@ -231,30 +231,59 @@ const validateSystemSqlCalculation = (calculation: CalculationForm): string | nu
     return 'SQL must include a FROM clause';
   }
   
-  // Check for dangerous operations
+  // Check for dangerous operations - enhanced patterns
   const dangerousPatterns = [
-    /\bdrop\s+table\b/i,
+    /\bdrop\b/i,  // Any DROP statement
     /\bdelete\s+from\b/i,
     /\binsert\s+into\b/i,
     /\bupdate\s+.*\bset\b/i,
     /\balter\s+table\b/i,
-    /\btruncate\s+table\b/i
+    /\btruncate\s+table\b/i,
+    /\bcreate\s+table\b/i,
+    /\bexec\s*\(/i,
+    /\bexecute\s*\(/i,
+    /\bunion\s+select\b/i,
+    /\bxp_cmdshell\b/i,
+    /\bsp_\w+/i,  // Stored procedures
+    /\bxp_\w+/i,  // Extended procedures
+    /\bgrant\b/i,
+    /\brevoke\b/i,
+    /\bshutdown\b/i,
+    /--/,  // SQL comments
+    /\/\*.*\*\//  // Block comments
   ];
   
   for (const pattern of dangerousPatterns) {
     if (pattern.test(sql)) {
-      return 'SQL contains dangerous operations (DROP, DELETE, UPDATE, etc.) which are not allowed';
+      return 'SQL contains dangerous operations or patterns that are not allowed';
     }
   }
   
-  // Check for required fields based on level
-  if (calculation.level === 'deal' && !sql.includes('deal.dl_nbr')) {
-    return 'Deal-level SQL must include deal.dl_nbr in SELECT clause';
+  // Enhanced required fields validation - now check SELECT clause specifically
+  const selectMatch = sql.match(/select\s+(.*?)\s+from/is);
+  if (!selectMatch) {
+    return 'Could not parse SELECT clause properly';
+  }
+  
+  const selectClause = selectMatch[1].toLowerCase();
+  
+  // Check for required fields based on level - must be in SELECT clause
+  if (calculation.level === 'deal') {
+    if (!selectClause.includes('deal.dl_nbr') && !selectClause.includes('dl_nbr')) {
+      return 'Deal-level SQL must include deal.dl_nbr in SELECT clause for proper grouping';
+    }
   }
   
   if (calculation.level === 'tranche') {
-    if (!sql.includes('deal.dl_nbr') || !sql.includes('tranche.tr_id')) {
-      return 'Tranche-level SQL must include both deal.dl_nbr and tranche.tr_id in SELECT clause';
+    const hasDealNumber = selectClause.includes('deal.dl_nbr') || selectClause.includes('dl_nbr');
+    const hasTrancheId = selectClause.includes('tranche.tr_id') || selectClause.includes('tr_id');
+    
+    if (!hasDealNumber) {
+      return 'Tranche-level SQL must include deal.dl_nbr in SELECT clause for proper grouping';
+    }
+    
+    if (!hasTrancheId) {
+      return 'Tranche-level SQL must include tranche.tr_id in SELECT clause for proper grouping';
     }
   }
   
@@ -262,6 +291,18 @@ const validateSystemSqlCalculation = (calculation: CalculationForm): string | nu
   const resultColumnName = calculation.weight_field.trim();
   if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(resultColumnName)) {
     return 'Result column name must be a valid SQL identifier (letters, numbers, underscores, starting with letter)';
+  }
+  
+  // Check for multiple statements
+  const statements = sql.split(';').filter(s => s.trim());
+  if (statements.length > 1) {
+    return 'Multiple SQL statements are not allowed - only single SELECT statements permitted';
+  }
+  
+  // Basic structure validation
+  const columnCount = (selectClause.match(/,/g) || []).length + 1;
+  if (columnCount < 2) {
+    return 'SQL must select at least the required grouping fields plus one result column';
   }
   
   return null;

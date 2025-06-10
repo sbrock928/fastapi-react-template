@@ -123,7 +123,7 @@ export const CONFIG_MESSAGES = {
   REQUIRED: 'Configuration must be loaded before creating calculations'
 } as const;
 
-// SQL validation messages
+// SQL validation messages - Enhanced with specific error cases
 export const SQL_VALIDATION_MESSAGES = {
   REQUIRED_FIELDS_DEAL: 'SQL must include deal.dl_nbr in SELECT clause for deal-level calculations',
   REQUIRED_FIELDS_TRANCHE: 'SQL must include both deal.dl_nbr and tranche.tr_id in SELECT clause for tranche-level calculations',
@@ -131,7 +131,18 @@ export const SQL_VALIDATION_MESSAGES = {
   FROM_REQUIRED: 'SQL must include a FROM clause',
   DANGEROUS_OPERATION: 'SQL contains dangerous operations (DROP, DELETE, UPDATE, etc.)',
   MULTIPLE_STATEMENTS: 'Only single SELECT statements are allowed',
-  RESULT_COLUMN_REQUIRED: 'Result column name is required and must be a valid SQL identifier'
+  RESULT_COLUMN_REQUIRED: 'Result column name is required and must be a valid SQL identifier',
+  SQL_COMMENTS_NOT_ALLOWED: 'SQL comments (-- and /* */) are not permitted for security reasons',
+  UNION_NOT_ALLOWED: 'UNION operations are not permitted for security reasons',
+  MINIMUM_COLUMNS_REQUIRED: 'SQL must select at least the required grouping fields plus one result column',
+  INVALID_SELECT_CLAUSE: 'Could not parse SELECT clause properly',
+  INVALID_COLUMN_NAME: 'Result column name must start with a letter and contain only letters, numbers, and underscores',
+  FIELD_NOT_IN_SELECT_DEAL: 'Required field deal.dl_nbr not found in SELECT clause - this field is mandatory for deal-level grouping',
+  FIELD_NOT_IN_SELECT_TRANCHE_DEAL: 'Required field deal.dl_nbr not found in SELECT clause - this field is mandatory for tranche-level grouping',
+  FIELD_NOT_IN_SELECT_TRANCHE_ID: 'Required field tranche.tr_id not found in SELECT clause - this field is mandatory for tranche-level grouping',
+  PROPER_JOINS_REQUIRED: 'When using multiple tables, ensure proper JOIN conditions are specified',
+  PERFORMANCE_WARNING_SELECT_ALL: 'SELECT * detected - consider specifying explicit columns for better performance',
+  PERFORMANCE_WARNING_ORDER_BY: 'ORDER BY detected - this may impact performance in reports'
 } as const;
 
 // Common field types for system field calculations
