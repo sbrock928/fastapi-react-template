@@ -1,5 +1,5 @@
 # app/core/dependencies.py
-"""Updated dependencies for the new base service architecture with refactored reporting."""
+"""Updated dependencies for the new base service architecture with refactored logging."""
 
 from typing import Annotated
 from fastapi import Depends
@@ -9,6 +9,13 @@ from app.core.database import get_db, get_dw_db
 # Core database dependencies
 SessionDep = Annotated[Session, Depends(get_db)]
 DWSessionDep = Annotated[Session, Depends(get_dw_db)]
+
+# ===== LOGGING DAO DEPENDENCIES (REFACTORED) =====
+
+def get_log_dao(config_db: Session = Depends(get_db)):
+    """Get refactored log DAO using BaseDAO"""
+    from app.logging.dao import LogDAO
+    return LogDAO(config_db)
 
 # ===== CALCULATION DAO DEPENDENCIES =====
 
@@ -47,6 +54,13 @@ def get_datawarehouse_dao(dw_db: Session = Depends(get_dw_db)):
     """Get datawarehouse DAO"""
     from app.datawarehouse.dao import DatawarehouseDAO
     return DatawarehouseDAO(dw_db)
+
+# ===== LOGGING SERVICE DEPENDENCIES (REFACTORED) =====
+
+def get_log_service(log_dao = Depends(get_log_dao)):
+    """Get refactored log service using BaseService"""
+    from app.logging.service import LogService
+    return LogService(log_dao)
 
 # ===== CALCULATION SERVICE DEPENDENCIES =====
 
