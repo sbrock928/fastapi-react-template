@@ -1,8 +1,10 @@
-"""Service layer for the documentation module handling business logic for notes."""
+"""Service layer for the documentation module using BaseService."""
 
 from typing import List, Optional
 from datetime import datetime
 from fastapi import HTTPException
+from app.core.base_service import BaseService
+from app.documentation.models import Note
 from app.documentation.schemas import (
     NoteCreate,
     NoteUpdate,
@@ -11,87 +13,92 @@ from app.documentation.schemas import (
 from app.documentation.dao import DocumentationDAO
 
 
-class DocumentationService:
-    """Documentation service with methods for handling notes"""
+class DocumentationService(BaseService[Note, NoteCreate, NoteUpdate, NoteRead]):
+    """Documentation service extending BaseService with specialized methods for notes."""
 
     def __init__(self, dao: DocumentationDAO):
-        self.dao = dao
+        super().__init__(dao)
+        # Type hint the DAO for access to specialized methods
+        self.documentation_dao = dao
+
+    def _to_response(self, record: Note) -> NoteRead:
+        """Convert Note model to NoteRead schema."""
+        try:
+            return NoteRead.model_validate(record)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error converting note to response: {str(e)}") from e
 
     async def get_all_notes(self) -> List[NoteRead]:
-        """Get all user guide notes"""
+        """Get all user guide notes ordered by most recently updated."""
         try:
-            # Get SQLAlchemy models from DAO
-            notes = await self.dao.get_all_notes()
-            # Convert to Pydantic models
-            return [NoteRead.model_validate(note) for note in notes]
+            notes = self.documentation_dao.get_all_notes()
+            return [self._to_response(note) for note in notes]
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error fetching notes: {str(e)}") from e
-
-    async def get_all(self) -> List[NoteRead]:
-        """Get all notes"""
-        try:
-            notes = await self.dao.get_all()
-            return [NoteRead.model_validate(note) for note in notes]
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error fetching notes: {str(e)}") from e
-
-    async def get_note_by_id(self, note_id: int) -> Optional[NoteRead]:
-        """Get a note by its ID"""
-        try:
-            note = await self.dao.get_by_id(note_id)
-            if not note:
-                return None
-            return NoteRead.model_validate(note)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error fetching note: {str(e)}") from e
-
-    async def create_note(self, note: NoteCreate) -> NoteRead:
-        """Create a new note"""
-        try:
-            # Convert Pydantic model to dictionary for SQLAlchemy
-            note_dict = note.model_dump(exclude_unset=True)
-
-            # Create DB model through DAO
-            db_note = await self.dao.create(note_dict)
-
-            # Convert back to Pydantic schema for response
-            return NoteRead.model_validate(db_note)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error creating note: {str(e)}") from e
-
-    async def update_note(self, note_id: int, note_data: NoteUpdate) -> Optional[NoteRead]:
-        """Update an existing note"""
-        try:
-            # Add updated timestamp
-            note_dict = note_data.model_dump(exclude_unset=True)
-            note_dict["updated_at"] = datetime.now()
-
-            # Update through DAO
-            db_note = await self.dao.update(note_id, note_dict)
-
-            if not db_note:
-                return None
-
-            # Convert to Pydantic model for response
-            return NoteRead.model_validate(db_note)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error updating note: {str(e)}") from e
-
-    async def delete_note(self, note_id: int) -> bool:
-        """Delete a note by ID"""
-        try:
-            return await self.dao.delete(note_id)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error deleting note: {str(e)}") from e
 
     async def get_notes_by_category(self, category: str) -> List[NoteRead]:
-        """Get notes filtered by category"""
+        """Get notes filtered by category."""
         try:
-            # Get SQLAlchemy models from DAO
-            notes = await self.dao.get_by_category(category)
-            # Convert to Pydantic models
-            return [NoteRead.model_validate(note) for note in notes]
+            notes = self.documentation_dao.get_by_category(category)
+            return [self._to_response(note) for note in notes]
         except Exception as e:
             raise HTTPException(
                 status_code=500, detail=f"Error fetching notes by category: {str(e)}"
             ) from e
+
+    # Wrapper methods for async compatibility with existing router
+    async def get_note_by_id(self, note_id: int) -> Optional[NoteRead]:
+        """Get a note by its ID (async wrapper)."""
+        try:
+            return self.get_by_id(note_id)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error fetching note: {str(e)}") from e
+
+    async def create_note(self, note: NoteCreate) -> NoteRead:
+        """Create a new note (async wrapper)."""
+        try:
+            return self.create(note)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error creating note: {str(e)}") from e
+
+    async def update_note(self, note_id: int, note_data: NoteUpdate) -> Optional[NoteRead]:
+        """Update an existing note (async wrapper with updated timestamp)."""
+        try:
+            # Add updated timestamp to the update data
+            return self.update(note_id, note_data, updated_at=datetime.now())
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error updating note: {str(e)}") from e
+
+    async def delete_note(self, note_id: int) -> bool:
+        """Delete a note by ID (async wrapper)."""
+        try:
+            return self.delete(note_id)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error deleting note: {str(e)}") from e
+
+    # Override validation hooks for business logic
+    def _validate_create(self, create_data: NoteCreate) -> None:
+        """Validate note creation data."""
+        # Add any business validation rules here
+        if len(create_data.title.strip()) == 0:
+            raise HTTPException(status_code=400, detail="Note title cannot be empty")
+        if len(create_data.content.strip()) == 0:
+            raise HTTPException(status_code=400, detail="Note content cannot be empty")
+
+    def _validate_update(self, record: Note, update_data: NoteUpdate) -> None:
+        """Validate note update data."""
+        # Add any business validation rules here
+        if update_data.title is not None and len(update_data.title.strip()) == 0:
+            raise HTTPException(status_code=400, detail="Note title cannot be empty")
+        if update_data.content is not None and len(update_data.content.strip()) == 0:
+            raise HTTPException(status_code=400, detail="Note content cannot be empty")
+
+    def _post_create(self, record: Note, create_data: NoteCreate) -> None:
+        """Business logic after note creation."""
+        # Add any post-creation logic here (logging, notifications, etc.)
+        pass
+
+    def _post_update(self, record: Note, update_data: NoteUpdate) -> None:
+        """Business logic after note update.""" 
+        # Add any post-update logic here (logging, notifications, etc.)
+        pass
