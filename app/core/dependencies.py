@@ -1,5 +1,5 @@
 # app/core/dependencies.py
-"""Clean dependencies for the new calculation system with audit and execution logging."""
+"""Updated dependencies for the new base service architecture with refactored reporting."""
 
 from typing import Annotated
 from fastapi import Depends
@@ -22,15 +22,15 @@ def get_system_calculation_dao(config_db: Session = Depends(get_db)):
     from app.calculations.dao import SystemCalculationDAO
     return SystemCalculationDAO(config_db)
 
-# ===== REPORTING DAO DEPENDENCIES =====
+# ===== REPORTING DAO DEPENDENCIES (UPDATED) =====
 
 def get_report_dao(config_db: Session = Depends(get_db)):
-    """Get report DAO"""
+    """Get refactored report DAO"""
     from app.reporting.dao import ReportDAO
     return ReportDAO(config_db)
 
 def get_report_execution_log_dao(config_db: Session = Depends(get_db)):
-    """Get report execution log DAO"""
+    """Get refactored report execution log DAO"""
     from app.reporting.execution_log_dao import ReportExecutionLogDAO
     return ReportExecutionLogDAO(config_db)
 
@@ -68,7 +68,7 @@ def get_report_execution_service(
     from app.calculations.service import ReportExecutionService
     return ReportExecutionService(dw_db, config_db)
 
-# ===== REPORTING SERVICE DEPENDENCIES =====
+# ===== REPORTING SERVICE DEPENDENCIES (UPDATED) =====
 
 def get_report_execution_log_service(execution_log_dao = Depends(get_report_execution_log_dao)):
     """Get report execution log service"""
@@ -83,9 +83,9 @@ def get_report_service(
     report_execution_service = Depends(get_report_execution_service),
     execution_log_service = Depends(get_report_execution_log_service)
 ):
-    """Get comprehensive report service with all dependencies"""
+    """Get comprehensive report service with all dependencies using refactored BaseService"""
     from app.reporting.service import ReportService
-    # Pass execution log service to report service
+    # Create service with BaseService architecture
     service = ReportService(
         report_dao, 
         dw_dao, 

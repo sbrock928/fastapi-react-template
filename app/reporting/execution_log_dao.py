@@ -1,30 +1,22 @@
 # app/reporting/execution_log_dao.py
-"""Data Access Object for Report Execution Logs."""
+"""Refactored Data Access Object for Report Execution Logs using BaseDAO."""
 
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, and_
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
+from app.core.base_dao import BaseDAO
 from app.reporting.models import ReportExecutionLog
 
 
-class ReportExecutionLogDAO:
-    """DAO for report execution log operations."""
+class ReportExecutionLogDAO(BaseDAO[ReportExecutionLog]):
+    """Refactored DAO for report execution log operations using BaseDAO."""
 
     def __init__(self, db_session: Session):
-        self.db = db_session
+        super().__init__(ReportExecutionLog, db_session)
 
-    def create(self, execution_log: ReportExecutionLog) -> ReportExecutionLog:
-        """Create a new execution log entry."""
-        self.db.add(execution_log)
-        self.db.commit()
-        self.db.refresh(execution_log)
-        return execution_log
-
-    def get_by_id(self, log_id: int) -> Optional[ReportExecutionLog]:
-        """Get execution log by ID."""
-        return self.db.query(ReportExecutionLog).filter(ReportExecutionLog.id == log_id).first()
-
+    # Keep the specialized query methods as they provide domain-specific functionality
+    
     def get_by_report_id(self, report_id: int, limit: int = 50) -> List[ReportExecutionLog]:
         """Get execution logs for a specific report, most recent first."""
         return (
@@ -164,11 +156,7 @@ class ReportExecutionLogDAO:
         self.db.commit()
         return deleted_count
 
-    def delete(self, log_id: int) -> bool:
+    # The base DAO already provides delete, but we can override with custom logic if needed
+    def delete_by_id(self, log_id: int) -> bool:
         """Delete a specific execution log."""
-        log = self.get_by_id(log_id)
-        if log:
-            self.db.delete(log)
-            self.db.commit()
-            return True
-        return False
+        return super().delete(log_id)  # Use base DAO delete method

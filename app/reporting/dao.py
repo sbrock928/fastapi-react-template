@@ -1,19 +1,20 @@
-"""Simplified Data Access Objects for the reporting module."""
+"""Refactored Data Access Objects for the reporting module using BaseDAO."""
 
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
 from typing import List, Optional
-from app.reporting.models import Report, ReportDeal, ReportTranche, ReportCalculation
+from app.core.base_dao import BaseDAO
+from app.reporting.models import Report, ReportDeal, ReportTranche
 
 
-class ReportDAO:
-    """Simplified DAO for Report operations."""
+class ReportDAO(BaseDAO[Report]):
+    """Refactored DAO for Report operations using BaseDAO."""
 
     def __init__(self, db_session: Session):
-        self.db = db_session
+        super().__init__(Report, db_session)
 
-    async def get_all(self) -> List[Report]:
-        """Get all active reports with relationships loaded."""
+    def get_all_with_relationships(self) -> List[Report]:
+        """Get all active reports with relationships loaded - custom method."""
         stmt = (
             select(Report)
             .options(
@@ -26,8 +27,8 @@ class ReportDAO:
         result = self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_by_id(self, report_id: int) -> Optional[Report]:
-        """Get a report by ID with relationships loaded."""
+    def get_by_id_with_relationships(self, report_id: int) -> Optional[Report]:
+        """Get a report by ID with relationships loaded - custom method."""
         stmt = (
             select(Report)
             .options(
@@ -39,33 +40,34 @@ class ReportDAO:
         result = self.db.execute(stmt)
         return result.scalars().first()
 
-    async def create(self, report: Report) -> Report:
-        """Create a new report with all relationships."""
+    def create_with_relationships(self, report: Report) -> Report:
+        """Create a new report with all relationships - custom method."""
         self.db.add(report)
         self.db.commit()
         self.db.refresh(report)
         return report
 
-    async def update(self, report: Report) -> Report:
-        """Update an existing report."""
+    def update_with_relationships(self, report: Report) -> Report:
+        """Update an existing report - custom method."""
         self.db.commit()
         self.db.refresh(report)
         return report
 
-    async def delete(self, report_id: int) -> bool:
-        """Soft delete a report by ID."""
-        report = await self.get_by_id(report_id)
+    def hard_delete(self, report_id: int) -> bool:
+        """Hard delete a report by ID (for testing/cleanup) - custom method."""
+        report = self.get_by_id(report_id)
         if report:
-            report.is_active = False
+            self.db.delete(report)
             self.db.commit()
             return True
         return False
 
-    async def hard_delete(self, report_id: int) -> bool:
-        """Hard delete a report by ID (for testing/cleanup)."""
-        report = await self.get_by_id(report_id)
+    # Override soft_delete to use custom logic
+    def soft_delete(self, report_id: int) -> bool:
+        """Soft delete a report by ID - override base method."""
+        report = self.get_by_id(report_id)
         if report:
-            self.db.delete(report)
+            report.is_active = False
             self.db.commit()
             return True
         return False

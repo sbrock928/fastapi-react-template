@@ -1,4 +1,4 @@
-"""API router for the reporting module - Phase 1: Fixed async/sync issues."""
+"""Refactored API router for the reporting module to work with BaseService."""
 
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
@@ -53,55 +53,55 @@ def get_report_service(
 
 
 @router.get("/", response_model=List[ReportRead])
-async def get_all_reports(service: ReportService = Depends(get_report_service)) -> List[ReportRead]:
+def get_all_reports(service: ReportService = Depends(get_report_service)) -> List[ReportRead]:
     """Get all report configurations."""
-    return await service.get_all()  # FIXED: added await
+    return service.get_all_with_relationships()  # FIXED: removed await, using custom method
 
 
 @router.get("/summary", response_model=List[ReportSummary])
-async def get_all_reports_summary(
+def get_all_reports_summary(
     service: ReportService = Depends(get_report_service),
 ) -> List[ReportSummary]:
     """Get all reports with summary information."""
-    return await service.get_all_summaries()  # FIXED: added await
+    return service.get_all_summaries()  # FIXED: removed await
 
 
 @router.get("/{report_id}", response_model=ReportRead)
-async def get_report_by_id(
+def get_report_by_id(
     report_id: int, service: ReportService = Depends(get_report_service)
 ) -> ReportRead:
     """Get a specific report configuration by ID."""
-    report = await service.get_by_id(report_id)  # FIXED: added await
+    report = service.get_by_id_with_relationships(report_id)  # FIXED: removed await, using custom method
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     return report
 
 
 @router.post("/", response_model=ReportRead)
-async def create_report(
+def create_report(
     report_data: ReportCreate, service: ReportService = Depends(get_report_service)
 ) -> ReportRead:
     """Create a new report configuration."""
-    return await service.create(report_data)  # FIXED: added await
+    return service.create_with_relationships(report_data)  # FIXED: removed await, using custom method
 
 
 @router.patch("/{report_id}", response_model=ReportRead)
-async def update_report(
+def update_report(
     report_id: int, report_data: ReportUpdate, service: ReportService = Depends(get_report_service)
 ) -> ReportRead:
     """Update an existing report configuration."""
-    report = await service.update(report_id, report_data)  # FIXED: added await
+    report = service.update_with_relationships(report_id, report_data)  # FIXED: removed await, using custom method
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     return report
 
 
 @router.delete("/{report_id}")
-async def delete_report(
+def delete_report(
     report_id: int, service: ReportService = Depends(get_report_service)
 ) -> Dict[str, str]:
     """Delete a report configuration."""
-    success = await service.delete(report_id)  # FIXED: added await
+    success = service.delete_report(report_id)  # FIXED: removed await, using custom method
     if not success:
         raise HTTPException(status_code=404, detail="Report not found")
     return {"message": "Report deleted successfully"}
@@ -111,43 +111,43 @@ async def delete_report(
 
 
 @router.post("/run", response_model=List[Dict[str, Any]])
-async def run_report(
+def run_report(
     request: RunReportRequest, service: ReportService = Depends(get_report_service)
 ) -> List[Dict[str, Any]]:
     """Run a saved report configuration."""
-    return await service.run_saved_report(
+    return service.run_saved_report(
         request.report_id, request.cycle_code
-    )  # FIXED: added await
+    )  # FIXED: removed await
 
 
 @router.post("/run/{report_id}", response_model=List[Dict[str, Any]])
-async def run_report_by_id(
+def run_report_by_id(
     report_id: int, request: Dict[str, Any], service: ReportService = Depends(get_report_service)
 ) -> List[Dict[str, Any]]:
     """Run a saved report by ID with cycle parameter."""
     cycle_code = request.get("cycle_code")
     if not cycle_code:
         raise HTTPException(status_code=400, detail="cycle_code is required")
-    return await service.run_saved_report(report_id, cycle_code)  # FIXED: added await
+    return service.run_saved_report(report_id, cycle_code)  # FIXED: removed await
 
 
 # ===== PREVIEW AND EXECUTION LOG ENDPOINTS =====
 
 
 @router.get("/{report_id}/preview-sql")
-async def preview_report_sql(
+def preview_report_sql(
     report_id: int, cycle_code: int = 202404, service: ReportService = Depends(get_report_service)
 ) -> Dict[str, Any]:
     """Preview SQL that would be generated for a report."""
-    return await service.preview_report_sql(report_id, cycle_code)  # FIXED: added await
+    return service.preview_report_sql(report_id, cycle_code)  # FIXED: removed await
 
 
 @router.get("/{report_id}/execution-logs")
-async def get_report_execution_logs(
+def get_report_execution_logs(
     report_id: int, limit: int = 50, service: ReportService = Depends(get_report_service)
 ) -> List[Dict[str, Any]]:
     """Get execution logs for a report."""
-    return await service.get_execution_logs(report_id, limit)  # FIXED: added await
+    return service.get_execution_logs(report_id, limit)  # FIXED: removed await
 
 
 # ===== CALCULATION CONFIGURATION ENDPOINTS =====
@@ -215,7 +215,7 @@ def get_available_cycles(
 
 
 @router.post("/export-xlsx")
-async def export_to_xlsx(request: Dict[str, Any]) -> Response:
+def export_to_xlsx(request: Dict[str, Any]) -> Response:
     """Export report data to Excel (XLSX) format."""
     try:
         report_type = request.get("reportType", "Unknown Report")
@@ -332,7 +332,7 @@ def get_failed_execution_logs(
 
 
 @router.get("/{report_id}/execution-logs/detailed")
-async def get_detailed_report_execution_logs(
+def get_detailed_report_execution_logs(
     report_id: int,
     limit: int = Query(50, ge=1, le=200, description="Maximum number of records to return"),
     execution_log_service: ReportExecutionLogService = Depends(get_report_execution_log_service),
@@ -341,7 +341,7 @@ async def get_detailed_report_execution_logs(
     """Get detailed execution logs for a specific report with statistics."""
     try:
         # Verify report exists
-        report = await service.get_by_id(report_id)
+        report = service.get_by_id_with_relationships(report_id)  # FIXED: removed await, using custom method
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
         
@@ -482,7 +482,7 @@ def cleanup_old_execution_logs(
 # ===== EXECUTION ANALYTICS ENDPOINTS =====
 
 @router.get("/{report_id}/execution-logs/analytics")
-async def get_report_execution_analytics(
+def get_report_execution_analytics(
     report_id: int,
     days_back: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
     execution_log_service: ReportExecutionLogService = Depends(get_report_execution_log_service),
@@ -491,7 +491,7 @@ async def get_report_execution_analytics(
     """Get comprehensive execution analytics for a specific report."""
     try:
         # Verify report exists
-        report = await service.get_by_id(report_id)
+        report = service.get_by_id_with_relationships(report_id)  # FIXED: removed await, using custom method
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
         

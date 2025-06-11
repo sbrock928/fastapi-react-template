@@ -1,9 +1,10 @@
 # app/reporting/service.py
-"""Clean reporting service using only the new separated calculation system with execution logging."""
+"""Refactored reporting service using BaseService to reduce boilerplate code."""
 
 from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
 
+from app.core.base_service import BaseService
 from app.reporting.dao import ReportDAO
 from app.reporting.models import Report, ReportDeal, ReportTranche, ReportCalculation
 from app.reporting.schemas import (
@@ -26,14 +27,14 @@ from app.calculations.resolver import CalculationRequest
 import time
 
 
-class ReportService:
-    """Clean service for managing reports with the new calculation system and execution logging."""
+class ReportService(BaseService[Report, ReportCreate, ReportUpdate, ReportRead]):
+    """Refactored service for managing reports using BaseService to reduce boilerplate."""
 
     def __init__(self, report_dao: ReportDAO, dw_dao: DatawarehouseDAO, 
                  user_calc_service: UserCalculationService = None,
                  system_calc_service: SystemCalculationService = None,
                  report_execution_service: ReportExecutionService = None):
-        self.report_dao = report_dao
+        super().__init__(report_dao)
         self.dw_dao = dw_dao
         
         # Store calculation services
@@ -44,7 +45,143 @@ class ReportService:
         # Execution log service will be injected by dependency system
         self.execution_log_service = None
 
-    # ===== CALCULATION MANAGEMENT =====
+    # ===== BASE SERVICE OVERRIDES =====
+
+    def _to_response(self, record: Report) -> ReportRead:
+        """Convert database model to response schema."""
+        return ReportRead.model_validate(record)
+
+    def _validate_create(self, create_data: ReportCreate) -> None:
+        """Validate data before creation."""
+        # Validation is already handled by Pydantic schema validation
+        # Add any additional business validation here
+        if not create_data.selected_deals:
+            raise HTTPException(status_code=400, detail="At least one deal must be selected")
+        
+        if not create_data.selected_calculations:
+            raise HTTPException(status_code=400, detail="At least one calculation must be selected")
+
+    def _validate_update(self, record: Report, update_data: ReportUpdate) -> None:
+        """Validate data before update."""
+        if update_data.selected_deals is not None and not update_data.selected_deals:
+            raise HTTPException(status_code=400, detail="At least one deal must be selected")
+        
+        if update_data.selected_calculations is not None and not update_data.selected_calculations:
+            raise HTTPException(status_code=400, detail="At least one calculation must be selected")
+
+    def _validate_delete(self, record: Report) -> None:
+        """Validate before deletion."""
+        # Add any business rules for deletion here
+        # For example, prevent deletion if report has recent executions
+        pass
+
+    def _post_create(self, record: Report, create_data: ReportCreate) -> None:
+        """Business logic after creation."""
+        # Could log creation, send notifications, etc.
+        pass
+
+    def _post_update(self, record: Report, update_data: ReportUpdate) -> None:
+        """Business logic after update."""
+        # Could log updates, invalidate caches, etc.
+        pass
+
+    def _post_delete(self, record: Report) -> None:
+        """Business logic after deletion."""
+        # Could clean up related data, log deletion, etc.
+        pass
+
+    # ===== CUSTOM CRUD METHODS USING DAO DIRECTLY =====
+
+    def get_all_with_relationships(self) -> List[ReportRead]:
+        """Get all reports with relationships loaded."""
+        reports = self.dao.get_all_with_relationships()
+        return [self._to_response(report) for report in reports]
+
+    def get_by_id_with_relationships(self, report_id: int) -> Optional[ReportRead]:
+        """Get a report by ID with relationships loaded."""
+        report = self.dao.get_by_id_with_relationships(report_id)
+        return self._to_response(report) if report else None
+
+    def create_with_relationships(self, report_data: ReportCreate) -> ReportRead:
+        """Create a new report with relationships."""
+        # Validate using base service method
+        self._validate_create(report_data)
+        
+        # Build report entity
+        report = self._build_report(report_data)
+        
+        # Create using DAO
+        created_report = self.dao.create_with_relationships(report)
+        
+        # Post-creation logic
+        self._post_create(created_report, report_data)
+        
+        return self._to_response(created_report)
+
+    def update_with_relationships(self, report_id: int, report_data: ReportUpdate) -> Optional[ReportRead]:
+        """Update a report with relationships."""
+        report = self.dao.get_by_id_with_relationships(report_id)
+        if not report:
+            return None
+
+        # Validate using base service method
+        self._validate_update(report, report_data)
+
+        # Update entity
+        self._update_report(report, report_data)
+        
+        # Update using DAO
+        updated_report = self.dao.update_with_relationships(report)
+        
+        # Post-update logic
+        self._post_update(updated_report, report_data)
+        
+        return self._to_response(updated_report)
+
+    def delete_report(self, report_id: int) -> bool:
+        """Delete a report (soft delete)."""
+        report = self.dao.get_by_id(report_id)
+        if not report:
+            return False
+
+        # Validate using base service method
+        self._validate_delete(report)
+
+        # Use DAO soft delete
+        success = self.dao.soft_delete(report_id)
+        
+        if success:
+            self._post_delete(report)
+        
+        return success
+
+    def get_all_summaries(self) -> List[ReportSummary]:
+        """Get all reports with summary information."""
+        reports = self.dao.get_all_with_relationships()
+        summaries = []
+        
+        for report in reports:
+            summary = self._build_summary(report)
+            
+            # Add execution statistics if execution log service is available
+            if self.execution_log_service:
+                try:
+                    exec_stats = self.execution_log_service.get_execution_stats_for_report(report.id)
+                    summary.total_executions = exec_stats.get("total_executions", 0)
+                    summary.last_executed = exec_stats.get("last_execution_date")
+                    summary.last_execution_success = (
+                        exec_stats.get("successful_executions", 0) > 0 
+                        if exec_stats.get("total_executions", 0) > 0 else None
+                    )
+                except Exception as e:
+                    # If execution stats fail, just use defaults
+                    print(f"Warning: Could not fetch execution stats for report {report.id}: {e}")
+            
+            summaries.append(summary)
+        
+        return summaries
+
+    # ===== CALCULATION MANAGEMENT (UNCHANGED) =====
 
     def get_available_calculations(self, scope: ReportScope) -> List[AvailableCalculation]:
         """Get available calculations for report configuration based on scope."""
@@ -110,6 +247,270 @@ class ReportService:
                 ))
 
         return available_calcs
+
+    # ===== REPORT EXECUTION (UNCHANGED) =====
+
+    def run_saved_report(self, report_id: int, cycle_code: int, executed_by: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Execute a report using the new calculation system with proper logging."""
+        if not self.report_execution_service:
+            raise HTTPException(status_code=500, detail="Report execution service not available")
+
+        report = self._get_report_or_404(report_id)
+        start_time = time.time()
+        
+        try:
+            # Convert report to calculation requests
+            deal_tranche_map, calculation_requests = self._prepare_execution(report)
+
+            # Execute via new system
+            result = self.report_execution_service.execute_report(
+                calculation_requests,
+                deal_tranche_map,
+                cycle_code
+            )
+
+            # Log successful execution
+            execution_time_ms = (time.time() - start_time) * 1000
+            self._log_execution(
+                report_id=report_id,
+                cycle_code=cycle_code,
+                executed_by=executed_by or "api_user",
+                execution_time_ms=execution_time_ms,
+                row_count=len(result['data']),
+                success=True
+            )
+
+            return result['data']
+
+        except Exception as e:
+            # Log failed execution
+            execution_time_ms = (time.time() - start_time) * 1000
+            self._log_execution(
+                report_id=report_id,
+                cycle_code=cycle_code,
+                executed_by=executed_by or "api_user",
+                execution_time_ms=execution_time_ms,
+                row_count=0,
+                success=False,
+                error_message=str(e)
+            )
+            raise
+
+    def preview_report_sql(self, report_id: int, cycle_code: int) -> Dict[str, Any]:
+        """Preview SQL for a report."""
+        if not self.report_execution_service:
+            raise HTTPException(status_code=500, detail="Report execution service not available")
+
+        report = self._get_report_or_404(report_id)
+        deal_tranche_map, calculation_requests = self._prepare_execution(report)
+
+        result = self.report_execution_service.preview_report_sql(
+            calculation_requests, deal_tranche_map, cycle_code
+        )
+
+        return {
+            "template_name": report.name,
+            "sql_previews": result['sql_previews'],
+            "parameters": result['parameters'],
+            "summary": result['summary']
+        }
+
+    def get_execution_logs(self, report_id: int, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get execution logs for a report."""
+        self._get_report_or_404(report_id)
+        
+        if not self.execution_log_service:
+            return []  # Return empty if service not available
+        
+        try:
+            return self.execution_log_service.get_execution_logs_for_report(report_id, limit)
+        except Exception as e:
+            print(f"Warning: Could not fetch execution logs: {e}")
+            return []
+
+    # ===== DATA WAREHOUSE ENDPOINTS (UNCHANGED) =====
+
+    def get_available_deals(self) -> List[Dict[str, Any]]:
+        """Get available deals."""
+        try:
+            deals = self.dw_dao.get_all_deals()
+            return [
+                {
+                    "dl_nbr": deal.dl_nbr,
+                    "issr_cde": deal.issr_cde,
+                    "cdi_file_nme": deal.cdi_file_nme,
+                    "CDB_cdi_file_nme": deal.CDB_cdi_file_nme,
+                }
+                for deal in deals
+            ]
+        except Exception as e:
+            print(f"Warning: Could not fetch deals: {e}")
+            return []
+
+    def get_available_tranches_for_deals(
+        self, deal_ids: List[int], cycle_code: Optional[int] = None
+    ) -> Dict[int, List[Dict[str, Any]]]:
+        """Get available tranches for deals."""
+        try:
+            return {
+                deal_id: [{"tr_id": t.tr_id} for t in self.dw_dao.get_tranches_by_dl_nbr(deal_id)]
+                for deal_id in deal_ids
+            }
+        except Exception as e:
+            print(f"Warning: Could not fetch tranches: {e}")
+            return {}
+
+    def get_available_cycles(self) -> List[Dict[str, Any]]:
+        """Get available cycles."""
+        try:
+            return self.dw_dao.get_available_cycles()
+        except Exception as e:
+            print(f"Warning: Could not fetch cycles: {e}")
+            return []
+
+    # ===== PRIVATE HELPER METHODS (UNCHANGED) =====
+
+    def _build_summary(self, report: Report) -> ReportSummary:
+        """Build summary for a single report."""
+        deal_count = len(report.selected_deals)
+        tranche_count = sum(
+            (
+                len(deal.selected_tranches)
+                if deal.selected_tranches
+                else len(self.dw_dao.get_tranches_by_dl_nbr(deal.dl_nbr))
+            )
+            for deal in report.selected_deals
+        )
+
+        return ReportSummary(
+            id=report.id,
+            name=report.name,
+            description=report.description,
+            scope=ReportScope(report.scope),
+            created_by=report.created_by or "system",
+            created_date=report.created_date,
+            deal_count=deal_count,
+            tranche_count=tranche_count,
+            calculation_count=len(report.selected_calculations),
+            is_active=report.is_active,
+            # These will be updated by get_all_summaries if execution log service is available
+            total_executions=0,
+            last_executed=None,
+            last_execution_success=None,
+        )
+
+    def _build_report(self, report_data: ReportCreate) -> Report:
+        """Build Report entity from creation data."""
+        report_dict = report_data.model_dump(exclude={"selected_deals", "selected_calculations"})
+        report_dict["scope"] = report_data.scope.value
+        report = Report(**report_dict)
+
+        # Add selected deals
+        for deal_data in report_data.selected_deals:
+            report_deal = ReportDeal(dl_nbr=deal_data.dl_nbr)
+
+            if hasattr(deal_data, "selected_tranches") and deal_data.selected_tranches:
+                for tranche_data in deal_data.selected_tranches:
+                    report_tranche = ReportTranche(
+                        dl_nbr=tranche_data.dl_nbr or deal_data.dl_nbr, 
+                        tr_id=tranche_data.tr_id
+                    )
+                    report_deal.selected_tranches.append(report_tranche)
+
+            report.selected_deals.append(report_deal)
+
+        # Add selected calculations with proper calculation_type
+        for calc_data in report_data.selected_calculations:
+            # Determine calculation_type if not provided
+            calculation_type = calc_data.calculation_type
+            if not calculation_type:
+                calculation_type = self._determine_calculation_type(calc_data.calculation_id)
+            
+            report_calc = ReportCalculation(
+                calculation_id=str(calc_data.calculation_id),
+                calculation_type=calculation_type,
+                display_order=calc_data.display_order
+            )
+            report_calc.display_name = self._get_calculation_display_name(report_calc.calculation_id, report_calc.calculation_type)
+            report.selected_calculations.append(report_calc)
+
+        return report
+
+    def _update_report(self, report: Report, report_data: ReportUpdate) -> None:
+        """Update Report entity from update data."""
+        update_data = report_data.model_dump(
+            exclude_unset=True, exclude={"selected_deals", "selected_calculations"}
+        )
+
+        if "scope" in update_data and update_data["scope"]:
+            update_data["scope"] = update_data["scope"].value
+
+        for field, value in update_data.items():
+            setattr(report, field, value)
+
+        # Update relationships if provided
+        if report_data.selected_deals is not None:
+            report.selected_deals.clear()
+            for deal_data in report_data.selected_deals:
+                report_deal = ReportDeal(dl_nbr=deal_data.dl_nbr)
+
+                if hasattr(deal_data, "selected_tranches") and deal_data.selected_tranches:
+                    for tranche_data in deal_data.selected_tranches:
+                        report_tranche = ReportTranche(
+                            dl_nbr=tranche_data.dl_nbr or deal_data.dl_nbr, 
+                            tr_id=tranche_data.tr_id
+                        )
+                        report_deal.selected_tranches.append(report_tranche)
+
+                report.selected_deals.append(report_deal)
+
+        if report_data.selected_calculations is not None:
+            report.selected_calculations.clear()
+            for calc_data in report_data.selected_calculations:
+                # Determine calculation_type if not provided
+                calculation_type = calc_data.calculation_type
+                if not calculation_type:
+                    calculation_type = self._determine_calculation_type(calc_data.calculation_id)
+                
+                report_calc = ReportCalculation(
+                    calculation_id=str(calc_data.calculation_id),
+                    calculation_type=calculation_type,
+                    display_order=calc_data.display_order
+                )
+                report_calc.display_name = self._get_calculation_display_name(report_calc.calculation_id, report_calc.calculation_type)
+                report.selected_calculations.append(report_calc)
+
+    def _get_report_or_404(self, report_id: int) -> Report:
+        """Get report or raise 404."""
+        report = self.dao.get_by_id_with_relationships(report_id)
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        return report
+
+    def _log_execution(
+        self, report_id: int, cycle_code: int, executed_by: str,
+        execution_time_ms: float, row_count: int, success: bool,
+        error_message: str = None
+    ) -> None:
+        """Log report execution using the execution log service."""
+        if not self.execution_log_service:
+            return  # Skip logging if service not available
+        
+        try:
+            self.execution_log_service.log_execution(
+                report_id=report_id,
+                cycle_code=cycle_code,
+                executed_by=executed_by,
+                execution_time_ms=execution_time_ms,
+                row_count=row_count,
+                success=success,
+                error_message=error_message
+            )
+        except Exception as e:
+            print(f"Warning: Could not log execution: {e}")
+            # Don't raise the exception as it's not critical to the main operation
+
+    # ===== CALCULATION HELPER METHODS (UNCHANGED) =====
 
     def _categorize_user_calculation(self, calc) -> str:
         """Categorize user calculation for UI grouping."""
@@ -218,222 +619,6 @@ class ReportService:
             # Non-numeric, non-static ID - default to user_calculation
             return "user_calculation"
 
-    # ===== CORE CRUD OPERATIONS =====
-
-    async def get_all(self) -> List[ReportRead]:
-        """Get all reports."""
-        reports = await self.report_dao.get_all()
-        return [ReportRead.model_validate(report) for report in reports]
-
-    async def get_by_id(self, report_id: int) -> Optional[ReportRead]:
-        """Get a report by ID."""
-        report = await self.report_dao.get_by_id(report_id)
-        return ReportRead.model_validate(report) if report else None
-
-    async def get_all_summaries(self) -> List[ReportSummary]:
-        """Get all reports with summary information."""
-        reports = await self.report_dao.get_all()
-        summaries = []
-        
-        for report in reports:
-            summary = self._build_summary(report)
-            
-            # Add execution statistics if execution log service is available
-            if self.execution_log_service:
-                try:
-                    exec_stats = self.execution_log_service.get_execution_stats_for_report(report.id)
-                    summary.total_executions = exec_stats.get("total_executions", 0)
-                    summary.last_executed = exec_stats.get("last_execution_date")
-                    summary.last_execution_success = (
-                        exec_stats.get("successful_executions", 0) > 0 
-                        if exec_stats.get("total_executions", 0) > 0 else None
-                    )
-                except Exception as e:
-                    # If execution stats fail, just use defaults
-                    print(f"Warning: Could not fetch execution stats for report {report.id}: {e}")
-            
-            summaries.append(summary)
-        
-        return summaries
-
-    def _build_summary(self, report: Report) -> ReportSummary:
-        """Build summary for a single report."""
-        deal_count = len(report.selected_deals)
-        tranche_count = sum(
-            (
-                len(deal.selected_tranches)
-                if deal.selected_tranches
-                else len(self.dw_dao.get_tranches_by_dl_nbr(deal.dl_nbr))
-            )
-            for deal in report.selected_deals
-        )
-
-        return ReportSummary(
-            id=report.id,
-            name=report.name,
-            description=report.description,
-            scope=ReportScope(report.scope),
-            created_by=report.created_by or "system",
-            created_date=report.created_date,
-            deal_count=deal_count,
-            tranche_count=tranche_count,
-            calculation_count=len(report.selected_calculations),
-            is_active=report.is_active,
-            # These will be updated by get_all_summaries if execution log service is available
-            total_executions=0,
-            last_executed=None,
-            last_execution_success=None,
-        )
-
-    async def create(self, report_data: ReportCreate) -> ReportRead:
-        """Create a new report."""
-        report = self._build_report(report_data)
-        created_report = await self.report_dao.create(report)
-        return ReportRead.model_validate(created_report)
-
-    async def update(self, report_id: int, report_data: ReportUpdate) -> Optional[ReportRead]:
-        """Update a report."""
-        report = await self.report_dao.get_by_id(report_id)
-        if not report:
-            return None
-
-        self._update_report(report, report_data)
-        updated_report = await self.report_dao.update(report)
-        return ReportRead.model_validate(updated_report)
-
-    async def delete(self, report_id: int) -> bool:
-        """Delete a report."""
-        return await self.report_dao.delete(report_id)
-
-    def _build_report(self, report_data: ReportCreate) -> Report:
-        """Build Report entity from creation data."""
-        report_dict = report_data.model_dump(exclude={"selected_deals", "selected_calculations"})
-        report_dict["scope"] = report_data.scope.value
-        report = Report(**report_dict)
-
-        # Add selected deals
-        for deal_data in report_data.selected_deals:
-            report_deal = ReportDeal(dl_nbr=deal_data.dl_nbr)
-
-            if hasattr(deal_data, "selected_tranches") and deal_data.selected_tranches:
-                for tranche_data in deal_data.selected_tranches:
-                    report_tranche = ReportTranche(
-                        dl_nbr=tranche_data.dl_nbr or deal_data.dl_nbr, 
-                        tr_id=tranche_data.tr_id
-                    )
-                    report_deal.selected_tranches.append(report_tranche)
-
-            report.selected_deals.append(report_deal)
-
-        # Add selected calculations with proper calculation_type
-        for calc_data in report_data.selected_calculations:
-            # Determine calculation_type if not provided
-            calculation_type = calc_data.calculation_type
-            if not calculation_type:
-                calculation_type = self._determine_calculation_type(calc_data.calculation_id)
-            
-            report_calc = ReportCalculation(
-                calculation_id=str(calc_data.calculation_id),
-                calculation_type=calculation_type,
-                display_order=calc_data.display_order
-            )
-            report_calc.display_name = self._get_calculation_display_name(report_calc.calculation_id, report_calc.calculation_type)
-            report.selected_calculations.append(report_calc)
-
-        return report
-
-    def _update_report(self, report: Report, report_data: ReportUpdate) -> None:
-        """Update Report entity from update data."""
-        update_data = report_data.model_dump(
-            exclude_unset=True, exclude={"selected_deals", "selected_calculations"}
-        )
-
-        if "scope" in update_data and update_data["scope"]:
-            update_data["scope"] = update_data["scope"].value
-
-        for field, value in update_data.items():
-            setattr(report, field, value)
-
-        # Update relationships if provided
-        if report_data.selected_deals is not None:
-            report.selected_deals.clear()
-            for deal_data in report_data.selected_deals:
-                report_deal = ReportDeal(dl_nbr=deal_data.dl_nbr)
-
-                if hasattr(deal_data, "selected_tranches") and deal_data.selected_tranches:
-                    for tranche_data in deal_data.selected_tranches:
-                        report_tranche = ReportTranche(
-                            dl_nbr=tranche_data.dl_nbr or deal_data.dl_nbr, 
-                            tr_id=tranche_data.tr_id
-                        )
-                        report_deal.selected_tranches.append(report_tranche)
-
-                report.selected_deals.append(report_deal)
-
-        if report_data.selected_calculations is not None:
-            report.selected_calculations.clear()
-            for calc_data in report_data.selected_calculations:
-                # Determine calculation_type if not provided
-                calculation_type = calc_data.calculation_type
-                if not calculation_type:
-                    calculation_type = self._determine_calculation_type(calc_data.calculation_id)
-                
-                report_calc = ReportCalculation(
-                    calculation_id=str(calc_data.calculation_id),
-                    calculation_type=calculation_type,
-                    display_order=calc_data.display_order
-                )
-                report_calc.display_name = self._get_calculation_display_name(report_calc.calculation_id, report_calc.calculation_type)
-                report.selected_calculations.append(report_calc)
-
-    # ===== REPORT EXECUTION =====
-
-    async def run_saved_report(self, report_id: int, cycle_code: int, executed_by: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Execute a report using the new calculation system with proper logging."""
-        if not self.report_execution_service:
-            raise HTTPException(status_code=500, detail="Report execution service not available")
-
-        report = await self._get_report_or_404(report_id)
-        start_time = time.time()
-        
-        try:
-            # Convert report to calculation requests
-            deal_tranche_map, calculation_requests = self._prepare_execution(report)
-
-            # Execute via new system
-            result = self.report_execution_service.execute_report(
-                calculation_requests,
-                deal_tranche_map,
-                cycle_code
-            )
-
-            # Log successful execution
-            execution_time_ms = (time.time() - start_time) * 1000
-            await self._log_execution(
-                report_id=report_id,
-                cycle_code=cycle_code,
-                executed_by=executed_by or "api_user",
-                execution_time_ms=execution_time_ms,
-                row_count=len(result['data']),
-                success=True
-            )
-
-            return result['data']
-
-        except Exception as e:
-            # Log failed execution
-            execution_time_ms = (time.time() - start_time) * 1000
-            await self._log_execution(
-                report_id=report_id,
-                cycle_code=cycle_code,
-                executed_by=executed_by or "api_user",
-                execution_time_ms=execution_time_ms,
-                row_count=0,
-                success=False,
-                error_message=str(e)
-            )
-            raise
-
     def _prepare_execution(self, report: Report) -> tuple[Dict[int, List[str]], List[CalculationRequest]]:
         """Convert report to execution format with enhanced calculation type detection."""
         # Build deal-tranche mapping
@@ -528,107 +713,3 @@ class ReportService:
 
         print(f"Debug: Successfully prepared {len(calculation_requests)} calculation requests")
         return deal_tranche_map, calculation_requests
-
-    async def preview_report_sql(self, report_id: int, cycle_code: int) -> Dict[str, Any]:
-        """Preview SQL for a report."""
-        if not self.report_execution_service:
-            raise HTTPException(status_code=500, detail="Report execution service not available")
-
-        report = await self._get_report_or_404(report_id)
-        deal_tranche_map, calculation_requests = self._prepare_execution(report)
-
-        result = self.report_execution_service.preview_report_sql(
-            calculation_requests, deal_tranche_map, cycle_code
-        )
-
-        return {
-            "template_name": report.name,
-            "sql_previews": result['sql_previews'],
-            "parameters": result['parameters'],
-            "summary": result['summary']
-        }
-
-    async def get_execution_logs(self, report_id: int, limit: int = 50) -> List[Dict[str, Any]]:
-        """Get execution logs for a report."""
-        await self._get_report_or_404(report_id)
-        
-        if not self.execution_log_service:
-            return []  # Return empty if service not available
-        
-        try:
-            return self.execution_log_service.get_execution_logs_for_report(report_id, limit)
-        except Exception as e:
-            print(f"Warning: Could not fetch execution logs: {e}")
-            return []
-
-    async def _log_execution(
-        self, report_id: int, cycle_code: int, executed_by: str,
-        execution_time_ms: float, row_count: int, success: bool,
-        error_message: str = None
-    ) -> None:
-        """Log report execution using the execution log service."""
-        if not self.execution_log_service:
-            return  # Skip logging if service not available
-        
-        try:
-            self.execution_log_service.log_execution(
-                report_id=report_id,
-                cycle_code=cycle_code,
-                executed_by=executed_by,
-                execution_time_ms=execution_time_ms,
-                row_count=row_count,
-                success=success,
-                error_message=error_message
-            )
-        except Exception as e:
-            print(f"Warning: Could not log execution: {e}")
-            # Don't raise the exception as it's not critical to the main operation
-
-    # ===== DATA WAREHOUSE ENDPOINTS =====
-
-    def get_available_deals(self) -> List[Dict[str, Any]]:
-        """Get available deals."""
-        try:
-            deals = self.dw_dao.get_all_deals()
-            return [
-                {
-                    "dl_nbr": deal.dl_nbr,
-                    "issr_cde": deal.issr_cde,
-                    "cdi_file_nme": deal.cdi_file_nme,
-                    "CDB_cdi_file_nme": deal.CDB_cdi_file_nme,
-                }
-                for deal in deals
-            ]
-        except Exception as e:
-            print(f"Warning: Could not fetch deals: {e}")
-            return []
-
-    def get_available_tranches_for_deals(
-        self, deal_ids: List[int], cycle_code: Optional[int] = None
-    ) -> Dict[int, List[Dict[str, Any]]]:
-        """Get available tranches for deals."""
-        try:
-            return {
-                deal_id: [{"tr_id": t.tr_id} for t in self.dw_dao.get_tranches_by_dl_nbr(deal_id)]
-                for deal_id in deal_ids
-            }
-        except Exception as e:
-            print(f"Warning: Could not fetch tranches: {e}")
-            return {}
-
-    def get_available_cycles(self) -> List[Dict[str, Any]]:
-        """Get available cycles."""
-        try:
-            return self.dw_dao.get_available_cycles()
-        except Exception as e:
-            print(f"Warning: Could not fetch cycles: {e}")
-            return []
-
-    # ===== UTILITIES =====
-
-    async def _get_report_or_404(self, report_id: int) -> Report:
-        """Get report or raise 404."""
-        report = await self.report_dao.get_by_id(report_id)
-        if not report:
-            raise HTTPException(status_code=404, detail="Report not found")
-        return report
