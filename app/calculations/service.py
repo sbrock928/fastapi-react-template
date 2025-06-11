@@ -159,6 +159,7 @@ class UserCalculationService:
                 group_level=request.group_level,
                 advanced_config=request.advanced_config,
                 created_by=created_by,
+                is_active=True
             )
 
             # Create the calculation first (this will trigger audit logging)

@@ -38,15 +38,7 @@ def get_audit_stats():
     """Get current audit logger statistics."""
     try:
         logger = get_audit_logger()
-        with logger._lock:
-            return {
-                "pending_count": len(logger._pending_audits),
-                "last_commit_time": logger._last_commit_time,
-                "commit_interval": logger._commit_interval,
-                "session_active": logger._session is not None,
-                "deferred_mode": logger._deferred_mode,
-                "database_type": "sql_server_optimized"
-            }
+        return logger.get_stats()
     except Exception as e:
         print(f"Warning: Could not get audit stats: {e}")
         return {"error": str(e)}
@@ -124,24 +116,34 @@ def audit_context(user: str):
 # ===== SINGLETON AUDIT LOGGER =====
 
 class AuditLogger:
-    """Singleton audit logger optimized for SQL Server with simplified concurrency handling."""
+    """Database-aware audit logger that adapts to SQLite vs SQL Server."""
     
     def __init__(self):
-        self._session = None
         self._lock = threading.Lock()
         self._pending_audits = []
         self._last_commit_time = time.time()
-        self._commit_interval = 2.0  # Reduced for SQL Server (can handle more frequent commits)
-        self._max_batch_size = 25  # Smaller batches work better with SQL Server
-        # For SQL Server, we can use simpler immediate mode since it handles concurrency well
-        self._deferred_mode = False  # SQL Server doesn't need deferred processing
+        
+        # Detect database type and configure accordingly
+        from app.core.database import DATABASE_URL
+        self._is_sqlite = DATABASE_URL.startswith("sqlite")
+        
+        if self._is_sqlite:
+            # SQLite configuration: Use batching to avoid locks
+            self._commit_interval = 2.0
+            self._max_batch_size = 25
+            self._use_batching = True
+            print("🔍 Audit system: SQLite detected - using batched commits")
+        else:
+            # SQL Server configuration: Use immediate commits
+            self._commit_interval = 0.1  # Very short for near-immediate commits
+            self._max_batch_size = 1     # Commit every single audit entry
+            self._use_batching = False
+            print("🔍 Audit system: SQL Server detected - using immediate commits")
         
     def _get_session(self):
-        """Get or create audit session."""
-        if self._session is None:
-            from app.core.database import SessionLocal
-            self._session = SessionLocal()
-        return self._session
+        """Get a new session for audit operations."""
+        from app.core.database import SessionLocal
+        return SessionLocal()
     
     def _should_commit(self) -> bool:
         """Check if we should commit pending audits."""
@@ -151,12 +153,11 @@ class AuditLogger:
         )
     
     def add_audit(self, audit_data: Dict[str, Any]) -> None:
-        """Add an audit entry (thread-safe, optimized for SQL Server)."""
+        """Add an audit entry with database-appropriate handling."""
         try:
             with self._lock:
                 self._pending_audits.append(audit_data)
                 
-                # SQL Server handles concurrent writes well, so we can commit more aggressively
                 if self._should_commit():
                     self._commit_pending()
                     
@@ -164,10 +165,11 @@ class AuditLogger:
             print(f"Warning: Could not add audit entry: {e}")
     
     def _commit_pending(self) -> None:
-        """Commit pending audits immediately (SQL Server optimized)."""
+        """Commit pending audits using database-appropriate strategy."""
         if not self._pending_audits:
             return
             
+        session = None
         try:
             session = self._get_session()
             
@@ -181,15 +183,24 @@ class AuditLogger:
             self._last_commit_time = time.time()
             
         except Exception as e:
-            print(f"Warning: Audit commit failed: {e}")
-            try:
-                if self._session:
-                    self._session.rollback()
-                    self._session.close()
-                    self._session = None
-                self._pending_audits.clear()
-            except:
-                pass
+            if self._is_sqlite and "database is locked" in str(e):
+                print(f"Warning: SQLite lock detected - will retry later: {e}")
+                # For SQLite, don't clear pending audits on lock error - they'll retry
+            else:
+                print(f"Warning: Audit commit failed: {e}")
+                self._pending_audits.clear()  # Clear to prevent infinite retries
+            
+            if session:
+                try:
+                    session.rollback()
+                except:
+                    pass
+        finally:
+            if session:
+                try:
+                    session.close()
+                except:
+                    pass
     
     def flush(self) -> None:
         """Force commit all pending audits."""
@@ -204,11 +215,21 @@ class AuditLogger:
         """Close the audit logger and commit any pending entries."""
         try:
             self.flush()
-            if self._session:
-                self._session.close()
-                self._session = None
         except Exception as e:
             print(f"Warning: Audit logger close failed: {e}")
+            
+    def get_stats(self) -> Dict[str, Any]:
+        """Get audit logger statistics."""
+        with self._lock:
+            return {
+                "pending_count": len(self._pending_audits),
+                "last_commit_time": self._last_commit_time,
+                "commit_interval": self._commit_interval,
+                "max_batch_size": self._max_batch_size,
+                "use_batching": self._use_batching,
+                "database_type": "sqlite" if self._is_sqlite else "sql_server",
+                "is_sqlite": self._is_sqlite
+            }
 
 
 def get_audit_logger() -> AuditLogger:
