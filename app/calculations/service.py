@@ -18,6 +18,7 @@ from .models import (
     get_all_static_fields,
     get_static_field_info
 )
+from .dao import UserCalculationDAO, SystemCalculationDAO
 from .resolver import SimpleCalculationResolver, CalculationRequest, QueryFilters
 from .schemas import (
     UserCalculationCreate,
@@ -98,31 +99,23 @@ class ReportExecutionService:
 class UserCalculationService:
     """Service for managing user-defined calculations"""
 
-    def __init__(self, config_db: Session):
-        self.config_db = config_db
+    def __init__(self, user_calc_dao: UserCalculationDAO):
+        self.user_calc_dao = user_calc_dao
 
     def get_all_user_calculations(self, group_level: Optional[str] = None) -> List[UserCalculation]:
         """Get all active user calculations"""
-        query = self.config_db.query(UserCalculation).filter_by(is_active=True)
-        
-        if group_level:
-            query = query.filter_by(group_level=GroupLevel(group_level))
-        
-        return query.order_by(UserCalculation.name).all()
+        group_level_enum = GroupLevel(group_level) if group_level else None
+        return self.user_calc_dao.get_all(group_level_enum)
 
     def get_user_calculation_by_id(self, calc_id: int) -> Optional[UserCalculation]:
         """Get user calculation by ID"""
-        return self.config_db.query(UserCalculation).filter_by(id=calc_id, is_active=True).first()
+        return self.user_calc_dao.get_by_id(calc_id)
 
     def create_user_calculation(self, request: UserCalculationCreate, created_by: str = "api_user") -> UserCalculation:
         """Create a new user calculation"""
         
         # Check if calculation name already exists at this group level
-        existing = self.config_db.query(UserCalculation).filter_by(
-            name=request.name,
-            group_level=request.group_level,
-            is_active=True
-        ).first()
+        existing = self.user_calc_dao.get_by_name_and_group_level(request.name, request.group_level)
         
         if existing:
             raise CalculationAlreadyExistsError(
@@ -146,10 +139,7 @@ class UserCalculationService:
             created_by=created_by,
         )
 
-        self.config_db.add(calculation)
-        self.config_db.commit()
-        self.config_db.refresh(calculation)
-        return calculation
+        return self.user_calc_dao.create(calculation)
 
     def update_user_calculation(self, calc_id: int, request: UserCalculationUpdate) -> UserCalculation:
         """Update an existing user calculation"""
@@ -159,13 +149,10 @@ class UserCalculationService:
 
         # Check if another calculation with the same name exists at this group level (excluding current one)
         if request.name:
-            existing = self.config_db.query(UserCalculation).filter_by(
-                name=request.name,
-                group_level=request.group_level or calculation.group_level,
-                is_active=True
-            ).filter(UserCalculation.id != calc_id).first()
+            group_level = request.group_level or calculation.group_level
+            existing = self.user_calc_dao.get_by_name_and_group_level(request.name, group_level)
             
-            if existing:
+            if existing and existing.id != calc_id:
                 raise CalculationAlreadyExistsError(
                     f"Another user calculation with name '{request.name}' already exists at that group level"
                 )
@@ -193,9 +180,7 @@ class UserCalculationService:
             and not calculation.weight_field):
             raise InvalidCalculationError("Weighted average calculations require a weight_field")
 
-        self.config_db.commit()
-        self.config_db.refresh(calculation)
-        return calculation
+        return self.user_calc_dao.update(calculation)
 
     def delete_user_calculation(self, calc_id: int) -> Dict[str, str]:
         """Soft delete a user calculation"""
@@ -203,8 +188,7 @@ class UserCalculationService:
         if not calculation:
             raise CalculationNotFoundError(f"User calculation with ID {calc_id} not found")
 
-        calculation.is_active = False
-        self.config_db.commit()
+        self.user_calc_dao.soft_delete(calculation)
         return {"message": f"User calculation '{calculation.name}' deleted successfully"}
 
     def get_user_calculation_usage(self, calc_id: int) -> Dict[str, Any]:
@@ -225,32 +209,24 @@ class UserCalculationService:
 class SystemCalculationService:
     """Service for managing system-defined calculations"""
 
-    def __init__(self, config_db: Session):
-        self.config_db = config_db
+    def __init__(self, system_calc_dao: SystemCalculationDAO):
+        self.system_calc_dao = system_calc_dao
 
     def get_all_system_calculations(self, group_level: Optional[str] = None) -> List[SystemCalculation]:
         """Get all active system calculations"""
-        query = self.config_db.query(SystemCalculation).filter_by(is_active=True)
-        
-        if group_level:
-            query = query.filter_by(group_level=GroupLevel(group_level))
-        
-        return query.order_by(SystemCalculation.name).all()
+        group_level_enum = GroupLevel(group_level) if group_level else None
+        return self.system_calc_dao.get_all(group_level_enum)
 
     def get_system_calculation_by_id(self, calc_id: int) -> Optional[SystemCalculation]:
         """Get system calculation by ID"""
-        return self.config_db.query(SystemCalculation).filter_by(id=calc_id, is_active=True).first()
+        return self.system_calc_dao.get_by_id(calc_id)
 
     def create_system_calculation(self, request: SystemCalculationCreate, 
                                 created_by: str = "admin") -> SystemCalculation:
         """Create a new system calculation"""
         
         # Check if calculation name already exists at this group level
-        existing = self.config_db.query(SystemCalculation).filter_by(
-            name=request.name,
-            group_level=request.group_level,
-            is_active=True
-        ).first()
+        existing = self.system_calc_dao.get_by_name_and_group_level(request.name, request.group_level)
         
         if existing:
             raise CalculationAlreadyExistsError(
@@ -271,10 +247,7 @@ class SystemCalculationService:
             created_by=created_by,
         )
 
-        self.config_db.add(calculation)
-        self.config_db.commit()
-        self.config_db.refresh(calculation)
-        return calculation
+        return self.system_calc_dao.create(calculation)
 
     def approve_system_calculation(self, calc_id: int, approved_by: str) -> SystemCalculation:
         """Approve a system calculation"""
@@ -286,9 +259,7 @@ class SystemCalculationService:
         calculation.approved_by = approved_by
         calculation.approval_date = datetime.now()
         
-        self.config_db.commit()
-        self.config_db.refresh(calculation)
-        return calculation
+        return self.system_calc_dao.update(calculation)
 
     def delete_system_calculation(self, calc_id: int) -> Dict[str, str]:
         """Soft delete a system calculation"""
@@ -296,8 +267,7 @@ class SystemCalculationService:
         if not calculation:
             raise CalculationNotFoundError(f"System calculation with ID {calc_id} not found")
 
-        calculation.is_active = False
-        self.config_db.commit()
+        self.system_calc_dao.soft_delete(calculation)
         return {"message": f"System calculation '{calculation.name}' deleted successfully"}
 
     def _validate_system_sql(self, sql: str, group_level: GroupLevel, result_column_name: str):

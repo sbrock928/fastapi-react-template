@@ -1,6 +1,6 @@
 """Simplified Pydantic schemas for the reporting module."""
 
-from typing import Optional, List
+from typing import Optional, List, Union
 from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel, field_validator, ConfigDict
@@ -19,7 +19,8 @@ class ReportScope(str, Enum):
 class ReportCalculationBase(BaseModel):
     """Base schema for report calculation associations."""
 
-    calculation_id: int
+    calculation_id: Union[int, str]  # Support both numeric IDs (user/system) and string IDs (static fields)
+    calculation_type: Optional[str] = None  # 'user', 'system', or 'static' for clarity
     display_order: int = 0
     display_name: Optional[str] = None
 

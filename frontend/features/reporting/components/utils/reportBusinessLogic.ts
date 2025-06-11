@@ -151,7 +151,7 @@ export const convertAvailableCalculationsToReportCalculations = (
   availableCalculations: AvailableCalculation[]
 ): ReportCalculation[] => {
   return availableCalculations.map((calc, index) => ({
-    calculation_id: typeof calc.id === 'number' ? calc.id : hashStringToNumber(calc.id as string),
+    calculation_id: typeof calc.id === 'string' ? calc.id : calc.id, // Keep string IDs as strings!
     calculation_type: determineCalculationType(calc),
     display_order: index,
     display_name: undefined
@@ -172,19 +172,6 @@ function determineCalculationType(calc: AvailableCalculation): 'user' | 'system'
 }
 
 /**
- * Convert string ID to number for static fields
- */
-function hashStringToNumber(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32-bit integer
-  }
-  return Math.abs(hash);
-}
-
-/**
  * Find available calculation by report calculation
  * This is useful for displaying calculation details in forms
  */
@@ -193,11 +180,10 @@ export const findAvailableCalculationByReportCalculation = (
   reportCalc: ReportCalculation
 ): AvailableCalculation | undefined => {
   if (reportCalc.calculation_type === 'static') {
-    // For static fields, find by the static_ prefix pattern
+    // For static fields, find by string ID directly (no more hashing)
     return availableCalculations.find(calc => 
       typeof calc.id === 'string' && 
-      calc.id.startsWith('static_') &&
-      hashStringToNumber(calc.id) === reportCalc.calculation_id
+      calc.id === reportCalc.calculation_id
     );
   } else {
     // For user/system calculations, find by numeric ID

@@ -30,7 +30,7 @@ export interface CycleOption {
 // Updated calculation reference for reports
 // Now supports multiple calculation types with flexible ID system
 export interface ReportCalculation {
-  calculation_id: number; // For user/system calculations, or composite ID for static fields
+  calculation_id: number | string; // Support both numeric IDs (user/system) and string IDs (static fields)
   calculation_type?: 'user' | 'system' | 'static'; // Optional type hint
   display_order: number;
   display_name?: string; // Optional override for display name
@@ -157,12 +157,12 @@ export function createReportCalculation(
   displayOrder: number = 0,
   displayName?: string
 ): ReportCalculation {
-  let calculationId: number;
+  let calculationId: number | string;
   let calculationType: 'user' | 'system' | 'static';
 
   if (typeof availableCalc.id === 'string' && availableCalc.id.startsWith('static_')) {
-    // Static field - use a special encoding
-    calculationId = hashStringToNumber(availableCalc.id);
+    // Static field - keep the string ID as-is (no more hashing!)
+    calculationId = availableCalc.id;
     calculationType = 'static';
   } else if (typeof availableCalc.id === 'number') {
     calculationId = availableCalc.id;
@@ -267,17 +267,6 @@ export function filterCalculationsByCompatibility(
   return { compatible, incompatible };
 }
 
-// Utility function to convert string IDs to numbers (for static fields)
-function hashStringToNumber(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32-bit integer
-  }
-  return Math.abs(hash);
-}
-
 // Export utility for dealing with mixed calculation types in forms
 export function convertFormCalculationsToReportCalculations(
   selectedCalculations: AvailableCalculation[]
@@ -292,10 +281,10 @@ export function findAvailableCalculationById(
   reportCalc: ReportCalculation
 ): AvailableCalculation | undefined {
   if (reportCalc.calculation_type === 'static') {
-    // For static fields, find by the static_ prefix pattern
+    // For static fields, find by string ID directly (no more hashing)
     return calculations.find(calc => 
       typeof calc.id === 'string' && 
-      hashStringToNumber(calc.id) === reportCalc.calculation_id
+      calc.id === reportCalc.calculation_id
     );
   } else {
     // For user/system calculations, find by numeric ID

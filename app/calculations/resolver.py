@@ -103,8 +103,13 @@ class SimpleCalculationResolver:
 
         field_info = get_static_field_info(request.field_path)
 
-        # Build simple SELECT with required JOINs
-        base_columns = ["deal.dl_nbr AS deal_number", "tranchebal.cycle_cde AS cycle_code"]
+        # Build simple SELECT with required JOINs based on what's actually needed
+        base_columns = ["deal.dl_nbr AS deal_number"]
+        
+        # Only include cycle_code if we actually have TrancheBal data
+        required_models = field_info['required_models']
+        if "TrancheBal" in required_models:
+            base_columns.append("tranchebal.cycle_cde AS cycle_code")
 
         # Add tranche info if needed
         if self._requires_tranche_data(request.field_path):
@@ -113,17 +118,38 @@ class SimpleCalculationResolver:
         # Add the requested field
         base_columns.append(f"{request.field_path} AS {request.alias}")
 
-        # Build FROM/JOIN clause
-        from_clause = self._build_from_clause(field_info['required_models'])
+        # Build FROM/JOIN clause based on required models
+        from_clause = self._build_from_clause(required_models)
 
-        # Build WHERE clause
-        where_clause = self._build_where_clause(filters)
+        # Build WHERE clause - only include cycle filter if TrancheBal is involved
+        where_conditions = []
+        
+        # Build deal-tranche conditions
+        deal_conditions = []
+        for deal_id, tranche_ids in filters.deal_tranche_map.items():
+            if "Tranche" in required_models and tranche_ids:  # Only filter tranches if we have Tranche model
+                tranche_list = "', '".join(tranche_ids)
+                deal_conditions.append(f"(deal.dl_nbr = {deal_id} AND tranche.tr_id IN ('{tranche_list}'))")
+            else:  # Deal-only or all tranches for this deal
+                deal_conditions.append(f"deal.dl_nbr = {deal_id}")
+
+        if deal_conditions:
+            where_conditions.append(f"({' OR '.join(deal_conditions)})")
+        
+        # Only add cycle filter if TrancheBal is involved
+        if "TrancheBal" in required_models:
+            where_conditions.append(f"tranchebal.cycle_cde = {filters.cycle_code}")
+
+        where_clause = f"WHERE {' AND '.join(where_conditions)}" if where_conditions else ""
 
         sql = f"""SELECT DISTINCT {', '.join(base_columns)}
 {from_clause}
 {where_clause}"""
 
-        columns = ["deal_number", "cycle_code"]
+        # Build result columns based on what's actually included
+        columns = ["deal_number"]
+        if "TrancheBal" in required_models:
+            columns.append("cycle_code")
         if self._requires_tranche_data(request.field_path):
             columns.append("tranche_id")
         columns.append(request.alias)

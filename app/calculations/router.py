@@ -4,7 +4,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
-from app.core.dependencies import get_db, get_dw_db
+from app.core.dependencies import get_db, get_dw_db, get_user_calculation_dao, get_system_calculation_dao
 
 from .service import (
     UserCalculationService,
@@ -34,14 +34,14 @@ router = APIRouter(prefix="/calculations", tags=["calculations"])
 
 # ===== DEPENDENCY FUNCTIONS =====
 
-def get_user_calculation_service(config_db: Session = Depends(get_db)) -> UserCalculationService:
+def get_user_calculation_service(user_calc_dao = Depends(get_user_calculation_dao)) -> UserCalculationService:
     """Get user calculation service"""
-    return UserCalculationService(config_db)
+    return UserCalculationService(user_calc_dao)
 
 
-def get_system_calculation_service(config_db: Session = Depends(get_db)) -> SystemCalculationService:
+def get_system_calculation_service(system_calc_dao = Depends(get_system_calculation_dao)) -> SystemCalculationService:
     """Get system calculation service"""
-    return SystemCalculationService(config_db)
+    return SystemCalculationService(system_calc_dao)
 
 
 def get_report_execution_service(

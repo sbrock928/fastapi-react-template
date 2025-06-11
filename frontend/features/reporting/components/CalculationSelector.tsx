@@ -105,9 +105,9 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
   const isCalculationSelected = (calc: AvailableCalculation): boolean => {
     return selectedCalculations.some(selected => {
       if (typeof calc.id === 'string' && calc.id.startsWith('static_')) {
-        // For static fields, compare by matching the static field logic
+        // For static fields, compare by string ID directly (no more hashing)
         return selected.calculation_type === 'static' && 
-               hashStringToNumber(calc.id) === selected.calculation_id;
+               calc.id === selected.calculation_id;
       } else {
         // For user/system calculations, compare by numeric ID
         return typeof calc.id === 'number' && calc.id === selected.calculation_id;
@@ -124,7 +124,7 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
       const updatedCalculations = selectedCalculations.filter(selected => {
         if (typeof availableCalc.id === 'string' && availableCalc.id.startsWith('static_')) {
           return !(selected.calculation_type === 'static' && 
-                  hashStringToNumber(availableCalc.id) === selected.calculation_id);
+                  availableCalc.id === selected.calculation_id);
         } else {
           return !(typeof availableCalc.id === 'number' && availableCalc.id === selected.calculation_id);
         }
@@ -181,17 +181,6 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
   const handleClearAll = () => {
     onCalculationsChange([]);
   };
-
-  // Helper function to convert string IDs to numbers (same as in types)
-  function hashStringToNumber(str: string): number {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash;
-    }
-    return Math.abs(hash);
-  }
 
   if (loading) {
     return (
@@ -317,7 +306,7 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
             {selectedCalculations.map(calc => {
               const availableCalc = availableCalculations.find(ac => {
                 if (calc.calculation_type === 'static') {
-                  return typeof ac.id === 'string' && hashStringToNumber(ac.id) === calc.calculation_id;
+                  return typeof ac.id === 'string' && ac.id === calc.calculation_id;
                 } else {
                   return typeof ac.id === 'number' && ac.id === calc.calculation_id;
                 }
