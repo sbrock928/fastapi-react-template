@@ -36,7 +36,7 @@ def get_report_service(
     report_dao: ReportDAO = Depends(get_report_dao),
     dw_dao: DatawarehouseDAO = Depends(get_dw_dao)
 ) -> ReportService:
-    return ReportService(report_dao, dw_dao, query_engine)
+    return ReportService(report_dao, dw_dao)
 
 
 # ===== REPORT CONFIGURATION ENDPOINTS =====

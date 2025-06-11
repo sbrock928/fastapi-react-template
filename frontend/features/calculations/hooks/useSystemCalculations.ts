@@ -2,12 +2,12 @@
 import { useState, useEffect } from 'react';
 import { useToast } from '@/context/ToastContext';
 import { calculationsApi } from '@/services/calculationsApi';
-import type { Calculation, CalculationForm } from '@/types/calculations';
+import type { SystemCalculation, CalculationForm } from '@/types/calculations';
 
 export const useSystemCalculations = () => {
   const { showToast } = useToast();
-  const [systemCalculations, setSystemCalculations] = useState<Calculation[]>([]);
-  const [filteredSystemCalculations, setFilteredSystemCalculations] = useState<Calculation[]>([]);
+  const [systemCalculations, setSystemCalculations] = useState<SystemCalculation[]>([]);
+  const [filteredSystemCalculations, setFilteredSystemCalculations] = useState<SystemCalculation[]>([]);
   const [selectedFilter, setSelectedFilter] = useState<string>('all');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [systemUsage, setSystemUsage] = useState<Record<number, any>>({});
@@ -15,9 +15,9 @@ export const useSystemCalculations = () => {
   const fetchSystemCalculations = async (): Promise<void> => {
     setIsLoading(true);
     try {
-      // Fetch system calculations (both SYSTEM_FIELD and SYSTEM_SQL)
-      const systemFieldResponse = await calculationsApi.getSystemCalculations();
-      setSystemCalculations(systemFieldResponse.data);
+      // Fetch system calculations
+      const systemResponse = await calculationsApi.getSystemCalculations();
+      setSystemCalculations(systemResponse.data);
     } catch (error) {
       console.error('Error fetching system calculations:', error);
       showToast('Error loading system calculations. Please refresh the page.', 'error');
@@ -56,7 +56,7 @@ export const useSystemCalculations = () => {
       // First validate the SQL
       const validationResponse = await calculationsApi.validateSystemSql({
         sql_text: formState.source_field, // SQL stored in source_field
-        group_level: formState.level,
+        group_level: formState.level as "deal" | "tranche",
         result_column_name: formState.weight_field // Result column stored in weight_field
       });
 
@@ -70,7 +70,7 @@ export const useSystemCalculations = () => {
       const payload = {
         name: formState.name,
         description: formState.description || undefined,
-        group_level: formState.level,
+        group_level: formState.level as "deal" | "tranche",
         raw_sql: formState.source_field, // SQL stored in source_field
         result_column_name: formState.weight_field // Result column stored in weight_field
       };
@@ -103,7 +103,8 @@ export const useSystemCalculations = () => {
     } else if (selectedFilter === 'tranche') {
       filtered = systemCalculations.filter(calc => calc.group_level === 'tranche');
     } else if (selectedFilter === 'system-sql') {
-      filtered = systemCalculations.filter(calc => calc.calculation_type === 'SYSTEM_SQL');
+      // All system calculations are system-sql type now
+      filtered = systemCalculations;
     }
     
     setFilteredSystemCalculations(filtered);

@@ -47,7 +47,7 @@ const RunReportsCard: React.FC<RunReportsCardProps> = ({
     try {
       const response = await reportingApi.previewReportSQL(
         parseInt(selectedSavedReport), 
-        selectedCycle.value
+        selectedCycle.value as number
       );
       setPreviewData(response.data);
     } catch (error: any) {

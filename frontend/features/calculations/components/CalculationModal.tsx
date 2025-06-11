@@ -3,9 +3,9 @@ import React, { useState } from 'react';
 import type { 
   Calculation, 
   CalculationField, 
-  AggregationFunction, 
-  SourceModel, 
-  GroupLevel, 
+  AggregationFunctionInfo, 
+  SourceModelInfo, 
+  GroupLevelInfo, 
   CalculationForm 
 } from '@/types/calculations';
 import { 
@@ -29,9 +29,9 @@ interface CalculationModalProps {
   isSaving: boolean;
   fieldsLoading: boolean;
   allAvailableFields: Record<string, CalculationField[]>;
-  aggregationFunctions: AggregationFunction[];
-  sourceModels: SourceModel[];
-  groupLevels: GroupLevel[];
+  aggregationFunctions: AggregationFunctionInfo[];
+  sourceModels: SourceModelInfo[];
+  groupLevels: GroupLevelInfo[];
   onClose: () => void;
   onSave: () => void;
   onUpdateCalculation: (updates: Partial<CalculationForm>) => void;
@@ -93,7 +93,7 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
     try {
       const response = await calculationsApi.validateSystemSql({
         sql_text: calculation.source_field,
-        group_level: calculation.level,
+        group_level: calculation.level as "deal" | "tranche",
         result_column_name: calculation.weight_field
       });
 
@@ -149,7 +149,7 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
               {groupLevels.length === 0 ? (
                 <option value="">Loading group levels...</option>
               ) : (
-                groupLevels.map((level: GroupLevel) => (
+                groupLevels.map((level: GroupLevelInfo) => (
                   <option key={level.value} value={level.value}>
                     {level.label}
                   </option>
@@ -182,7 +182,7 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
               <option value="">
                 {sourceModels.length === 0 ? 'Loading source models...' : 'Select a source model...'}
               </option>
-              {sourceModels.map((model: SourceModel) => (
+              {sourceModels.map((model: SourceModelInfo) => (
                 <option key={model.value} value={model.value}>
                   {model.label}
                 </option>
@@ -203,7 +203,7 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
               ) : (
                 aggregationFunctions
                   .filter(func => func.category === 'aggregated') // Only aggregated functions for user-defined
-                  .map((func: AggregationFunction) => (
+                  .map((func: AggregationFunctionInfo) => (
                     <option key={func.value} value={func.value}>
                       {func.label}
                     </option>
@@ -330,7 +330,7 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
               onChange={(e) => onUpdateCalculation({ level: e.target.value })}
               className="form-select"
             >
-              {groupLevels.map((level: GroupLevel) => (
+              {groupLevels.map((level: GroupLevelInfo) => (
                 <option key={level.value} value={level.value}>
                   {level.label}
                 </option>

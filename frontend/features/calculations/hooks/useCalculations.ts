@@ -1,13 +1,15 @@
 // frontend/features/calculations/hooks/useCalculations.ts
+// Updated to work with the new separated calculation system
+
 import { useState, useEffect } from 'react';
 import { useToast } from '@/context/ToastContext';
 import { calculationsApi } from '@/services/calculationsApi';
-import type { Calculation } from '@/types/calculations';
+import type { UserCalculation, SystemCalculation } from '@/types/calculations';
 
 export const useCalculations = () => {
   const { showToast } = useToast();
-  const [calculations, setCalculations] = useState<Calculation[]>([]);
-  const [filteredCalculations, setFilteredCalculations] = useState<Calculation[]>([]);
+  const [calculations, setCalculations] = useState<UserCalculation[]>([]);
+  const [filteredCalculations, setFilteredCalculations] = useState<UserCalculation[]>([]);
   const [selectedFilter, setSelectedFilter] = useState<string>('all');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [calculationUsage, setCalculationUsage] = useState<Record<number, any>>({});
@@ -15,7 +17,7 @@ export const useCalculations = () => {
   const fetchCalculations = async (): Promise<void> => {
     setIsLoading(true);
     try {
-      // Fetch only user-defined calculations
+      // Fetch only user-defined calculations (as before)
       const response = await calculationsApi.getUserDefinedCalculations();
       setCalculations(response.data);
     } catch (error) {
@@ -110,5 +112,137 @@ export const useCalculations = () => {
     calculationUsage,
     fetchCalculations,
     deleteCalculation
+  };
+};
+
+// New hook for system calculations
+export const useSystemCalculations = () => {
+  const { showToast } = useToast();
+  const [systemCalculations, setSystemCalculations] = useState<SystemCalculation[]>([]);
+  const [filteredSystemCalculations, setFilteredSystemCalculations] = useState<SystemCalculation[]>([]);
+  const [selectedFilter, setSelectedFilter] = useState<string>('all');
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [systemUsage, setSystemUsage] = useState<Record<number, any>>({});
+
+  const fetchSystemCalculations = async (): Promise<void> => {
+    setIsLoading(true);
+    try {
+      // Fetch system calculations (both SYSTEM_FIELD and SYSTEM_SQL)
+      const systemFieldResponse = await calculationsApi.getSystemCalculations();
+      setSystemCalculations(systemFieldResponse.data);
+    } catch (error) {
+      console.error('Error fetching system calculations:', error);
+      showToast('Error loading system calculations. Please refresh the page.', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchSystemCalculationUsage = async () => {
+    const usageMap: Record<number, any> = {};
+    
+    for (const calc of systemCalculations) {
+      try {
+        const response = await calculationsApi.getCalculationUsage(calc.id);
+        usageMap[calc.id] = response.data;
+      } catch (error) {
+        console.error(`Error fetching usage for system calculation ${calc.id}:`, error);
+        usageMap[calc.id] = { is_in_use: false, report_count: 0, reports: [] };
+      }
+    }
+    
+    setSystemUsage(usageMap);
+  };
+
+  const createSystemSqlCalculation = async (
+    formState: any,
+    onSuccess?: () => void
+  ): Promise<boolean> => {
+    if (!formState.name || !formState.source_field || !formState.weight_field || !formState.level) {
+      showToast('Please fill in all required fields for system SQL calculation', 'error');
+      return false;
+    }
+
+    setIsLoading(true);
+    try {
+      // First validate the SQL
+      const validationResponse = await calculationsApi.validateSystemSql({
+        sql_text: formState.source_field, // SQL stored in source_field
+        group_level: formState.level,
+        result_column_name: formState.weight_field // Result column stored in weight_field
+      });
+
+      if (!validationResponse.data.validation_result.is_valid) {
+        const errors = validationResponse.data.validation_result.errors.join(', ');
+        showToast(`SQL validation failed: ${errors}`, 'error');
+        return false;
+      }
+
+      // Create the system SQL calculation
+      const payload = {
+        name: formState.name,
+        description: formState.description || undefined,
+        group_level: formState.level,
+        raw_sql: formState.source_field, // SQL stored in source_field
+        result_column_name: formState.weight_field // Result column stored in weight_field
+      };
+
+      const response = await calculationsApi.createSystemSqlCalculation(payload);
+      showToast(`System SQL calculation "${response.data.name}" created successfully!`, 'success');
+      
+      onSuccess?.();
+      return true;
+    } catch (error: any) {
+      console.error('Error creating system SQL calculation:', error);
+      
+      let errorMessage = 'Error creating system SQL calculation';
+      if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      }
+      
+      showToast(errorMessage, 'error');
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const filterCalculations = (): void => {
+    let filtered = systemCalculations;
+    
+    if (selectedFilter === 'deal') {
+      filtered = systemCalculations.filter(calc => calc.group_level === 'deal');
+    } else if (selectedFilter === 'tranche') {
+      filtered = systemCalculations.filter(calc => calc.group_level === 'tranche');
+    } else if (selectedFilter === 'system-sql') {
+      filtered = systemCalculations.filter(calc => calc.calculation_type === 'SYSTEM_SQL');
+    }
+    
+    setFilteredSystemCalculations(filtered);
+  };
+
+  useEffect(() => {
+    fetchSystemCalculations();
+  }, []);
+
+  useEffect(() => {
+    if (systemCalculations.length > 0) {
+      fetchSystemCalculationUsage();
+    }
+  }, [systemCalculations]);
+
+  useEffect(() => {
+    filterCalculations();
+  }, [systemCalculations, selectedFilter]);
+
+  return {
+    systemCalculations,
+    filteredSystemCalculations,
+    selectedFilter,
+    setSelectedFilter,
+    isLoading,
+    systemUsage,
+    fetchSystemCalculations,
+    createSystemSqlCalculation
   };
 };

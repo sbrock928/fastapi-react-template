@@ -6,8 +6,6 @@ import type {
   ReportConfig, 
   ReportSummary, 
   RunReportRequest,
-  DealReportRow,
-  TrancheReportRow,
   AvailableCalculation // Changed from AvailableField
 } from '@/types/reporting';
 
@@ -77,12 +75,12 @@ const reportingApi = {
   // ===== REPORT EXECUTION ENDPOINTS =====
 
   // Run a saved report configuration
-  runSavedReport: (request: RunReportRequest): Promise<{ data: DealReportRow[] | TrancheReportRow[] }> => {
+  runSavedReport: (request: RunReportRequest): Promise<{ data: ReportRow[] }> => {
     return apiClient.post('/reports/run', request);
   },
 
   // Run report by ID with cycle parameter
-  runReportById: (reportId: number, cycleCode: number): Promise<{ data: DealReportRow[] | TrancheReportRow[] }> => {
+  runReportById: (reportId: number, cycleCode: number): Promise<{ data: ReportRow[] }> => {
     return apiClient.post(`/reports/run/${reportId}`, { cycle_code: cycleCode });
   },
 

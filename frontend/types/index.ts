@@ -4,6 +4,22 @@
 // Re-export all types from feature-specific files
 export * from './logging';
 export * from './documentation';
-export * from './reporting';
-export * from './calculations';
 export * from './common';
+
+// Export reporting types first, then calculations to avoid conflicts
+export * from './reporting';
+export type {
+  UserCalculation,
+  SystemCalculation,
+  StaticFieldInfo,
+  CalculationConfig,
+  UserCalculationCreateRequest,
+  UserCalculationUpdateRequest,
+  SystemCalculationCreateRequest,
+  SystemSqlValidationRequest,
+  SystemSqlValidationResponse,
+  CalculationUsage,
+  PreviewData,
+  Calculation,
+  CalculationForm
+} from './calculations';

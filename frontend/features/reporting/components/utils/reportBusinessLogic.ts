@@ -1,4 +1,8 @@
+// frontend/features/reporting/components/utils/reportBusinessLogic.ts
+// Updated to work with the new separated calculation system
+
 import type { ReportBuilderFormState } from '../hooks/useReportBuilderForm';
+import type { AvailableCalculation, ReportCalculation } from '@/types/reporting';
 
 /**
  * Transform form state data into the format expected by the API (simplified structure)
@@ -39,18 +43,23 @@ export const transformFormDataForApi = (formState: ReportBuilderFormState, avail
     return dealData;
   });
 
+  // Transform calculations for the new API format
+  const transformedCalculations = selectedCalculations.map((calc, index) => ({
+    calculation_id: calc.calculation_id, // Keep as number, not string
+    calculation_type: calc.calculation_type,
+    display_order: calc.display_order ?? index,
+    display_name: calc.display_name || undefined
+  }));
+
   return {
     name: reportName,
     description: reportDescription || undefined,
     scope: reportScope as 'DEAL' | 'TRANCHE',
     selected_deals: transformedSelectedDeals,
-    selected_calculations: selectedCalculations.map((calc, index) => ({
-      calculation_id: calc.calculation_id,
-      display_order: calc.display_order ?? index,
-      display_name: calc.display_name || undefined
-    }))
+    selected_calculations: transformedCalculations
   };
 };
+
 /**
  * Create new report configuration payload
  */
@@ -132,4 +141,128 @@ export const getSuccessMessage = (operation: 'create' | 'update'): string => {
   return operation === 'create' 
     ? 'Report configuration saved successfully!' 
     : 'Report configuration updated successfully!';
+};
+
+/**
+ * Convert available calculations to report calculations for form state
+ * This helps when editing existing reports
+ */
+export const convertAvailableCalculationsToReportCalculations = (
+  availableCalculations: AvailableCalculation[]
+): ReportCalculation[] => {
+  return availableCalculations.map((calc, index) => ({
+    calculation_id: typeof calc.id === 'number' ? calc.id : hashStringToNumber(calc.id as string),
+    calculation_type: determineCalculationType(calc),
+    display_order: index,
+    display_name: undefined
+  }));
+};
+
+/**
+ * Determine calculation type from available calculation
+ */
+function determineCalculationType(calc: AvailableCalculation): 'user' | 'system' | 'static' {
+  if (calc.calculation_type === 'STATIC_FIELD' || (typeof calc.id === 'string' && calc.id.startsWith('static_'))) {
+    return 'static';
+  } else if (calc.calculation_type === 'SYSTEM_SQL') {
+    return 'system';
+  } else {
+    return 'user';
+  }
+}
+
+/**
+ * Convert string ID to number for static fields
+ */
+function hashStringToNumber(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return Math.abs(hash);
+}
+
+/**
+ * Find available calculation by report calculation
+ * This is useful for displaying calculation details in forms
+ */
+export const findAvailableCalculationByReportCalculation = (
+  availableCalculations: AvailableCalculation[],
+  reportCalc: ReportCalculation
+): AvailableCalculation | undefined => {
+  if (reportCalc.calculation_type === 'static') {
+    // For static fields, find by the static_ prefix pattern
+    return availableCalculations.find(calc => 
+      typeof calc.id === 'string' && 
+      calc.id.startsWith('static_') &&
+      hashStringToNumber(calc.id) === reportCalc.calculation_id
+    );
+  } else {
+    // For user/system calculations, find by numeric ID
+    return availableCalculations.find(calc => 
+      typeof calc.id === 'number' && 
+      calc.id === reportCalc.calculation_id
+    );
+  }
+};
+
+/**
+ * Validate calculation selection for report scope
+ */
+export const validateCalculationCompatibility = (
+  calc: AvailableCalculation,
+  reportScope: 'DEAL' | 'TRANCHE'
+): { isCompatible: boolean; reason?: string } => {
+  // Deal-level reports
+  if (reportScope === 'DEAL') {
+    if (calc.calculation_type === 'STATIC_FIELD' && calc.group_level === 'tranche') {
+      return {
+        isCompatible: false,
+        reason: 'Raw tranche fields would create multiple rows per deal'
+      };
+    }
+    
+    if (calc.group_level === 'tranche' && calc.aggregation_function !== 'RAW') {
+      return {
+        isCompatible: false,
+        reason: 'Tranche-level calculations are not designed for deal-level aggregation'
+      };
+    }
+  }
+  
+  // Tranche-level reports
+  if (reportScope === 'TRANCHE') {
+    if (calc.group_level === 'deal' && calc.calculation_type !== 'STATIC_FIELD') {
+      return {
+        isCompatible: false,
+        reason: 'Deal-level calculations are designed for deal-level aggregation only'
+      };
+    }
+  }
+  
+  return { isCompatible: true };
+};
+
+/**
+ * Filter calculations by compatibility with report scope
+ */
+export const filterCalculationsByCompatibility = (
+  calculations: AvailableCalculation[],
+  reportScope: 'DEAL' | 'TRANCHE'
+): { compatible: AvailableCalculation[]; incompatible: AvailableCalculation[] } => {
+  const compatible: AvailableCalculation[] = [];
+  const incompatible: AvailableCalculation[] = [];
+  
+  calculations.forEach(calc => {
+    const { isCompatible } = validateCalculationCompatibility(calc, reportScope);
+    if (isCompatible) {
+      compatible.push(calc);
+    } else {
+      incompatible.push(calc);
+    }
+  });
+  
+  return { compatible, incompatible };
 };

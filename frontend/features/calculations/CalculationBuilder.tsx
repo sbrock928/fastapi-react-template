@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useToast } from '@/context/ToastContext';
 import { calculationsApi } from '@/services/calculationsApi';
-import type { Calculation, PreviewData } from '@/types/calculations';
+import type { Calculation, UserCalculation, PreviewData } from '@/types/calculations';
 
 // Components
 import FilterSection from './components/FilterSection';
@@ -87,7 +87,7 @@ const CalculationBuilder: React.FC = () => {
     saveCalculation,
     resetForm,
     initializeForm
-  } = useCalculationForm(editingCalculation);
+  } = useCalculationForm(editingCalculation as UserCalculation | null);
 
   // Initialize data
   useEffect(() => {
@@ -117,7 +117,12 @@ const CalculationBuilder: React.FC = () => {
   ) => {
     setModalType(type);
     setEditingCalculation(calc);
-    initializeForm(calc);
+    // Only initialize form with UserCalculation for user-defined modal
+    if (type === 'user-defined') {
+      initializeForm(calc as UserCalculation | null);
+    } else {
+      initializeForm(null); // For system SQL, start with empty form
+    }
     setShowModal(true);
     setHasUnsavedChanges(false);
   };

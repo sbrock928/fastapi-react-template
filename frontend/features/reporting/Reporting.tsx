@@ -80,7 +80,7 @@ const ReportingContent = () => {
 
     try {
       const reportId = parseInt(selectedSavedReport);
-      const response = await reportingApi.runReportById(reportId, selectedCycle.value);
+      const response = await reportingApi.runReportById(reportId, selectedCycle.value as number);
       
       setReportData(response.data as ReportRow[]);
       setIsSkeletonMode(false);
@@ -128,7 +128,7 @@ const ReportingContent = () => {
       const columns = Object.keys(firstRow).map(key => ({
         field: key,
         header: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-        type: typeof firstRow[key] === 'number' ? 'number' : 'string'
+        type: (typeof firstRow[key] === 'number' ? 'number' : 'string') as 'string' | 'number' | 'currency' | 'percentage' | 'date'
       }));
       
       const selectedReport = savedReports.find(r => r.id.toString() === selectedSavedReport);
