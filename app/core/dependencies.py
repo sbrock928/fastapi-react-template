@@ -1,5 +1,5 @@
 # app/core/dependencies.py
-"""Updated dependencies for the new base service architecture with refactored logging."""
+"""Updated dependencies for the new base service architecture with datawarehouse services."""
 
 from typing import Annotated
 from fastapi import Depends
@@ -48,12 +48,27 @@ def get_calculation_audit_dao(config_db: Session = Depends(get_db)):
     from app.calculations.audit_dao import CalculationAuditDAO
     return CalculationAuditDAO(config_db)
 
-# ===== DATAWAREHOUSE DAO DEPENDENCIES =====
+# ===== DATAWAREHOUSE DAO DEPENDENCIES (NEW) =====
 
 def get_datawarehouse_dao(dw_db: Session = Depends(get_dw_db)):
-    """Get datawarehouse DAO"""
+    """Get composite datawarehouse DAO"""
     from app.datawarehouse.dao import DatawarehouseDAO
     return DatawarehouseDAO(dw_db)
+
+def get_deal_dao(dw_db: Session = Depends(get_dw_db)):
+    """Get deal DAO"""
+    from app.datawarehouse.dao import DealDAO
+    return DealDAO(dw_db)
+
+def get_tranche_dao(dw_db: Session = Depends(get_dw_db)):
+    """Get tranche DAO"""
+    from app.datawarehouse.dao import TrancheDAO
+    return TrancheDAO(dw_db)
+
+def get_tranche_bal_dao(dw_db: Session = Depends(get_dw_db)):
+    """Get tranche balance DAO"""
+    from app.datawarehouse.dao import TrancheBalDAO
+    return TrancheBalDAO(dw_db)
 
 # ===== LOGGING SERVICE DEPENDENCIES (REFACTORED) =====
 
@@ -82,6 +97,28 @@ def get_report_execution_service(
     from app.calculations.service import ReportExecutionService
     return ReportExecutionService(dw_db, config_db)
 
+# ===== DATAWAREHOUSE SERVICE DEPENDENCIES (NEW) =====
+
+def get_datawarehouse_service(datawarehouse_dao = Depends(get_datawarehouse_dao)):
+    """Get composite datawarehouse service"""
+    from app.datawarehouse.service import DatawarehouseService
+    return DatawarehouseService(datawarehouse_dao)
+
+def get_deal_service(deal_dao = Depends(get_deal_dao)):
+    """Get deal service"""
+    from app.datawarehouse.service import DealService
+    return DealService(deal_dao)
+
+def get_tranche_service(tranche_dao = Depends(get_tranche_dao)):
+    """Get tranche service"""
+    from app.datawarehouse.service import TrancheService
+    return TrancheService(tranche_dao)
+
+def get_tranche_bal_service(tranche_bal_dao = Depends(get_tranche_bal_dao)):
+    """Get tranche balance service"""
+    from app.datawarehouse.service import TrancheBalService
+    return TrancheBalService(tranche_bal_dao)
+
 # ===== REPORTING SERVICE DEPENDENCIES (UPDATED) =====
 
 def get_report_execution_log_service(execution_log_dao = Depends(get_report_execution_log_dao)):
@@ -91,7 +128,7 @@ def get_report_execution_log_service(execution_log_dao = Depends(get_report_exec
 
 def get_report_service(
     report_dao = Depends(get_report_dao),
-    dw_dao = Depends(get_datawarehouse_dao),
+    dw_dao = Depends(get_datawarehouse_dao),  # Updated to use new datawarehouse DAO
     user_calc_service = Depends(get_user_calculation_service),
     system_calc_service = Depends(get_system_calculation_service),
     report_execution_service = Depends(get_report_execution_service),
