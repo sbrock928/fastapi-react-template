@@ -1,5 +1,5 @@
 # app/calculations/models.py
-"""New separated calculation models - User calculations vs System calculations"""
+"""New separated calculation models with smart auto-discovery - User calculations vs System calculations"""
 
 from sqlalchemy import (
     Column,
@@ -11,6 +11,7 @@ from sqlalchemy import (
     Enum as SQLEnum,
     JSON,
     UniqueConstraint,
+    inspect,
 )
 from sqlalchemy.orm import Mapped, mapped_column, validates
 from sqlalchemy.sql import func
@@ -220,144 +221,19 @@ class SystemCalculation(Base):
         return f"<SystemCalculation(id={self.id}, name='{self.name}', approved={self.is_approved()})>"
 
 
-# Static field definitions (no database storage needed)
-STATIC_FIELD_REGISTRY = {
-    "deal.dl_nbr": {
-        "name": "Deal Number",
-        "description": "Unique identifier for the deal",
-        "type": "number",
-        "required_models": ["Deal"],
-        "nullable": False
-    },
-    "deal.issr_cde": {
-        "name": "Issuer Code", 
-        "description": "Deal issuer code",
-        "type": "string",
-        "required_models": ["Deal"],
-        "nullable": True
-    },
-    "deal.cdi_file_nme": {
-        "name": "CDI File Name",
-        "description": "CDI file name",
-        "type": "string", 
-        "required_models": ["Deal"],
-        "nullable": True
-    },
-    "deal.CDB_cdi_file_nme": {
-        "name": "CDB CDI File Name",
-        "description": "CDB CDI file name",
-        "type": "string",
-        "required_models": ["Deal"], 
-        "nullable": True
-    },
-    "tranche.tr_id": {
-        "name": "Tranche ID",
-        "description": "Tranche identifier within the deal",
-        "type": "string",
-        "required_models": ["Deal", "Tranche"],
-        "nullable": False
-    },
-    "tranche.tr_cusip_id": {
-        "name": "Tranche CUSIP ID",
-        "description": "CUSIP identifier for the tranche",
-        "type": "string",
-        "required_models": ["Deal", "Tranche"],
-        "nullable": True
-    },
-    "tranchebal.tr_end_bal_amt": {
-        "name": "Ending Balance Amount",
-        "description": "Outstanding principal balance at period end",
-        "type": "currency",
-        "required_models": ["Deal", "Tranche", "TrancheBal"],
-        "nullable": True
-    },
-    "tranchebal.tr_pass_thru_rte": {
-        "name": "Pass Through Rate",
-        "description": "Interest rate passed through to investors",
-        "type": "percentage",
-        "required_models": ["Deal", "Tranche", "TrancheBal"],
-        "nullable": True
-    },
-    "tranchebal.cycle_cde": {
-        "name": "Cycle Code",
-        "description": "Reporting cycle identifier (YYYYMM format)",
-        "type": "number",
-        "required_models": ["Deal", "Tranche", "TrancheBal"],
-        "nullable": False
-    },
-    "tranchebal.tr_prin_rel_ls_amt": {
-        "name": "Principal Released Amount",
-        "description": "Principal released or lost during the period",
-        "type": "currency",
-        "required_models": ["Deal", "Tranche", "TrancheBal"],
-        "nullable": True
-    },
-    "tranchebal.tr_accrl_days": {
-        "name": "Accrual Days",
-        "description": "Number of days in the accrual period",
-        "type": "number",
-        "required_models": ["Deal", "Tranche", "TrancheBal"],
-        "nullable": True
-    },
-    "tranchebal.tr_int_dstrb_amt": {
-        "name": "Interest Distribution Amount",
-        "description": "Interest distributed to investors",
-        "type": "currency",
-        "required_models": ["Deal", "Tranche", "TrancheBal"],
-        "nullable": True
-    },
-    "tranchebal.tr_prin_dstrb_amt": {
-        "name": "Principal Distribution Amount", 
-        "description": "Principal distributed to investors",
-        "type": "currency",
-        "required_models": ["Deal", "Tranche", "TrancheBal"],
-        "nullable": True
-    },
-    "tranchebal.tr_int_accrl_amt": {
-        "name": "Interest Accrual Amount",
-        "description": "Interest accrued during the period",
-        "type": "currency",
-        "required_models": ["Deal", "Tranche", "TrancheBal"],
-        "nullable": True
-    },
-    "tranchebal.tr_int_shtfl_amt": {
-        "name": "Interest Shortfall Amount",
-        "description": "Interest shortfall amount",
-        "type": "currency",
-        "required_models": ["Deal", "Tranche", "TrancheBal"],
-        "nullable": True
-    },
-}
-
-def get_static_field_info(field_path: str) -> Dict[str, Any]:
-    """Get metadata about a static field."""
-    return STATIC_FIELD_REGISTRY.get(field_path, {
-        "name": field_path,
-        "description": f"Field {field_path}",
-        "type": "unknown",
-        "required_models": [],
-        "nullable": True
-    })
-
-def get_all_static_fields() -> Dict[str, Dict[str, Any]]:
-    """Get all available static fields."""
-    return STATIC_FIELD_REGISTRY.copy()
-
-# app/calculations/models.py (Updated version)
-"""Updated models.py to use auto-discovery with minimal manual overrides"""
-
-# ... existing imports and model definitions ...
-
-from sqlalchemy import inspect
-from typing import Dict, List, Any
-from app.datawarehouse.models import Deal, Tranche, TrancheBal
-
+# ===== SMART FIELD DISCOVERY SYSTEM =====
 
 class SmartFieldDiscovery:
     """Smart field discovery with minimal manual configuration"""
     
     def __init__(self):
-        self.models = {"Deal": Deal, "Tranche": Tranche, "TrancheBal": TrancheBal}
+        # Import here to avoid circular imports
+        try:
+            from app.datawarehouse.models import Deal, Tranche, TrancheBal
+            self.models = {"Deal": Deal, "Tranche": Tranche, "TrancheBal": TrancheBal}
+        except ImportError:
+            # Fallback if datawarehouse models aren't available yet
+            self.models = {}
         
         # Only specify overrides for fields that need special handling
         self.field_overrides = {
@@ -367,10 +243,35 @@ class SmartFieldDiscovery:
                 "description": "Unique identifier for the deal",
                 "type": "number"
             },
+            "deal.issr_cde": {
+                "name": "Issuer Code", 
+                "description": "Deal issuer code",
+                "type": "string"
+            },
+            "deal.cdi_file_nme": {
+                "name": "CDI File Name",
+                "description": "CDI file name",
+                "type": "string"
+            },
+            "deal.CDB_cdi_file_nme": {
+                "name": "CDB CDI File Name",
+                "description": "CDB CDI file name",
+                "type": "string"
+            },
             "tranche.tr_id": {
                 "name": "Tranche ID", 
                 "description": "Tranche identifier within the deal",
                 "type": "string"
+            },
+            "tranche.tr_cusip_id": {
+                "name": "Tranche CUSIP ID",
+                "description": "CUSIP identifier for the tranche",
+                "type": "string"
+            },
+            "tranchebal.tr_end_bal_amt": {
+                "name": "Ending Balance Amount",
+                "description": "Outstanding principal balance at period end",
+                "type": "currency"
             },
             "tranchebal.tr_pass_thru_rte": {
                 "name": "Pass Through Rate",
@@ -381,6 +282,36 @@ class SmartFieldDiscovery:
                 "name": "Cycle Code",
                 "description": "Reporting cycle identifier (YYYYMM format)",
                 "type": "number"
+            },
+            "tranchebal.tr_prin_rel_ls_amt": {
+                "name": "Principal Released Amount",
+                "description": "Principal released or lost during the period",
+                "type": "currency"
+            },
+            "tranchebal.tr_accrl_days": {
+                "name": "Accrual Days",
+                "description": "Number of days in the accrual period",
+                "type": "number"
+            },
+            "tranchebal.tr_int_dstrb_amt": {
+                "name": "Interest Distribution Amount",
+                "description": "Interest distributed to investors",
+                "type": "currency"
+            },
+            "tranchebal.tr_prin_dstrb_amt": {
+                "name": "Principal Distribution Amount", 
+                "description": "Principal distributed to investors",
+                "type": "currency"
+            },
+            "tranchebal.tr_int_accrl_amt": {
+                "name": "Interest Accrual Amount",
+                "description": "Interest accrued during the period",
+                "type": "currency"
+            },
+            "tranchebal.tr_int_shtfl_amt": {
+                "name": "Interest Shortfall Amount",
+                "description": "Interest shortfall amount",
+                "type": "currency"
             }
             # Add more only as needed - most fields will be auto-discovered
         }
@@ -388,7 +319,7 @@ class SmartFieldDiscovery:
         # Fields to exclude from auto-discovery
         self.excluded_fields = {
             "created_at", "updated_at", "deleted_at", "version", 
-            "internal_notes", "temp_field"  # Add any internal fields here
+            "internal_notes", "temp_field", "password", "secret", "key", "token"
         }
     
     def get_all_fields(self) -> Dict[str, Dict[str, Any]]:
@@ -396,23 +327,27 @@ class SmartFieldDiscovery:
         all_fields = {}
         
         for model_name, model_class in self.models.items():
-            inspector = inspect(model_class)
-            
-            for column_name, column in inspector.columns.items():
-                if column_name in self.excluded_fields:
-                    continue
+            try:
+                inspector = inspect(model_class)
+                
+                for column_name, column in inspector.columns.items():
+                    if column_name in self.excluded_fields:
+                        continue
+                        
+                    field_path = f"{model_name.lower()}.{column_name}"
                     
-                field_path = f"{model_name.lower()}.{column_name}"
-                
-                # Use override if available, otherwise auto-generate
-                if field_path in self.field_overrides:
-                    field_info = self.field_overrides[field_path].copy()
-                    field_info.setdefault("required_models", self._get_required_models(model_name))
-                    field_info.setdefault("nullable", column.nullable)
-                else:
-                    field_info = self._auto_generate_field_info(column_name, column, model_name)
-                
-                all_fields[field_path] = field_info
+                    # Use override if available, otherwise auto-generate
+                    if field_path in self.field_overrides:
+                        field_info = self.field_overrides[field_path].copy()
+                        field_info.setdefault("required_models", self._get_required_models(model_name))
+                        field_info.setdefault("nullable", column.nullable)
+                    else:
+                        field_info = self._auto_generate_field_info(column_name, column, model_name)
+                    
+                    all_fields[field_path] = field_info
+            except Exception as e:
+                print(f"Warning: Could not inspect model {model_name}: {e}")
+                continue
         
         return all_fields
     
@@ -433,7 +368,8 @@ class SmartFieldDiscovery:
             "_nbr": " Number", "_cde": " Code", "_nme": " Name", "_amt": " Amount",
             "_rte": " Rate", "_bal": " Balance", "_dstrb": " Distribution",
             "_accrl": " Accrual", "_prin": " Principal", "_int": " Interest",
-            "_shtfl": " Shortfall", "_id": " ID", "tr_": "Tranche ", "dl_": "Deal "
+            "_shtfl": " Shortfall", "_id": " ID", "tr_": "Tranche ", "dl_": "Deal ",
+            "_pct": " Percent", "_dt": " Date", "_tm": " Time"
         }
         
         display_name = column_name
@@ -456,20 +392,26 @@ class SmartFieldDiscovery:
             return f"Unique identifier for {base_name}"
         elif "_bal" in column_name:
             return f"Balance amount for {base_name}"
-        elif "date" in column_name.lower():
+        elif "date" in column_name.lower() or "_dt" in column_name:
             return f"Date of {base_name}"
+        elif "_dstrb" in column_name:
+            return f"Distribution amount for {base_name}"
+        elif "_accrl" in column_name:
+            return f"Accrual amount for {base_name}"
         else:
             return f"{self._smart_display_name(column_name)} from {model_name}"
     
     def _smart_field_type(self, column_name: str, column) -> str:
         """Determine field type using smart patterns"""
-        # Pattern-based detection
+        # Pattern-based detection (most specific first)
         if "_amt" in column_name or "_bal" in column_name:
             return "currency"
         elif "_rte" in column_name or "_pct" in column_name:
             return "percentage"
         elif "date" in column_name.lower() or "_dt" in column_name:
             return "date"
+        elif "time" in column_name.lower() or "_tm" in column_name:
+            return "time"
         elif "_nbr" in column_name or "_id" in column_name or column_name == "cycle_cde":
             return "number"
         
@@ -479,7 +421,7 @@ class SmartFieldDiscovery:
             "Integer": "number", "BigInteger": "number", "SmallInteger": "number",
             "String": "string", "CHAR": "string", "Text": "string",
             "Float": "number", "Numeric": "currency", "DECIMAL": "currency",
-            "Boolean": "boolean", "DateTime": "datetime", "Date": "date"
+            "Boolean": "boolean", "DateTime": "datetime", "Date": "date", "Time": "time"
         }
         return type_mapping.get(sqlalchemy_type, "string")
     
@@ -498,7 +440,8 @@ class SmartFieldDiscovery:
 _field_discovery = SmartFieldDiscovery()
 
 
-# Replace the old manual registry functions
+# ===== PUBLIC API FUNCTIONS =====
+
 def get_static_field_info(field_path: str) -> Dict[str, Any]:
     """Get metadata about a static field using smart discovery."""
     all_fields = _field_discovery.get_all_fields()
@@ -516,7 +459,8 @@ def get_all_static_fields() -> Dict[str, Dict[str, Any]]:
     return _field_discovery.get_all_fields()
 
 
-# Optional: Add convenience functions
+# ===== CONVENIENCE FUNCTIONS =====
+
 def add_field_override(field_path: str, field_info: Dict[str, Any]):
     """Add custom field information for specific fields"""
     _field_discovery.field_overrides[field_path] = field_info
@@ -534,10 +478,16 @@ def get_fields_for_model(model_name: str) -> Dict[str, Dict[str, Any]]:
     return {path: info for path, info in all_fields.items() if path.startswith(prefix)}
 
 
-# Migration helper function
+def refresh_field_discovery():
+    """Refresh the field discovery (call after model changes)"""
+    global _field_discovery
+    _field_discovery = SmartFieldDiscovery()
+
+
+# ===== MIGRATION HELPER FUNCTION =====
+
 def compare_with_old_registry():
-    """Helper to compare auto-discovered fields with old manual registry"""
-    # You can temporarily keep your old STATIC_FIELD_REGISTRY and compare
+    """Helper to compare auto-discovered fields with old manual registry (for testing)"""
     auto_fields = get_all_static_fields()
     
     print("=== AUTO-DISCOVERED FIELDS ===")
@@ -546,12 +496,13 @@ def compare_with_old_registry():
     
     print(f"\nTotal auto-discovered fields: {len(auto_fields)}")
     
-    # Uncomment to compare with old registry:
-    # print("\n=== MISSING FROM OLD REGISTRY ===")
-    # for path in auto_fields:
-    #     if path not in STATIC_FIELD_REGISTRY:
-    #         print(f"NEW: {path}")
+    # Show fields by model
+    for model_name in ["Deal", "Tranche", "TrancheBal"]:
+        model_fields = get_fields_for_model(model_name)
+        print(f"\n{model_name} fields: {len(model_fields)}")
+        for path, info in sorted(model_fields.items()):
+            print(f"  {path}: {info['name']}")
 
 
-# You can delete the old STATIC_FIELD_REGISTRY entirely!
-# STATIC_FIELD_REGISTRY = { ... } # DELETE THIS WHOLE THING!
+# Note: The old STATIC_FIELD_REGISTRY has been completely replaced by the smart auto-discovery system above!
+# You can delete any remaining references to the old manual registry.
