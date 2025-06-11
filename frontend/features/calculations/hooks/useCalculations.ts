@@ -17,9 +17,9 @@ export const useCalculations = () => {
   const fetchCalculations = async (): Promise<void> => {
     setIsLoading(true);
     try {
-      // Fetch only user-defined calculations (as before)
-      const response = await calculationsApi.getUserDefinedCalculations();
-      setCalculations(response.data);
+      // Fetch all calculations using the unified endpoint
+      const response = await calculationsApi.getAllCalculations();
+      setCalculations(response.data.user_calculations);
     } catch (error) {
       console.error('Error fetching user calculations:', error);
       showToast('Error loading user calculations. Please refresh the page.', 'error');
@@ -128,9 +128,9 @@ export const useSystemCalculations = () => {
   const fetchSystemCalculations = async (): Promise<void> => {
     setIsLoading(true);
     try {
-      // Fetch system calculations (both SYSTEM_FIELD and SYSTEM_SQL)
-      const systemFieldResponse = await calculationsApi.getSystemCalculations();
-      setSystemCalculations(systemFieldResponse.data);
+      // Use the unified endpoint instead of the deprecated method
+      const response = await calculationsApi.getAllCalculations();
+      setSystemCalculations(response.data.system_calculations);
     } catch (error) {
       console.error('Error fetching system calculations:', error);
       showToast('Error loading system calculations. Please refresh the page.', 'error');

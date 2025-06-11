@@ -1,23 +1,35 @@
-// frontend/features/calculations/components/CalculationStatsFooter.tsx
+// frontend/features/calculations/components/CalculationStatsHeader.tsx
 import React from 'react';
-import type { Calculation } from '@/types/calculations';
+import type { UserCalculation, SystemCalculation } from '@/types/calculations';
 
-interface CalculationStatsFooterProps {
-  userCalculations: Calculation[];
-  systemCalculations: Calculation[];
+interface CalculationStatsHeaderProps {
+  userCalculations: UserCalculation[];
+  systemCalculations: SystemCalculation[];
   userUsage: Record<number, any>;
-  systemUsage: Record<number, any>;
 }
 
-const CalculationStatsFooter: React.FC<CalculationStatsFooterProps> = ({
+// Define types for calculations that might have usage_info
+type CalculationWithUsage = (UserCalculation | SystemCalculation) & {
+  usage_info?: {
+    calculation_id: number;
+    calculation_name: string;
+    is_in_use: boolean;
+    report_count: number;
+    reports: any[];
+  };
+};
+
+const CalculationStatsHeader: React.FC<CalculationStatsHeaderProps> = ({
   userCalculations,
   systemCalculations,
-  userUsage,
-  systemUsage
+  userUsage
 }) => {
-  // Calculate in-use counts
+  // Calculate in-use counts from embedded usage_info and userUsage
   const userInUse = Object.values(userUsage).filter(u => u?.is_in_use).length;
-  const systemInUse = Object.values(systemUsage).filter(u => u?.is_in_use).length;
+  const systemInUse = systemCalculations.filter(calc => {
+    const calcWithUsage = calc as CalculationWithUsage;
+    return calcWithUsage.usage_info?.is_in_use;
+  }).length;
 
   return (
     <div className="card bg-light mt-4">
@@ -56,4 +68,4 @@ const CalculationStatsFooter: React.FC<CalculationStatsFooterProps> = ({
   );
 };
 
-export default CalculationStatsFooter;
+export default CalculationStatsHeader;

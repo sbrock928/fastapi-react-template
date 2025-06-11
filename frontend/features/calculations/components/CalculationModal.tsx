@@ -326,6 +326,9 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
               onChange={(e) => onUpdateCalculation({ level: e.target.value })}
               className="form-select"
             >
+              <option value="">
+                {groupLevels.length === 0 ? 'Loading group levels...' : 'Select group level...'}
+              </option>
               {groupLevels.map((level: GroupLevelInfo) => (
                 <option key={level.value} value={level.value}>
                   {level.label}
@@ -356,29 +359,6 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
               pattern="^[a-zA-Z][a-zA-Z0-9_]*$"
             />
             <div className="form-text">Must be a valid SQL identifier (letters, numbers, underscores)</div>
-          </div>
-
-          <div className="col-md-6">
-            <div className="d-flex align-items-end h-100">
-              <button
-                type="button"
-                className="btn btn-outline-info w-100"
-                disabled={!calculation.source_field || sqlValidating}
-                onClick={handleValidateSQL}
-              >
-                {sqlValidating ? (
-                  <>
-                    <span className="spinner-border spinner-border-sm me-2"></span>
-                    Validating...
-                  </>
-                ) : (
-                  <>
-                    <i className="bi bi-check-circle me-2"></i>
-                    Validate SQL
-                  </>
-                )}
-              </button>
-            </div>
           </div>
 
           <div className="col-12">
@@ -534,10 +514,34 @@ FROM deal${calculation.level === 'tranche' ? '\nJOIN tranche ON deal.dl_nbr = tr
             >
               Cancel
             </button>
+            {modalType === 'system-sql' && (
+              <button
+                type="button"
+                className="btn btn-outline-info"
+                disabled={!calculation.source_field || sqlValidating}
+                onClick={handleValidateSQL}
+              >
+                {sqlValidating ? (
+                  <>
+                    <span className="spinner-border spinner-border-sm me-2"></span>
+                    Validating...
+                  </>
+                ) : (
+                  <>
+                    <i className="bi bi-check-circle me-2"></i>
+                    Validate SQL
+                  </>
+                )}
+              </button>
+            )}
             <button
               type="button"
               onClick={onSave}
-              disabled={isSaving || fieldsLoading}
+              disabled={
+                isSaving || 
+                fieldsLoading || 
+                (modalType === 'system-sql' && (!sqlValidationResult || !sqlValidationResult.is_valid))
+              }
               className={`btn ${
                 modalType === 'user-defined' ? 'btn-primary' : 'btn-warning'
               }`}

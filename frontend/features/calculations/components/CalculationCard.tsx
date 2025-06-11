@@ -12,7 +12,7 @@ import {
 
 interface CalculationCardProps {
   calculation: Calculation;
-  usage: any;
+  usage?: any; // Make usage optional since it's now embedded in calculations
   onEdit: (calc: Calculation) => void;
   onDelete: (id: number, name: string) => void;
   onPreviewSQL: (id: number) => void;
@@ -21,7 +21,7 @@ interface CalculationCardProps {
 
 const CalculationCard: React.FC<CalculationCardProps> = ({
   calculation,
-  usage,
+  usage: legacyUsage, // Rename to avoid confusion
   onEdit,
   onDelete,
   onPreviewSQL,
@@ -31,6 +31,9 @@ const CalculationCard: React.FC<CalculationCardProps> = ({
   const displayType = getCalculationDisplayType(calculation);
   const sourceDescription = getCalculationSourceDescription(calculation);
   const category = getCalculationCategory(calculation);
+
+  // Use embedded usage_info if available, otherwise fall back to legacy usage prop
+  const usage = (calculation as any).usage_info || legacyUsage;
 
   const getCalculationTypeIcon = () => {
     if (isUserDefinedCalculation(calculation)) {

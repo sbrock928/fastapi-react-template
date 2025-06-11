@@ -10,36 +10,19 @@ export const useSystemCalculations = () => {
   const [filteredSystemCalculations, setFilteredSystemCalculations] = useState<SystemCalculation[]>([]);
   const [selectedFilter, setSelectedFilter] = useState<string>('all');
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [systemUsage, setSystemUsage] = useState<Record<number, any>>({});
 
   const fetchSystemCalculations = async (): Promise<void> => {
     setIsLoading(true);
     try {
-      // Fetch system calculations
-      const systemResponse = await calculationsApi.getSystemCalculations();
-      setSystemCalculations(systemResponse.data);
+      // Use the unified endpoint instead of the deprecated method
+      const response = await calculationsApi.getAllCalculations();
+      setSystemCalculations(response.data.system_calculations);
     } catch (error) {
       console.error('Error fetching system calculations:', error);
       showToast('Error loading system calculations. Please refresh the page.', 'error');
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const fetchSystemCalculationUsage = async () => {
-    const usageMap: Record<number, any> = {};
-    
-    for (const calc of systemCalculations) {
-      try {
-        const response = await calculationsApi.getCalculationUsage(calc.id);
-        usageMap[calc.id] = response.data;
-      } catch (error) {
-        console.error(`Error fetching usage for system calculation ${calc.id}:`, error);
-        usageMap[calc.id] = { is_in_use: false, report_count: 0, reports: [] };
-      }
-    }
-    
-    setSystemUsage(usageMap);
   };
 
   const createSystemSqlCalculation = async (
@@ -115,12 +98,6 @@ export const useSystemCalculations = () => {
   }, []);
 
   useEffect(() => {
-    if (systemCalculations.length > 0) {
-      fetchSystemCalculationUsage();
-    }
-  }, [systemCalculations]);
-
-  useEffect(() => {
     filterCalculations();
   }, [systemCalculations, selectedFilter]);
 
@@ -130,7 +107,6 @@ export const useSystemCalculations = () => {
     selectedFilter,
     setSelectedFilter,
     isLoading,
-    systemUsage,
     fetchSystemCalculations,
     createSystemSqlCalculation
   };

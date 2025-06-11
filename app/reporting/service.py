@@ -137,6 +137,83 @@ class ReportService:
             return "Balance & Performance Data"
         return "Other"
 
+    def _get_calculation_display_name(self, calculation_id: str, calculation_type: str) -> str:
+        """Get the display name for a calculation based on its ID and type."""
+        # Handle static fields
+        if calculation_id.startswith("static_"):
+            field_path = calculation_id.replace("static_", "")
+            # Try to get the actual field name from static fields
+            static_fields = StaticFieldService.get_all_static_fields()
+            for field in static_fields:
+                if field.field_path == field_path:
+                    return field.name
+            # Fallback to field path if not found
+            return field_path
+        
+        # Handle numeric calculation IDs
+        try:
+            numeric_id = int(calculation_id)
+            
+            if calculation_type == "user_calculation" or calculation_type == "user":
+                if self.user_calc_service:
+                    user_calc = self.user_calc_service.get_user_calculation_by_id(numeric_id)
+                    if user_calc:
+                        return user_calc.name
+            
+            elif calculation_type == "system_calculation" or calculation_type == "system":
+                if self.system_calc_service:
+                    system_calc = self.system_calc_service.get_system_calculation_by_id(numeric_id)
+                    if system_calc:
+                        return system_calc.name
+            
+            # Auto-detect if calculation_type is missing or unknown
+            if self.user_calc_service:
+                user_calc = self.user_calc_service.get_user_calculation_by_id(numeric_id)
+                if user_calc:
+                    return user_calc.name
+            
+            if self.system_calc_service:
+                system_calc = self.system_calc_service.get_system_calculation_by_id(numeric_id)
+                if system_calc:
+                    return system_calc.name
+                    
+        except ValueError:
+            pass
+        
+        # Fallback to calculation_id if we can't resolve the name
+        return calculation_id
+
+    def _determine_calculation_type(self, calculation_id) -> str:
+        """Determine the calculation type based on the calculation_id."""
+        calc_id_str = str(calculation_id)
+        
+        # Handle static fields
+        if calc_id_str.startswith("static_"):
+            return "static_field"
+        
+        # Handle numeric IDs
+        try:
+            numeric_id = int(calc_id_str)
+            
+            # Check if it's a user calculation
+            if self.user_calc_service:
+                user_calc = self.user_calc_service.get_user_calculation_by_id(numeric_id)
+                if user_calc:
+                    return "user_calculation"
+            
+            # Check if it's a system calculation
+            if self.system_calc_service:
+                system_calc = self.system_calc_service.get_system_calculation_by_id(numeric_id)
+                if system_calc:
+                    return "system_calculation"
+            
+            # Default to user_calculation if we can't determine (for backwards compatibility)
+            return "user_calculation"
+            
+        except ValueError:
+            # Non-numeric, non-static ID - default to user_calculation
+            return "user_calculation"
+
     # ===== CORE CRUD OPERATIONS =====
 
     async def get_all(self) -> List[ReportRead]:
@@ -223,12 +300,19 @@ class ReportService:
 
             report.selected_deals.append(report_deal)
 
-        # Add selected calculations
+        # Add selected calculations with proper calculation_type
         for calc_data in report_data.selected_calculations:
+            # Determine calculation_type if not provided
+            calculation_type = calc_data.calculation_type
+            if not calculation_type:
+                calculation_type = self._determine_calculation_type(calc_data.calculation_id)
+            
             report_calc = ReportCalculation(
                 calculation_id=str(calc_data.calculation_id),
+                calculation_type=calculation_type,
                 display_order=calc_data.display_order
             )
+            report_calc.display_name = self._get_calculation_display_name(report_calc.calculation_id, report_calc.calculation_type)
             report.selected_calculations.append(report_calc)
 
         return report
@@ -264,10 +348,17 @@ class ReportService:
         if report_data.selected_calculations is not None:
             report.selected_calculations.clear()
             for calc_data in report_data.selected_calculations:
+                # Determine calculation_type if not provided
+                calculation_type = calc_data.calculation_type
+                if not calculation_type:
+                    calculation_type = self._determine_calculation_type(calc_data.calculation_id)
+                
                 report_calc = ReportCalculation(
                     calculation_id=str(calc_data.calculation_id),
+                    calculation_type=calculation_type,
                     display_order=calc_data.display_order
                 )
+                report_calc.display_name = self._get_calculation_display_name(report_calc.calculation_id, report_calc.calculation_type)
                 report.selected_calculations.append(report_calc)
 
     # ===== REPORT EXECUTION =====

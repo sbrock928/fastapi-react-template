@@ -9,7 +9,7 @@ interface SystemCalculationsTabProps {
   selectedFilter: string;
   setSelectedFilter: (filter: string) => void;
   loading: boolean;
-  usage: Record<number, any>;
+  usage: Record<number, any>; // Keep for compatibility but will use embedded usage_info
   onCreateSystemSql: () => void;
   onPreviewSQL: (id: number) => void;
   onShowUsage: (id: number, name: string) => void;

@@ -78,6 +78,7 @@ class UserCalculationResponse(UserCalculationBase):
     created_at: datetime
     updated_at: datetime
     is_active: bool
+    usage_info: Optional[Dict[str, Any]] = None  # Include usage information
 
     def get_display_type(self) -> str:
         """Get display type for UI"""
@@ -164,6 +165,7 @@ class SystemCalculationResponse(SystemCalculationBase):
     created_at: datetime
     updated_at: datetime
     is_active: bool
+    usage_info: Optional[Dict[str, Any]] = None  # Include usage information
 
     def get_display_type(self) -> str:
         """Get display type for UI"""

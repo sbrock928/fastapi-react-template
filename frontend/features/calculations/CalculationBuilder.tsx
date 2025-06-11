@@ -1,8 +1,12 @@
 // frontend/features/calculations/CalculationBuilder.tsx
+// Main component for managing both user and system calculations
+
 import React, { useState, useEffect } from 'react';
 import { useToast } from '@/context/ToastContext';
 import { calculationsApi } from '@/services/calculationsApi';
-import type { Calculation, UserCalculation, PreviewData } from '@/types/calculations';
+import { useUnifiedCalculations } from './hooks/useUnifiedCalculations';
+import { useCalculationConfig, useCalculationForm } from './hooks/useCalculationConfig';
+import type { UserCalculation, SystemCalculation } from '@/types/calculations';
 
 // Components
 import FilterSection from './components/FilterSection';
@@ -11,48 +15,46 @@ import CalculationModal from './components/CalculationModal';
 import SystemCalculationsTab from './components/SystemCalculationsTab';
 import SqlPreviewModal from './components/SqlPreviewModal';
 import UsageModal from './components/UsageModal';
-import CalculationStatsHeader from './components/CalculationStatsHeader';
-
-// Hooks
-import { useCalculations } from './hooks/useCalculations';
-import { useCalculationConfig, useCalculationForm } from './hooks/useCalculationConfig';
-import { useSystemCalculations } from './hooks/useSystemCalculations';
 
 // Constants
 import { SAMPLE_PREVIEW_PARAMS } from './constants/calculationConstants';
 
 type CalculationTab = 'user-defined' | 'system-defined';
 
+// Define types for calculations that might have usage_info
+type CalculationWithUsage = (UserCalculation | SystemCalculation) & {
+  usage_info?: {
+    calculation_id: number;
+    calculation_name: string;
+    is_in_use: boolean;
+    report_count: number;
+    reports: any[];
+  };
+};
+
+type PreviewData = {
+  sql: string;
+  columns: string[];
+  calculation_type: string;
+  group_level: string;
+  parameters: any;
+};
+
 const CalculationBuilder: React.FC = () => {
   const { showToast } = useToast();
+  
+  // Use unified calculations hook instead of separate hooks
+  const {
+    userCalculations,
+    systemCalculations,
+    summary,
+    isLoading: calculationsLoading,
+    refetch: refetchCalculations
+  } = useUnifiedCalculations();
 
   // Tab state
   const [activeTab, setActiveTab] = useState<CalculationTab>('user-defined');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
-
-  // User-defined calculations state
-  const {
-    calculations: userCalculations,
-    filteredCalculations: filteredUserCalculations,
-    selectedFilter: userFilter,
-    setSelectedFilter: setUserFilter,
-    isLoading: userLoading,
-    calculationUsage: userUsage,
-    fetchCalculations: fetchUserCalculations,
-    deleteCalculation: deleteUserCalculation
-  } = useCalculations();
-
-  // System calculations state
-  const {
-    systemCalculations,
-    filteredSystemCalculations,
-    selectedFilter: systemFilter,
-    setSelectedFilter: setSystemFilter,
-    isLoading: systemLoading,
-    systemUsage,
-    fetchSystemCalculations,
-    createSystemSqlCalculation
-  } = useSystemCalculations();
 
   // Configuration state
   const {
@@ -71,7 +73,7 @@ const CalculationBuilder: React.FC = () => {
   // Modal states
   const [showModal, setShowModal] = useState<boolean>(false);
   const [modalType, setModalType] = useState<'user-defined' | 'system-sql'>('user-defined');
-  const [editingCalculation, setEditingCalculation] = useState<Calculation | null>(null);
+  const [editingCalculation, setEditingCalculation] = useState<UserCalculation | SystemCalculation | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState<boolean>(false);
   const [previewData, setPreviewData] = useState<PreviewData | null>(null);
   const [previewLoading, setPreviewLoading] = useState<boolean>(false);
@@ -113,7 +115,7 @@ const CalculationBuilder: React.FC = () => {
   // Handle opening modal for create/edit
   const handleOpenModal = (
     type: 'user-defined' | 'system-sql',
-    calc: Calculation | null = null
+    calc: UserCalculation | SystemCalculation | null = null
   ) => {
     setModalType(type);
     setEditingCalculation(calc);
@@ -156,13 +158,28 @@ const CalculationBuilder: React.FC = () => {
     if (modalType === 'user-defined') {
       success = await saveCalculation(() => {
         handleCloseModal();
-        fetchUserCalculations();
+        refetchCalculations();
       });
     } else if (modalType === 'system-sql') {
-      success = await createSystemSqlCalculation(calculation, () => {
+      try {
+        // Convert CalculationForm to SystemCalculationCreateRequest
+        // For system SQL, we store SQL in source_field and result column in weight_field
+        const systemCalcData = {
+          name: calculation.name,
+          description: calculation.description,
+          raw_sql: calculation.source_field || '', // SQL is stored in source_field
+          result_column_name: calculation.weight_field || '', // Result column is stored in weight_field
+          group_level: (calculation.level || 'deal') as 'deal' | 'tranche'
+        };
+        await calculationsApi.createSystemSqlCalculation(systemCalcData);
+        success = true;
         handleCloseModal();
-        fetchSystemCalculations();
-      });
+        refetchCalculations();
+        showToast('System calculation created successfully!', 'success');
+      } catch (error) {
+        console.error('Error creating system calculation:', error);
+        showToast('Error creating system calculation', 'error');
+      }
     }
     
     if (success) {
@@ -178,7 +195,15 @@ const CalculationBuilder: React.FC = () => {
     
     try {
       const response = await calculationsApi.previewSQL(calcId, SAMPLE_PREVIEW_PARAMS);
-      setPreviewData(response.data);
+      // Ensure the response data matches our PreviewData type
+      const previewData = {
+        sql: response.data.sql || '',
+        columns: response.data.columns || [],
+        calculation_type: response.data.calculation_type || '',
+        group_level: response.data.group_level || '',
+        parameters: response.data.parameters || {}
+      };
+      setPreviewData(previewData);
     } catch (error: unknown) {
       console.error('Error generating SQL preview:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -188,19 +213,47 @@ const CalculationBuilder: React.FC = () => {
     }
   };
 
-  // Handle showing usage information
+  // Update the existing calculations state when unified data changes
+  const [filteredUserCalculations, setFilteredUserCalculations] = useState<UserCalculation[]>([]);
+  const [filteredSystemCalculations, setFilteredSystemCalculations] = useState<SystemCalculation[]>([]);
+  const [userFilter, setUserFilter] = useState<string>('all');
+  const [systemFilter, setSystemFilter] = useState<string>('all');
+
+  // Filter calculations based on selected filters
+  useEffect(() => {
+    let filtered = userCalculations;
+    if (userFilter === 'deal') {
+      filtered = userCalculations.filter(calc => calc.group_level === 'deal');
+    } else if (userFilter === 'tranche') {
+      filtered = userCalculations.filter(calc => calc.group_level === 'tranche');
+    }
+    setFilteredUserCalculations(filtered);
+  }, [userCalculations, userFilter]);
+
+  useEffect(() => {
+    let filtered = systemCalculations;
+    if (systemFilter === 'deal') {
+      filtered = systemCalculations.filter(calc => calc.group_level === 'deal');
+    } else if (systemFilter === 'tranche') {
+      filtered = systemCalculations.filter(calc => calc.group_level === 'tranche');
+    }
+    setFilteredSystemCalculations(filtered);
+  }, [systemCalculations, systemFilter]);
+
+  // Handle showing usage information using embedded usage_info
   const handleShowUsage = (calcId: number, calcName: string) => {
-    const usage = activeTab === 'user-defined' 
-      ? userUsage[calcId] 
-      : systemUsage[calcId];
+    const calculation = activeTab === 'user-defined' 
+      ? userCalculations.find(calc => calc.id === calcId)
+      : systemCalculations.find(calc => calc.id === calcId);
     
-    if (usage) {
-      setSelectedUsageData({ ...usage, calculation_name: calcName });
+    const calcWithUsage = calculation as CalculationWithUsage;
+    if (calcWithUsage?.usage_info) {
+      setSelectedUsageData({ ...calcWithUsage.usage_info, calculation_name: calcName });
       setShowUsageModal(true);
     }
   };
 
-  // Get current calculations and state based on active tab
+  // Get current tab data
   const getCurrentTabData = () => {
     if (activeTab === 'user-defined') {
       return {
@@ -208,9 +261,8 @@ const CalculationBuilder: React.FC = () => {
         filteredCalculations: filteredUserCalculations,
         selectedFilter: userFilter,
         setSelectedFilter: setUserFilter,
-        loading: userLoading,
-        usage: userUsage,
-        deleteCalculation: deleteUserCalculation
+        loading: calculationsLoading,
+        deleteCalculation: () => showToast('Delete functionality will be implemented', 'info')
       };
     } else {
       return {
@@ -218,8 +270,7 @@ const CalculationBuilder: React.FC = () => {
         filteredCalculations: filteredSystemCalculations,
         selectedFilter: systemFilter,
         setSelectedFilter: setSystemFilter,
-        loading: systemLoading,
-        usage: systemUsage,
+        loading: calculationsLoading,
         deleteCalculation: () => showToast('System calculations cannot be deleted', 'warning')
       };
     }
@@ -237,14 +288,34 @@ const CalculationBuilder: React.FC = () => {
         </div>
       </div>
 
-      {/* Calculation Statistics - Now as header */}
+      {/* Calculation Statistics - now using summary from unified endpoint */}
       {isConfigAvailable() && (
-        <CalculationStatsHeader
-          userCalculations={userCalculations}
-          systemCalculations={systemCalculations}
-          userUsage={userUsage}
-          systemUsage={systemUsage}
-        />
+        <div className="card bg-light mt-4">
+          <div className="card-body">
+            <h6 className="card-title text-center mb-3">
+              <i className="bi bi-bar-chart me-2"></i>
+              Calculation Statistics
+            </h6>
+            <div className="row text-center">
+              <div className="col-md-3">
+                <div className="h4 mb-0 text-primary">{summary.user_calculation_count}</div>
+                <small className="text-muted">Total User Calculations</small>
+              </div>
+              <div className="col-md-3">
+                <div className="h4 mb-0 text-info">{summary.user_in_use_count}</div>
+                <small className="text-muted">User Calcs In Use</small>
+              </div>
+              <div className="col-md-3">
+                <div className="h4 mb-0 text-success">{summary.system_calculation_count}</div>
+                <small className="text-muted">Total System Calculations</small>
+              </div>
+              <div className="col-md-3">
+                <div className="h4 mb-0 text-warning">{summary.system_in_use_count}</div>
+                <small className="text-muted">System Calcs In Use</small>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Configuration Error State */}
@@ -376,7 +447,6 @@ const CalculationBuilder: React.FC = () => {
                               <div key={calc.id} className="col-12">
                                 <CalculationCard
                                   calculation={calc}
-                                  usage={tabData.usage[calc.id]}
                                   onEdit={(calc) => handleOpenModal('user-defined', calc)}
                                   onDelete={tabData.deleteCalculation}
                                   onPreviewSQL={handlePreviewSQL}
@@ -405,8 +475,8 @@ const CalculationBuilder: React.FC = () => {
                     filteredCalculations={filteredSystemCalculations}
                     selectedFilter={systemFilter}
                     setSelectedFilter={setSystemFilter}
-                    loading={systemLoading}
-                    usage={systemUsage}
+                    loading={calculationsLoading}
+                    usage={{}} // Pass empty object since usage is now embedded in calculations
                     onCreateSystemSql={() => handleOpenModal('system-sql')}
                     onPreviewSQL={handlePreviewSQL}
                     onShowUsage={handleShowUsage}

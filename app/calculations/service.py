@@ -103,9 +103,27 @@ class UserCalculationService:
         self.user_calc_dao = user_calc_dao
 
     def get_all_user_calculations(self, group_level: Optional[str] = None) -> List[UserCalculation]:
-        """Get all active user calculations"""
+        """Get all active user calculations with usage information"""
         group_level_enum = GroupLevel(group_level) if group_level else None
-        return self.user_calc_dao.get_all(group_level_enum)
+        calculations = self.user_calc_dao.get_all(group_level_enum)
+        
+        # Add usage information to each calculation
+        for calc in calculations:
+            try:
+                usage_info = self.get_user_calculation_usage(calc.id)
+                # Add usage info as attributes to the calculation object
+                calc.usage_info = usage_info
+            except Exception as e:
+                # If usage fetch fails, provide default values
+                calc.usage_info = {
+                    "calculation_id": calc.id,
+                    "calculation_name": calc.name,
+                    "is_in_use": False,
+                    "report_count": 0,
+                    "reports": [],
+                }
+        
+        return calculations
 
     def get_user_calculation_by_id(self, calc_id: int) -> Optional[UserCalculation]:
         """Get user calculation by ID"""
@@ -267,9 +285,27 @@ class SystemCalculationService:
         self.system_calc_dao = system_calc_dao
 
     def get_all_system_calculations(self, group_level: Optional[str] = None) -> List[SystemCalculation]:
-        """Get all active system calculations"""
+        """Get all active system calculations with usage information"""
         group_level_enum = GroupLevel(group_level) if group_level else None
-        return self.system_calc_dao.get_all(group_level_enum)
+        calculations = self.system_calc_dao.get_all(group_level_enum)
+        
+        # Add usage information to each calculation
+        for calc in calculations:
+            try:
+                usage_info = self.get_system_calculation_usage(calc.id)
+                # Add usage info as attributes to the calculation object
+                calc.usage_info = usage_info
+            except Exception as e:
+                # If usage fetch fails, provide default values
+                calc.usage_info = {
+                    "calculation_id": calc.id,
+                    "calculation_name": calc.name,
+                    "is_in_use": False,
+                    "report_count": 0,
+                    "reports": [],
+                }
+        
+        return calculations
 
     def get_system_calculation_by_id(self, calc_id: int) -> Optional[SystemCalculation]:
         """Get system calculation by ID"""
@@ -323,6 +359,52 @@ class SystemCalculationService:
 
         self.system_calc_dao.soft_delete(calculation)
         return {"message": f"System calculation '{calculation.name}' deleted successfully"}
+
+    def get_system_calculation_usage(self, calc_id: int) -> Dict[str, Any]:
+        """Get usage information for a system calculation"""
+        calculation = self.get_system_calculation_by_id(calc_id)
+        if not calculation:
+            raise CalculationNotFoundError(f"System calculation with ID {calc_id} not found")
+        
+        # Import here to avoid circular imports
+        from app.reporting.models import ReportCalculation, Report
+        from sqlalchemy.orm import joinedload
+        
+        # Find all reports that use this calculation
+        # For system calculations, calculation_id is stored as string representation of the integer
+        calc_id_str = str(calc_id)
+        
+        # Check for calculation_type = 'system'
+        report_usages = (
+            self.system_calc_dao.db
+            .query(ReportCalculation)
+            .join(Report)
+            .filter(
+                ReportCalculation.calculation_id == calc_id_str,
+                ReportCalculation.calculation_type == 'system',
+                Report.is_active == True
+            )
+            .options(joinedload(ReportCalculation.report))
+            .all()
+        )
+        
+        reports = []
+        for usage in report_usages:
+            reports.append({
+                "report_id": usage.report.id,
+                "report_name": usage.report.name,
+                "report_scope": usage.report.scope,
+                "display_order": usage.display_order,
+                "display_name": usage.display_name
+            })
+        
+        return {
+            "calculation_id": calc_id,
+            "calculation_name": calculation.name,
+            "is_in_use": len(reports) > 0,
+            "report_count": len(reports),
+            "reports": reports,
+        }
 
     def _validate_system_sql(self, sql: str, group_level: GroupLevel, result_column_name: str):
         """Basic validation for system SQL"""

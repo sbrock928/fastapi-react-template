@@ -2,6 +2,7 @@
 """Clean API router for the separated calculation system"""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from app.core.dependencies import get_db, get_dw_db, get_user_calculation_dao, get_system_calculation_dao
@@ -88,15 +89,6 @@ def get_static_field_by_path(field_path: str):
 
 # ===== USER CALCULATION ENDPOINTS =====
 
-@router.get("/user", response_model=List[UserCalculationResponse])
-def get_user_calculations(
-    group_level: Optional[str] = Query(None, description="Filter by group level"),
-    service: UserCalculationService = Depends(get_user_calculation_service)
-):
-    """Get all user-defined calculations"""
-    return service.get_all_user_calculations(group_level)
-
-
 @router.get("/user/{calc_id}", response_model=UserCalculationResponse)
 def get_user_calculation_by_id(
     calc_id: int,
@@ -158,6 +150,30 @@ def get_user_calculation_usage(
         raise HTTPException(status_code=404, detail=str(e))
 
 
+# ===== UNIFIED CALCULATION USAGE ENDPOINT =====
+
+@router.get("/{calc_id}/usage", response_model=CalculationUsageResponse)
+def get_calculation_usage(
+    calc_id: int,
+    calc_type: str = Query(..., description="Calculation type: 'user' or 'system'"),
+    user_service: UserCalculationService = Depends(get_user_calculation_service),
+    system_service: SystemCalculationService = Depends(get_system_calculation_service)
+):
+    """Get usage information for any calculation type"""
+    try:
+        if calc_type.lower() == 'user':
+            return user_service.get_user_calculation_usage(calc_id)
+        elif calc_type.lower() == 'system':
+            return system_service.get_system_calculation_usage(calc_id)
+        else:
+            raise HTTPException(
+                status_code=400, 
+                detail="calc_type must be 'user' or 'system'"
+            )
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.post("/user/{calc_id}/approve", response_model=UserCalculationResponse)
 def approve_user_calculation(
     calc_id: int,
@@ -173,16 +189,6 @@ def approve_user_calculation(
 
 # ===== SYSTEM CALCULATION ENDPOINTS =====
 
-@router.get("/system", response_model=List[SystemCalculationResponse])
-def get_system_calculations(
-    group_level: Optional[str] = Query(None, description="Filter by group level"),
-    approved_only: bool = Query(False, description="Only return approved calculations"),
-    service: SystemCalculationService = Depends(get_system_calculation_service)
-):
-    """Get all system-defined calculations"""
-    return service.get_all_system_calculations(group_level)
-
-
 @router.get("/system/{calc_id}", response_model=SystemCalculationResponse)
 def get_system_calculation_by_id(
     calc_id: int,
@@ -193,6 +199,18 @@ def get_system_calculation_by_id(
     if not calculation:
         raise HTTPException(status_code=404, detail="System calculation not found")
     return calculation
+
+
+@router.get("/system/{calc_id}/usage", response_model=CalculationUsageResponse)
+def get_system_calculation_usage(
+    calc_id: int,
+    service: SystemCalculationService = Depends(get_system_calculation_service)
+):
+    """Get usage information for a system calculation"""
+    try:
+        return service.get_system_calculation_usage(calc_id)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.post("/system", response_model=SystemCalculationResponse, status_code=201)
@@ -485,3 +503,47 @@ def calculation_system_health():
             "in_memory_merging"
         ]
     }
+
+
+# ===== UNIFIED CALCULATIONS ENDPOINT =====
+
+class UnifiedCalculationsResponse(BaseModel):
+    """Unified response containing both user and system calculations"""
+    user_calculations: List[UserCalculationResponse]
+    system_calculations: List[SystemCalculationResponse]
+    summary: Dict[str, Any]
+
+@router.get("", response_model=UnifiedCalculationsResponse)
+def get_all_calculations(
+    group_level: Optional[str] = Query(None, description="Filter by group level"),
+    user_service: UserCalculationService = Depends(get_user_calculation_service),
+    system_service: SystemCalculationService = Depends(get_system_calculation_service)
+):
+    """Get all calculations (user and system) in a unified response"""
+    try:
+        # Fetch both types of calculations
+        user_calcs = user_service.get_all_user_calculations(group_level)
+        system_calcs = system_service.get_all_system_calculations(group_level)
+        
+        # Create summary statistics
+        user_in_use = sum(1 for calc in user_calcs if calc.usage_info and calc.usage_info.get('is_in_use', False))
+        system_in_use = sum(1 for calc in system_calcs if calc.usage_info and calc.usage_info.get('is_in_use', False))
+        
+        summary = {
+            "total_calculations": len(user_calcs) + len(system_calcs),
+            "user_calculation_count": len(user_calcs),
+            "system_calculation_count": len(system_calcs),
+            "user_in_use_count": user_in_use,
+            "system_in_use_count": system_in_use,
+            "total_in_use": user_in_use + system_in_use,
+            "group_level_filter": group_level
+        }
+        
+        return UnifiedCalculationsResponse(
+            user_calculations=user_calcs,
+            system_calculations=system_calcs,
+            summary=summary
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving calculations: {str(e)}")

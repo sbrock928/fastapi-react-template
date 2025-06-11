@@ -33,11 +33,6 @@ export const calculationsApi = {
   },
 
   // ===== USER CALCULATION ENDPOINTS =====
-  async getUserDefinedCalculations(groupLevel?: string): Promise<AxiosResponse<UserCalculation[]>> {
-    const params = groupLevel ? { group_level: groupLevel } : {};
-    return apiClient.get('/calculations/user', { params });
-  },
-
   async getUserCalculationById(id: number): Promise<AxiosResponse<UserCalculation>> {
     return apiClient.get(`/calculations/user/${id}`);
   },
@@ -58,14 +53,14 @@ export const calculationsApi = {
     return apiClient.get(`/calculations/user/${id}/usage`);
   },
 
-  // ===== SYSTEM CALCULATION ENDPOINTS =====
-  async getSystemCalculations(groupLevel?: string, approvedOnly?: boolean): Promise<AxiosResponse<SystemCalculation[]>> {
-    const params: Record<string, any> = {};
-    if (groupLevel) params.group_level = groupLevel;
-    if (approvedOnly) params.approved_only = approvedOnly;
-    return apiClient.get('/calculations/system', { params });
+  // ===== UNIFIED CALCULATION USAGE ENDPOINT =====
+  async getCalculationUsageByType(id: number, calcType: 'user' | 'system'): Promise<AxiosResponse<CalculationUsage>> {
+    return apiClient.get(`/calculations/${id}/usage`, {
+      params: { calc_type: calcType }
+    });
   },
 
+  // ===== SYSTEM CALCULATION ENDPOINTS =====
   async getSystemCalculationById(id: number): Promise<AxiosResponse<SystemCalculation>> {
     return apiClient.get(`/calculations/system/${id}`);
   },
@@ -142,16 +137,14 @@ export const calculationsApi = {
     // This combines user calculations, system calculations, and static fields
     // to match the old AvailableCalculation format expected by reporting components
     try {
-      const [userCalcs, systemCalcs, staticFields] = await Promise.all([
-        this.getUserDefinedCalculations(scope.toLowerCase()),
-        this.getSystemCalculations(scope.toLowerCase(), true), // Only approved system calcs
-        this.getStaticFields()
-      ]);
+      // Use the new unified endpoint instead of separate calls
+      const unifiedResponse = await this.getAllCalculations(scope.toLowerCase());
+      const staticFieldsResponse = await this.getStaticFields();
 
       const combined: any[] = [];
 
       // Add user calculations
-      userCalcs.data.forEach(calc => {
+      unifiedResponse.data.user_calculations.forEach(calc => {
         combined.push({
           id: calc.id,
           name: calc.name,
@@ -169,7 +162,7 @@ export const calculationsApi = {
       });
 
       // Add approved system calculations
-      systemCalcs.data.forEach(calc => {
+      unifiedResponse.data.system_calculations.forEach(calc => {
         if (calc.approved_by) { // Only include approved system calculations
           combined.push({
             id: calc.id,
@@ -189,7 +182,7 @@ export const calculationsApi = {
       });
 
       // Add static fields (filtered by scope)
-      staticFields.data.forEach(field => {
+      staticFieldsResponse.data.forEach(field => {
         const fieldGroupLevel = this.determineFieldGroupLevel(field.field_path);
         const isCompatible = this.isStaticFieldCompatibleWithScope(field, scope);
         
@@ -216,6 +209,24 @@ export const calculationsApi = {
       console.error('Error combining calculations:', error);
       return { data: [] } as unknown as AxiosResponse<any[]>;
     }
+  },
+
+  // ===== UNIFIED CALCULATIONS ENDPOINT =====
+  async getAllCalculations(groupLevel?: string): Promise<AxiosResponse<{
+    user_calculations: UserCalculation[];
+    system_calculations: SystemCalculation[];
+    summary: {
+      total_calculations: number;
+      user_calculation_count: number;
+      system_calculation_count: number;
+      user_in_use_count: number;
+      system_in_use_count: number;
+      total_in_use: number;
+      group_level_filter?: string;
+    };
+  }>> {
+    const params = groupLevel ? { group_level: groupLevel } : {};
+    return apiClient.get('/calculations', { params });
   },
 
   // Helper methods for compatibility
@@ -300,17 +311,17 @@ export const withErrorHandling = <T extends any[], R>(
 // Export wrapped API for better error handling
 export const safeCalculationsApi = {
   getCalculationConfig: withErrorHandling(calculationsApi.getCalculationConfig),
-  getUserDefinedCalculations: withErrorHandling(calculationsApi.getUserDefinedCalculations),
   createCalculation: withErrorHandling(calculationsApi.createCalculation),
   updateCalculation: withErrorHandling(calculationsApi.updateCalculation),
   deleteCalculation: withErrorHandling(calculationsApi.deleteCalculation),
   getCalculationUsage: withErrorHandling(calculationsApi.getCalculationUsage),
-  getSystemCalculations: withErrorHandling(calculationsApi.getSystemCalculations),
+  getCalculationUsageByType: withErrorHandling(calculationsApi.getCalculationUsageByType),
   createSystemSqlCalculation: withErrorHandling(calculationsApi.createSystemSqlCalculation),
   validateSystemSql: withErrorHandling(calculationsApi.validateSystemSql),
   getStaticFields: withErrorHandling(calculationsApi.getStaticFields),
   previewSQL: withErrorHandling(calculationsApi.previewSQL),
   getAvailableCalculations: withErrorHandling(calculationsApi.getAvailableCalculations),
+  getAllCalculations: withErrorHandling(calculationsApi.getAllCalculations),
 };
 
 export default calculationsApi;

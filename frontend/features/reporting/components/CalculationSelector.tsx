@@ -105,12 +105,27 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
   const isCalculationSelected = (calc: AvailableCalculation): boolean => {
     return selectedCalculations.some(selected => {
       if (typeof calc.id === 'string' && calc.id.startsWith('static_')) {
-        // For static fields, compare by string ID directly (no more hashing)
+        // For static fields, compare by string ID directly
         return selected.calculation_type === 'static' && 
                calc.id === selected.calculation_id;
       } else {
-        // For user/system calculations, compare by numeric ID
-        return typeof calc.id === 'number' && calc.id === selected.calculation_id;
+        // For user/system calculations, compare by numeric ID AND calculation type
+        // Map AvailableCalculation.calculation_type to ReportCalculation.calculation_type
+        let calcType: 'user' | 'system' | 'static';
+        if (calc.calculation_type === 'SYSTEM_SQL') {
+          calcType = 'system';
+        } else if (calc.calculation_type === 'USER_DEFINED') {
+          calcType = 'user';
+        } else if (calc.calculation_type === 'STATIC_FIELD') {
+          calcType = 'static';
+        } else {
+          // Fallback logic for legacy data
+          calcType = isSystemSqlCalculation(calc) ? 'system' : 'user';
+        }
+        
+        return typeof calc.id === 'number' && 
+               calc.id === selected.calculation_id &&
+               calcType === selected.calculation_type;
       }
     });
   };
@@ -126,7 +141,23 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
           return !(selected.calculation_type === 'static' && 
                   availableCalc.id === selected.calculation_id);
         } else {
-          return !(typeof availableCalc.id === 'number' && availableCalc.id === selected.calculation_id);
+          // For user/system calculations, compare by numeric ID AND calculation type
+          // Map AvailableCalculation.calculation_type to ReportCalculation.calculation_type
+          let calcType: 'user' | 'system' | 'static';
+          if (availableCalc.calculation_type === 'SYSTEM_SQL') {
+            calcType = 'system';
+          } else if (availableCalc.calculation_type === 'USER_DEFINED') {
+            calcType = 'user';
+          } else if (availableCalc.calculation_type === 'STATIC_FIELD') {
+            calcType = 'static';
+          } else {
+            // Fallback logic for legacy data
+            calcType = isSystemSqlCalculation(availableCalc) ? 'system' : 'user';
+          }
+          
+          return !(typeof availableCalc.id === 'number' && 
+                  availableCalc.id === selected.calculation_id &&
+                  calcType === selected.calculation_type);
         }
       });
       onCalculationsChange(updatedCalculations);
