@@ -111,6 +111,7 @@ export const useCalculations = () => {
     isLoading,
     calculationUsage,
     fetchCalculations,
+    fetchCalculationUsage, // Expose this so components can refresh usage data
     deleteCalculation
   };
 };

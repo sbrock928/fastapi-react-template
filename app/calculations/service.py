@@ -197,12 +197,48 @@ class UserCalculationService:
         if not calculation:
             raise CalculationNotFoundError(f"User calculation with ID {calc_id} not found")
         
+        # Import here to avoid circular imports
+        from app.reporting.models import ReportCalculation, Report
+        from sqlalchemy.orm import joinedload
+        
+        # Find all reports that use this calculation
+        # For user calculations, calculation_id is stored as string representation of the integer
+        calc_id_str = str(calc_id)
+        
+        # Check both with calculation_type = 'user' AND calculation_type = None (for existing data)
+        report_usages = (
+            self.user_calc_dao.db
+            .query(ReportCalculation)
+            .join(Report)
+            .filter(
+                ReportCalculation.calculation_id == calc_id_str,
+                # Handle both new format ('user') and legacy format (None) 
+                (
+                    (ReportCalculation.calculation_type == 'user') |
+                    (ReportCalculation.calculation_type.is_(None))
+                ),
+                Report.is_active == True
+            )
+            .options(joinedload(ReportCalculation.report))
+            .all()
+        )
+        
+        reports = []
+        for usage in report_usages:
+            reports.append({
+                "report_id": usage.report.id,
+                "report_name": usage.report.name,
+                "report_scope": usage.report.scope,
+                "display_order": usage.display_order,
+                "display_name": usage.display_name
+            })
+        
         return {
             "calculation_id": calc_id,
             "calculation_name": calculation.name,
-            "is_in_use": False,  # TODO: Implement when report system is updated
-            "report_count": 0,
-            "reports": [],
+            "is_in_use": len(reports) > 0,
+            "report_count": len(reports),
+            "reports": reports,
         }
 
 

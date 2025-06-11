@@ -19,9 +19,60 @@ const SqlPreviewModal: React.FC<SqlPreviewModalProps> = ({
   if (!isOpen) return null;
 
   const handleCopySQL = () => {
-    if (previewData?.generated_sql) {
-      navigator.clipboard.writeText(previewData.generated_sql);
+    const sql = previewData?.sql || previewData?.generated_sql;
+    if (sql) {
+      navigator.clipboard.writeText(sql);
     }
+  };
+
+  // Handle both old and new API response formats
+  const getCalculationName = () => {
+    if (previewData?.calculation_name) return previewData.calculation_name;
+    // Extract from columns - the last column is usually the calculation result
+    if (previewData?.columns && previewData.columns.length > 0) {
+      return previewData.columns[previewData.columns.length - 1];
+    }
+    return 'Unknown Calculation';
+  };
+
+  const getCalculationType = () => {
+    return previewData?.calculation_type || 'Unknown';
+  };
+
+  const getGroupLevel = () => {
+    return previewData?.group_level || previewData?.aggregation_level || 'Unknown';
+  };
+
+  const getSql = () => {
+    return previewData?.sql || previewData?.generated_sql || '';
+  };
+
+  const getParameters = () => {
+    return previewData?.parameters || previewData?.sample_parameters || {};
+  };
+
+  const getDealMap = () => {
+    const params = getParameters();
+    // Type-safe access to deal map properties
+    if ('deal_tranche_map' in params) {
+      return params.deal_tranche_map;
+    }
+    if ('deal_tranche_mapping' in params) {
+      return params.deal_tranche_mapping;
+    }
+    return null;
+  };
+
+  const getCycleCode = () => {
+    const params = getParameters();
+    // Type-safe access to cycle properties
+    if ('cycle_code' in params) {
+      return params.cycle_code;
+    }
+    if ('cycle' in params) {
+      return params.cycle;
+    }
+    return null;
   };
 
   return (
@@ -31,7 +82,7 @@ const SqlPreviewModal: React.FC<SqlPreviewModalProps> = ({
           <div className={`modal-header ${styles.sqlPreviewModalHeader}`}>
             <h5 className="modal-title">
               <i className="bi bi-code-square me-2"></i>
-              SQL Preview
+              SQL Preview: {getCalculationName()}
             </h5>
             <button
               type="button"
@@ -60,20 +111,25 @@ const SqlPreviewModal: React.FC<SqlPreviewModalProps> = ({
                     </h6>
                     <div className={styles.detailsCardContent}>
                       <div className="mb-2">
-                        <strong>Name:</strong> {previewData.calculation_name}
+                        <strong>Name:</strong> {getCalculationName()}
                       </div>
                       <div className="mb-2">
                         <strong>Type:</strong>{' '}
                         <span className={`${styles.badge} ${styles.badgePrimary}`}>
-                          {previewData.calculation_type}
+                          {getCalculationType()}
                         </span>
                       </div>
-                      <div>
+                      <div className="mb-2">
                         <strong>Level:</strong>{' '}
                         <span className={`${styles.badge} ${styles.badgeSecondary}`}>
-                          {previewData.aggregation_level}
+                          {getGroupLevel()}
                         </span>
                       </div>
+                      {previewData.columns && (
+                        <div>
+                          <strong>Returns:</strong> {previewData.columns.join(', ')}
+                        </div>
+                      )}
                     </div>
                   </div>
                   
@@ -83,15 +139,19 @@ const SqlPreviewModal: React.FC<SqlPreviewModalProps> = ({
                     </h6>
                     <div className={styles.detailsCardContent}>
                       <div className="mb-1">
-                        <strong>Deals:</strong> {previewData.sample_parameters?.deal_tranche_mapping ? 
-                          Object.keys(previewData.sample_parameters.deal_tranche_mapping).join(', ') : 'N/A'}
+                        <strong>Deals:</strong> {(() => {
+                          const dealMap = getDealMap();
+                          return dealMap ? Object.keys(dealMap).join(', ') : 'N/A';
+                        })()}
                       </div>
                       <div className="mb-1">
-                        <strong>Tranches:</strong> {previewData.sample_parameters?.deal_tranche_mapping ? 
-                          Object.values(previewData.sample_parameters.deal_tranche_mapping).flat().join(', ') : 'N/A'}
+                        <strong>Tranches:</strong> {(() => {
+                          const dealMap = getDealMap();
+                          return dealMap ? Object.values(dealMap).flat().filter(t => t).join(', ') || 'All' : 'N/A';
+                        })()}
                       </div>
                       <div>
-                        <strong>Cycle:</strong> {previewData.sample_parameters?.cycle || 'N/A'}
+                        <strong>Cycle:</strong> {getCycleCode() || 'N/A'}
                       </div>
                     </div>
                   </div>
@@ -101,7 +161,7 @@ const SqlPreviewModal: React.FC<SqlPreviewModalProps> = ({
                 <div className="mb-3">
                   <div className={styles.sqlSectionHeader}>
                     <h6 className={styles.sqlSectionTitle}>
-                      Raw Execution SQL
+                      Generated SQL Query
                     </h6>
                     <button
                       className={`btn btn-sm btn-outline-secondary ${styles.copyButton}`}
@@ -115,11 +175,11 @@ const SqlPreviewModal: React.FC<SqlPreviewModalProps> = ({
                   <div 
                     className={styles['sql-code-enhanced']}
                     dangerouslySetInnerHTML={{
-                      __html: highlightSQL(formatSQL(previewData.generated_sql))
+                      __html: highlightSQL(formatSQL(getSql()))
                     }}
                   />
                   <div className={styles.sqlNote}>
-                    This is the exact same SQL that executes when this calculation runs in a report.
+                    This is the exact SQL that executes when this calculation runs in a report.
                   </div>
                 </div>
               </div>

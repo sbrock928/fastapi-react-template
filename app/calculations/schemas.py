@@ -71,6 +71,7 @@ class UserCalculationUpdate(BaseModel):
 class UserCalculationResponse(UserCalculationBase):
     """Response schema for user calculations"""
     id: int
+    calculation_type: str = "USER_DEFINED"  # Added for frontend compatibility
     created_by: str
     created_at: datetime
     updated_at: datetime
@@ -150,6 +151,7 @@ class SystemCalculationCreate(SystemCalculationBase):
 class SystemCalculationResponse(SystemCalculationBase):
     """Response schema for system calculations"""
     id: int
+    calculation_type: str = "SYSTEM_SQL"  # Added for frontend compatibility
     created_by: str
     approved_by: Optional[str] = None
     approval_date: Optional[datetime] = None

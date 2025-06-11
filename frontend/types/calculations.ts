@@ -177,11 +177,21 @@ export interface CalculationUsage {
 
 // SQL Preview
 export interface PreviewData {
-  calculation_name: string;
-  calculation_type: string;
-  aggregation_level: string;
-  generated_sql: string;
-  sample_parameters: {
+  // New API format (actual backend response)
+  sql?: string;
+  columns?: string[];
+  calculation_type?: string;
+  group_level?: string;
+  parameters?: {
+    deal_tranche_map?: Record<string, string[]>;
+    cycle_code?: number;
+  };
+  
+  // Legacy format (for backward compatibility)
+  calculation_name?: string;
+  aggregation_level?: string;
+  generated_sql?: string;
+  sample_parameters?: {
     deal_tranche_mapping?: Record<string, string[]>;
     cycle?: string;
   };
