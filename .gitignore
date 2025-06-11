@@ -135,3 +135,6 @@ sql_app.db
 vibez_config.db-shm
 .gitignore
 vibez_datawarehouse.db-wal
+vibez_config.db-wal
+.gitignore
+vibez_datawarehouse.db-shm

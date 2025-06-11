@@ -306,6 +306,7 @@ def create_standard_calculations():
 def create_sample_data():
     """Create simple sample data for development and testing with temporary FK disable."""
     from app.datawarehouse.models import Deal, Tranche, TrancheBal
+    from sqlalchemy import text
     import random
 
     # Create data warehouse session
@@ -320,17 +321,20 @@ def create_sample_data():
 
         print("Creating simple sample data...")
 
-        # Temporarily disable foreign key constraints for sample data creation
-        print("  Temporarily disabling foreign key constraints...")
-        dw_db.execute("PRAGMA foreign_keys=OFF")
+        # Temporarily disable foreign key constraints for sample data creation (SQLite only)
+        if DATA_WAREHOUSE_URL.startswith("sqlite"):
+            print("  Temporarily disabling foreign key constraints...")
+            dw_db.execute(text("PRAGMA foreign_keys=OFF"))
+        else:
+            print("  Database is not SQLite - foreign key handling managed by database")
 
         # Create 5 simple deals
         deals_data = [
-            {"dl_nbr": 1001, "issr_cde": "FHLMC24", "cdi_file_nme": "FH1001_CDI"},
-            {"dl_nbr": 1002, "issr_cde": "FNMA24", "cdi_file_nme": "FN1002_CDI"},
-            {"dl_nbr": 1003, "issr_cde": "GNMA24", "cdi_file_nme": "GN1003_CDI"},
-            {"dl_nbr": 1004, "issr_cde": "FHLMC24", "cdi_file_nme": "FH1004_CDI"},
-            {"dl_nbr": 1005, "issr_cde": "FNMA24", "cdi_file_nme": "FN1005_CDI"},
+            {"dl_nbr": 1001, "issr_cde": "FHLMC24", "cdi_file_nme": "FH1001_CDI", "deal_cusip_id": "FHLMC1001A"},
+            {"dl_nbr": 1002, "issr_cde": "FNMA24", "cdi_file_nme": "FN1002_CDI", "deal_cusip_id": "FNMA1002A"},
+            {"dl_nbr": 1003, "issr_cde": "GNMA24", "cdi_file_nme": "GN1003_CDI", "deal_cusip_id": "GNMA1003A"},
+            {"dl_nbr": 1004, "issr_cde": "FHLMC24", "cdi_file_nme": "FH1004_CDI", "deal_cusip_id": "FHLMC1004A"},
+            {"dl_nbr": 1005, "issr_cde": "FNMA24", "cdi_file_nme": "FN1005_CDI", "deal_cusip_id": "FNMA1005A"},
         ]
 
         # Create deals
@@ -380,10 +384,11 @@ def create_sample_data():
         print("  Committing all sample data...")
         dw_db.commit()
 
-        # Re-enable foreign key constraints
-        print("  Re-enabling foreign key constraints...")
-        dw_db.execute("PRAGMA foreign_keys=ON")
-        dw_db.commit()
+        # Re-enable foreign key constraints (SQLite only)
+        if DATA_WAREHOUSE_URL.startswith("sqlite"):
+            print("  Re-enabling foreign key constraints...")
+            dw_db.execute(text("PRAGMA foreign_keys=ON"))
+            dw_db.commit()
 
         print(f"✅ Sample data creation complete: {len(deals_data)} deals, {tranches_created} tranches, {balances_created} balances")
 
@@ -397,12 +402,14 @@ def create_sample_data():
     except Exception as e:
         dw_db.rollback()
         print(f"❌ Error creating sample data: {e}")
-        print("  Attempting to re-enable foreign key constraints...")
-        try:
-            dw_db.execute("PRAGMA foreign_keys=ON")
-            dw_db.commit()
-        except:
-            pass
+        # Attempt to re-enable foreign key constraints (SQLite only)
+        if DATA_WAREHOUSE_URL.startswith("sqlite"):
+            print("  Attempting to re-enable foreign key constraints...")
+            try:
+                dw_db.execute(text("PRAGMA foreign_keys=ON"))
+                dw_db.commit()
+            except:
+                pass
         raise
     finally:
         dw_db.close()

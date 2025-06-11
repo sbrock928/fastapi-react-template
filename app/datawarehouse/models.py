@@ -15,6 +15,7 @@ class Deal(Base):
     issr_cde = Column(CHAR(12), nullable=False)
     cdi_file_nme = Column(CHAR(8), nullable=False)
     CDB_cdi_file_nme = Column(CHAR(10), nullable=True)
+    deal_cusip_id: Mapped[str] = mapped_column(String(14), primary_key=True)
 
     tranches = relationship("Tranche", back_populates="deal")
 
