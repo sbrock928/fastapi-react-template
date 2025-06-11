@@ -1,33 +1,32 @@
 # app/calculations/schemas.py
-"""Updated Pydantic schemas for different calculation types."""
+"""Pydantic schemas for the new separated calculation system"""
 
 from pydantic import BaseModel, Field, validator
-from typing import Optional, Union
+from typing import Optional, Dict, Any, List
 from datetime import datetime
-from .models import CalculationType, AggregationFunction, SourceModel, GroupLevel
+from .models import AggregationFunction, SourceModel, GroupLevel
 
 
-# Base schemas
-class CalculationBase(BaseModel):
-    """Base schema for all calculations."""
+# ===== USER CALCULATION SCHEMAS =====
 
+class UserCalculationBase(BaseModel):
+    """Base schema for user calculations"""
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
+    aggregation_function: AggregationFunction
+    source_model: SourceModel
+    source_field: str = Field(..., min_length=1, max_length=100)
+    weight_field: Optional[str] = Field(None, max_length=100)
     group_level: GroupLevel
+    advanced_config: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
 
 
-# User Defined Calculation Schemas
-class UserDefinedCalculationCreate(CalculationBase):
-    """Schema for creating user-defined calculations."""
-
-    aggregation_function: AggregationFunction
-    source_model: SourceModel
-    source_field: str = Field(..., min_length=1, max_length=100)
-    weight_field: Optional[str] = Field(None, max_length=100)
-
+class UserCalculationCreate(UserCalculationBase):
+    """Schema for creating user calculations"""
+    
     @validator("weight_field")
     def validate_weight_field_for_weighted_avg(cls, v, values):
         """Validate weight field is provided for weighted averages."""
@@ -44,104 +43,17 @@ class UserDefinedCalculationCreate(CalculationBase):
                 "source_model": "TrancheBal",
                 "source_field": "tr_end_bal_amt",
                 "group_level": "deal",
+                "advanced_config": {
+                    "filters": [
+                        {"field": "deal.issr_cde", "operator": "=", "value": "FHLMC"}
+                    ]
+                }
             }
         }
 
 
-# System SQL calculation schemas
-class SystemSQLCalculationCreate(CalculationBase):
-    """Schema for creating system SQL calculations."""
-
-    raw_sql: str = Field(..., min_length=10, description="SQL query text")
-    result_column_name: str = Field(
-        ..., min_length=1, max_length=100, pattern=r"^[a-zA-Z][a-zA-Z0-9_]*$"
-    )
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "name": "Issuer Type Classification",
-                "description": "Categorizes deals by issuer type (GSE, Government, Private)",
-                "group_level": "deal",
-                "raw_sql": "SELECT deal.dl_nbr, CASE WHEN deal.issr_cde LIKE '%FHLMC%' THEN 'GSE' ELSE 'Private' END AS issuer_type FROM deal",
-                "result_column_name": "issuer_type",
-            }
-        }
-
-
-# Union type for creation requests
-CalculationCreateRequest = Union[UserDefinedCalculationCreate, SystemSQLCalculationCreate]
-
-
-# Response schemas
-class CalculationResponse(BaseModel):
-    """Unified response schema for all calculation types."""
-
-    id: int
-    name: str
-    description: Optional[str]
-    calculation_type: CalculationType
-    group_level: GroupLevel
-    is_system_managed: bool
-
-    # User-defined calculation fields
-    aggregation_function: Optional[AggregationFunction] = None
-    source_model: Optional[SourceModel] = None
-    source_field: Optional[str] = None
-    weight_field: Optional[str] = None
-
-    # System SQL calculation fields
-    raw_sql: Optional[str] = None
-    result_column_name: Optional[str] = None
-
-    # Metadata
-    created_at: datetime
-    updated_at: datetime
-    created_by: Optional[str]
-
-    class Config:
-        from_attributes = True
-
-
-# Simplified schemas for specific types
-class UserDefinedCalculationResponse(CalculationBase):
-    """Response schema specifically for user-defined calculations."""
-
-    id: int
-    calculation_type: CalculationType = CalculationType.USER_DEFINED
-    aggregation_function: AggregationFunction
-    source_model: SourceModel
-    source_field: str
-    weight_field: Optional[str] = None
-    is_system_managed: bool = False
-    created_at: datetime
-    updated_at: datetime
-    created_by: Optional[str]
-
-    class Config:
-        from_attributes = True
-
-
-class SystemSQLCalculationResponse(CalculationBase):
-    """Response schema specifically for system SQL calculations."""
-
-    id: int
-    calculation_type: CalculationType = CalculationType.SYSTEM_SQL
-    raw_sql: str
-    result_column_name: str
-    is_system_managed: bool = True
-    created_at: datetime
-    updated_at: datetime
-    created_by: Optional[str]
-
-    class Config:
-        from_attributes = True
-
-
-# Update schemas for editing
-class UserDefinedCalculationUpdate(BaseModel):
-    """Update schema for user-defined calculations."""
-
+class UserCalculationUpdate(BaseModel):
+    """Schema for updating user calculations"""
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
     aggregation_function: Optional[AggregationFunction] = None
@@ -149,38 +61,359 @@ class UserDefinedCalculationUpdate(BaseModel):
     source_field: Optional[str] = Field(None, min_length=1, max_length=100)
     weight_field: Optional[str] = Field(None, max_length=100)
     group_level: Optional[GroupLevel] = None
+    advanced_config: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
 
 
-# System calculations should not be updatable by users
-class SystemCalculationUpdate(BaseModel):
-    """Limited update schema for system calculations (admin use only)."""
-
-    description: Optional[str] = Field(None, max_length=500)
-    is_active: Optional[bool] = None
-
-    class Config:
-        from_attributes = True
-
-
-# Available calculation schema for reporting (simplified)
-class AvailableCalculation(BaseModel):
-    """Schema for available calculations that can be selected for reports."""
-
+class UserCalculationResponse(UserCalculationBase):
+    """Response schema for user calculations"""
     id: int
-    name: str
-    description: Optional[str] = None
-    calculation_type: CalculationType
-    group_level: GroupLevel
-    category: str
-    is_default: bool = False
-    is_system_managed: bool
+    created_by: str
+    created_at: datetime
+    updated_at: datetime
+    is_active: bool
 
-    # Display fields (computed)
-    display_type: str  # "User Defined (SUM)", "System Field (number)", "System SQL"
-    source_description: str  # "Deal.dl_nbr", "Custom SQL (issuer_type)", etc.
+    def get_display_type(self) -> str:
+        """Get display type for UI"""
+        return f"User Defined ({self.aggregation_function.value})"
+
+    def get_source_description(self) -> str:
+        """Get source description for UI"""
+        return f"{self.source_model.value}.{self.source_field}"
 
     class Config:
         from_attributes = True
+
+
+# ===== SYSTEM CALCULATION SCHEMAS =====
+
+class SystemCalculationBase(BaseModel):
+    """Base schema for system calculations"""
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    raw_sql: str = Field(..., min_length=10)
+    result_column_name: str = Field(..., min_length=1, max_length=100, regex=r"^[a-zA-Z][a-zA-Z0-9_]*$")
+    group_level: GroupLevel
+    metadata_config: Optional[Dict[str, Any]] = None
+
+    class Config:
+        from_attributes = True
+
+
+class SystemCalculationCreate(SystemCalculationBase):
+    """Schema for creating system calculations"""
+    
+    @validator("raw_sql")
+    def validate_sql_basic(cls, v):
+        """Basic SQL validation"""
+        if not v or not v.strip():
+            raise ValueError("raw_sql cannot be empty")
+        
+        sql_lower = v.lower().strip()
+        if not sql_lower.startswith('select'):
+            raise ValueError("SQL must be a SELECT statement")
+        
+        if 'from' not in sql_lower:
+            raise ValueError("SQL must include a FROM clause")
+        
+        return v.strip()
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "name": "Issuer Type Classification",
+                "description": "Categorizes deals by issuer type",
+                "group_level": "deal",
+                "raw_sql": """
+                    SELECT 
+                        deal.dl_nbr,
+                        CASE 
+                            WHEN deal.issr_cde LIKE '%FHLMC%' THEN 'GSE'
+                            WHEN deal.issr_cde LIKE '%GNMA%' THEN 'Government'
+                            ELSE 'Private'
+                        END AS issuer_type
+                    FROM deal
+                """,
+                "result_column_name": "issuer_type",
+                "metadata_config": {
+                    "required_models": ["Deal"],
+                    "performance_hints": {"complexity": "low"}
+                }
+            }
+        }
+
+
+class SystemCalculationResponse(SystemCalculationBase):
+    """Response schema for system calculations"""
+    id: int
+    created_by: str
+    approved_by: Optional[str] = None
+    approval_date: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+    is_active: bool
+
+    def get_display_type(self) -> str:
+        """Get display type for UI"""
+        return "System SQL"
+
+    def get_source_description(self) -> str:
+        """Get source description for UI"""
+        return f"Custom SQL ({self.result_column_name})"
+
+    def is_approved(self) -> bool:
+        """Check if calculation is approved"""
+        return self.approved_by is not None
+
+    class Config:
+        from_attributes = True
+
+
+# ===== STATIC FIELD SCHEMAS =====
+
+class StaticFieldInfo(BaseModel):
+    """Schema for static field information"""
+    field_path: str  # e.g., "deal.dl_nbr", "tranche.tr_id"
+    name: str
+    description: str
+    type: str  # "number", "string", "currency", "percentage", etc.
+    required_models: List[str]
+    nullable: bool
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "field_path": "deal.dl_nbr",
+                "name": "Deal Number",
+                "description": "Unique identifier for the deal",
+                "type": "number",
+                "required_models": ["Deal"],
+                "nullable": False
+            }
+        }
+
+
+# ===== CALCULATION REQUEST SCHEMAS =====
+
+class CalculationRequestSchema(BaseModel):
+    """Schema for calculation requests in reports"""
+    calc_type: str = Field(..., regex="^(static_field|user_calculation|system_calculation)$")
+    calc_id: Optional[int] = None  # Required for user_calculation and system_calculation
+    field_path: Optional[str] = None  # Required for static_field
+    alias: Optional[str] = None  # Custom alias for result column
+
+    @validator("calc_id")
+    def validate_calc_id_when_required(cls, v, values):
+        """Validate calc_id is provided when needed"""
+        calc_type = values.get("calc_type")
+        if calc_type in ["user_calculation", "system_calculation"] and not v:
+            raise ValueError(f"calc_id is required for {calc_type}")
+        return v
+
+    @validator("field_path")
+    def validate_field_path_when_required(cls, v, values):
+        """Validate field_path is provided when needed"""
+        calc_type = values.get("calc_type")
+        if calc_type == "static_field" and not v:
+            raise ValueError("field_path is required for static_field")
+        return v
+
+    class Config:
+        json_schema_extra = {
+            "examples": [
+                {
+                    "calc_type": "static_field",
+                    "field_path": "deal.dl_nbr",
+                    "alias": "deal_number"
+                },
+                {
+                    "calc_type": "user_calculation", 
+                    "calc_id": 1,
+                    "alias": "total_balance"
+                },
+                {
+                    "calc_type": "system_calculation",
+                    "calc_id": 1,
+                    "alias": "issuer_type"
+                }
+            ]
+        }
+
+
+# ===== REPORT EXECUTION SCHEMAS =====
+
+class ReportExecutionRequest(BaseModel):
+    """Schema for report execution requests"""
+    calculation_requests: List[CalculationRequestSchema]
+    deal_tranche_map: Dict[int, List[str]]  # deal_id -> [tranche_ids] or [] for all
+    cycle_code: int
+
+    @validator("calculation_requests")
+    def validate_calculation_requests_not_empty(cls, v):
+        """Validate at least one calculation is requested"""
+        if not v:
+            raise ValueError("At least one calculation must be requested")
+        return v
+
+    @validator("deal_tranche_map")
+    def validate_deal_tranche_map_not_empty(cls, v):
+        """Validate at least one deal is specified"""
+        if not v:
+            raise ValueError("At least one deal must be specified")
+        return v
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "calculation_requests": [
+                    {"calc_type": "static_field", "field_path": "deal.dl_nbr", "alias": "deal_number"},
+                    {"calc_type": "user_calculation", "calc_id": 1, "alias": "total_balance"},
+                    {"calc_type": "system_calculation", "calc_id": 1, "alias": "issuer_type"}
+                ],
+                "deal_tranche_map": {
+                    1001: ["A", "B"],  # Specific tranches
+                    1002: []  # All tranches
+                },
+                "cycle_code": 202404
+            }
+        }
+
+
+class ReportExecutionResponse(BaseModel):
+    """Schema for report execution responses"""
+    data: List[Dict[str, Any]]
+    metadata: Dict[str, Any]
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "data": [
+                    {
+                        "deal_number": 1001,
+                        "cycle_code": 202404,
+                        "tranche_id": "A",
+                        "total_balance": 1000000.00,
+                        "issuer_type": "GSE"
+                    }
+                ],
+                "metadata": {
+                    "total_rows": 1,
+                    "calculations_executed": 3,
+                    "debug_info": {
+                        "total_calculations": 3,
+                        "static_fields": 1,
+                        "user_calculations": 1,
+                        "system_calculations": 1,
+                        "errors": []
+                    },
+                    "individual_sql_queries": {
+                        "deal_number": "SELECT DISTINCT deal.dl_nbr AS deal_number...",
+                        "total_balance": "SELECT deal.dl_nbr AS deal_number, SUM(...)...",
+                        "issuer_type": "SELECT deal.dl_nbr, CASE WHEN..."
+                    }
+                }
+            }
+        }
+
+
+# ===== SQL PREVIEW SCHEMAS =====
+
+class SQLPreviewResponse(BaseModel):
+    """Schema for SQL preview responses"""
+    sql_previews: Dict[str, Dict[str, Any]]
+    parameters: Dict[str, Any]
+    summary: Dict[str, Any]
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "sql_previews": {
+                    "deal_number": {
+                        "sql": "SELECT DISTINCT deal.dl_nbr AS deal_number...",
+                        "columns": ["deal_number", "cycle_code"],
+                        "calculation_type": "static_field"
+                    },
+                    "total_balance": {
+                        "sql": "SELECT deal.dl_nbr AS deal_number, SUM(...)...",
+                        "columns": ["deal_number", "cycle_code", "total_balance"],
+                        "calculation_type": "user_calculation",
+                        "group_level": "deal"
+                    }
+                },
+                "parameters": {
+                    "deal_tranche_map": {1001: ["A", "B"]},
+                    "cycle_code": 202404
+                },
+                "summary": {
+                    "total_calculations": 2,
+                    "static_fields": 1,
+                    "user_calculations": 1,
+                    "system_calculations": 0
+                }
+            }
+        }
+
+
+# ===== CONFIGURATION SCHEMAS =====
+
+class CalculationConfigResponse(BaseModel):
+    """Schema for calculation configuration responses"""
+    aggregation_functions: List[Dict[str, str]]
+    source_models: List[Dict[str, str]]
+    group_levels: List[Dict[str, str]]
+    static_fields: List[StaticFieldInfo]
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "aggregation_functions": [
+                    {"value": "SUM", "label": "SUM - Total amount", "description": "Add all values together"}
+                ],
+                "source_models": [
+                    {"value": "Deal", "label": "Deal", "description": "Base deal information"}
+                ],
+                "group_levels": [
+                    {"value": "deal", "label": "Deal Level", "description": "Aggregate to deal level"}
+                ],
+                "static_fields": [
+                    {
+                        "field_path": "deal.dl_nbr",
+                        "name": "Deal Number",
+                        "description": "Unique identifier for the deal",
+                        "type": "number",
+                        "required_models": ["Deal"],
+                        "nullable": False
+                    }
+                ]
+            }
+        }
+
+
+# ===== USAGE INFORMATION SCHEMAS =====
+
+class CalculationUsageResponse(BaseModel):
+    """Schema for calculation usage information"""
+    calculation_id: int
+    calculation_name: str
+    is_in_use: bool
+    report_count: int
+    reports: List[Dict[str, Any]]
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "calculation_id": 1,
+                "calculation_name": "Total Ending Balance",
+                "is_in_use": True,
+                "report_count": 2,
+                "reports": [
+                    {
+                        "report_id": 1,
+                        "report_name": "Monthly Deal Summary",
+                        "report_description": "Summary of all deals for the month"
+                    }
+                ]
+            }
+        }

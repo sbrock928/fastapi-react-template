@@ -1,185 +1,398 @@
 # app/calculations/dao.py
-"""Enhanced DAO for calculation operations supporting multiple types."""
+"""Data Access Objects for the new separated calculation system"""
 
 from sqlalchemy.orm import Session
-from typing import List, Optional
-from .models import Calculation, CalculationType, GroupLevel
+from typing import List, Optional, Dict, Any
+from .models import UserCalculation, SystemCalculation, GroupLevel
 
 
-class CalculationDAO:
-    """Enhanced DAO for calculation data access supporting multiple calculation types."""
+class UserCalculationDAO:
+    """DAO for user-defined calculations"""
 
     def __init__(self, db: Session):
         self.db = db
 
-    def get_all_calculations(
-        self,
-        group_level: Optional[GroupLevel] = None,
-        calculation_type: Optional[CalculationType] = None,
-    ) -> List[Calculation]:
-        """Get all active calculations, optionally filtered by group level and/or calculation type."""
-        query = self.db.query(Calculation).filter(Calculation.is_active == True)
-
+    def get_all(self, group_level: Optional[GroupLevel] = None) -> List[UserCalculation]:
+        """Get all active user calculations"""
+        query = self.db.query(UserCalculation).filter(UserCalculation.is_active == True)
+        
         if group_level:
-            query = query.filter(Calculation.group_level == group_level)
+            query = query.filter(UserCalculation.group_level == group_level)
+        
+        return query.order_by(UserCalculation.name).all()
 
-        if calculation_type:
-            query = query.filter(Calculation.calculation_type == calculation_type)
-
-        return query.order_by(
-            Calculation.calculation_type, Calculation.name  # System calculations first
-        ).all()
-
-    def get_user_defined_calculations(
-        self, group_level: Optional[GroupLevel] = None
-    ) -> List[Calculation]:
-        """Get only user-defined calculations."""
-        return self.get_all_calculations(group_level, CalculationType.USER_DEFINED)
-
-    def get_system_field_calculations(
-        self, group_level: Optional[GroupLevel] = None
-    ) -> List[Calculation]:
-        """Get only system field calculations."""
-        return self.get_all_calculations(group_level, CalculationType.SYSTEM_FIELD)
-
-    def get_system_sql_calculations(
-        self, group_level: Optional[GroupLevel] = None
-    ) -> List[Calculation]:
-        """Get only system SQL calculations."""
-        return self.get_all_calculations(group_level, CalculationType.SYSTEM_SQL)
-
-    def get_system_calculations(
-        self, group_level: Optional[GroupLevel] = None
-    ) -> List[Calculation]:
-        """Get all system-managed calculations (both field and SQL types)."""
-        query = self.db.query(Calculation).filter(
-            Calculation.is_active == True, Calculation.is_system_managed == True
-        )
-
-        if group_level:
-            query = query.filter(Calculation.group_level == group_level)
-
-        return query.order_by(Calculation.calculation_type, Calculation.name).all()
-
-    def get_editable_calculations(
-        self, group_level: Optional[GroupLevel] = None
-    ) -> List[Calculation]:
-        """Get only user-editable calculations."""
-        query = self.db.query(Calculation).filter(
-            Calculation.is_active == True, Calculation.is_system_managed == False
-        )
-
-        if group_level:
-            query = query.filter(Calculation.group_level == group_level)
-
-        return query.order_by(Calculation.name).all()
-
-    def get_by_id(self, calc_id: int) -> Optional[Calculation]:
-        """Get calculation by ID."""
+    def get_by_id(self, calc_id: int) -> Optional[UserCalculation]:
+        """Get user calculation by ID"""
         return (
-            self.db.query(Calculation)
-            .filter(Calculation.id == calc_id, Calculation.is_active == True)
+            self.db.query(UserCalculation)
+            .filter(UserCalculation.id == calc_id, UserCalculation.is_active == True)
             .first()
         )
 
-    def get_by_name_and_group_level(
-        self, name: str, group_level: GroupLevel
-    ) -> Optional[Calculation]:
-        """Get calculation by name and group level."""
+    def get_by_name_and_group_level(self, name: str, group_level: GroupLevel) -> Optional[UserCalculation]:
+        """Get user calculation by name and group level"""
         return (
-            self.db.query(Calculation)
+            self.db.query(UserCalculation)
             .filter(
-                Calculation.name == name,
-                Calculation.group_level == group_level,
-                Calculation.is_active == True,
+                UserCalculation.name == name,
+                UserCalculation.group_level == group_level,
+                UserCalculation.is_active == True,
             )
             .first()
         )
 
-    def get_by_name(self, name: str) -> Optional[Calculation]:
-        """Get calculation by name (for backward compatibility)."""
+    def get_by_names(self, names: List[str]) -> List[UserCalculation]:
+        """Get user calculations by list of names"""
         return (
-            self.db.query(Calculation)
-            .filter(Calculation.name == name, Calculation.is_active == True)
-            .first()
-        )
-
-    def get_by_names(self, names: List[str]) -> List[Calculation]:
-        """Get calculations by list of names."""
-        return (
-            self.db.query(Calculation)
-            .filter(Calculation.name.in_(names), Calculation.is_active == True)
+            self.db.query(UserCalculation)
+            .filter(UserCalculation.name.in_(names), UserCalculation.is_active == True)
             .all()
         )
 
-    def get_by_calculation_type(self, calc_type: CalculationType) -> List[Calculation]:
-        """Get all calculations of a specific type."""
+    def get_by_created_by(self, created_by: str) -> List[UserCalculation]:
+        """Get user calculations created by a specific user"""
         return (
-            self.db.query(Calculation)
-            .filter(Calculation.calculation_type == calc_type, Calculation.is_active == True)
-            .order_by(Calculation.name)
+            self.db.query(UserCalculation)
+            .filter(UserCalculation.created_by == created_by, UserCalculation.is_active == True)
+            .order_by(UserCalculation.created_at.desc())
             .all()
         )
 
-    def create(self, calculation: Calculation) -> Calculation:
-        """Create a new calculation."""
+    def get_with_advanced_features(self) -> List[UserCalculation]:
+        """Get user calculations that use advanced features"""
+        return (
+            self.db.query(UserCalculation)
+            .filter(
+                UserCalculation.is_active == True,
+                UserCalculation.advanced_config.isnot(None)
+            )
+            .all()
+        )
+
+    def create(self, calculation: UserCalculation) -> UserCalculation:
+        """Create a new user calculation"""
         self.db.add(calculation)
         self.db.commit()
         self.db.refresh(calculation)
         return calculation
 
-    def update(self, calculation: Calculation) -> Calculation:
-        """Update an existing calculation."""
+    def update(self, calculation: UserCalculation) -> UserCalculation:
+        """Update an existing user calculation"""
         self.db.commit()
         self.db.refresh(calculation)
         return calculation
 
-    def soft_delete(self, calculation: Calculation) -> Calculation:
-        """Soft delete a calculation by setting is_active=False."""
+    def soft_delete(self, calculation: UserCalculation) -> UserCalculation:
+        """Soft delete a user calculation by setting is_active=False"""
         calculation.is_active = False
         self.db.commit()
         return calculation
 
-    def hard_delete(self, calculation: Calculation) -> None:
-        """Hard delete a calculation (use with caution)."""
+    def hard_delete(self, calculation: UserCalculation) -> None:
+        """Hard delete a user calculation (use with caution)"""
         self.db.delete(calculation)
         self.db.commit()
 
-    def count_by_type(self) -> dict:
-        """Get count of calculations by type."""
-        counts = {}
-        for calc_type in CalculationType:
-            count = (
-                self.db.query(Calculation)
-                .filter(Calculation.calculation_type == calc_type, Calculation.is_active == True)
-                .count()
-            )
-            counts[calc_type.value] = count
-        return counts
+    def count_by_group_level(self) -> Dict[str, int]:
+        """Get count of user calculations by group level"""
+        results = (
+            self.db.query(UserCalculation.group_level, self.db.func.count(UserCalculation.id))
+            .filter(UserCalculation.is_active == True)
+            .group_by(UserCalculation.group_level)
+            .all()
+        )
+        return {group_level.value: count for group_level, count in results}
 
-    def get_system_field_by_source_and_field(
-        self, source_model: str, field_name: str, group_level: GroupLevel
-    ) -> Optional[Calculation]:
-        """Get system field calculation by source model and field name."""
+    def count_by_aggregation_function(self) -> Dict[str, int]:
+        """Get count of user calculations by aggregation function"""
+        results = (
+            self.db.query(UserCalculation.aggregation_function, self.db.func.count(UserCalculation.id))
+            .filter(UserCalculation.is_active == True)
+            .group_by(UserCalculation.aggregation_function)
+            .all()
+        )
+        return {agg_func.value: count for agg_func, count in results}
+
+    def count_by_source_model(self) -> Dict[str, int]:
+        """Get count of user calculations by source model"""
+        results = (
+            self.db.query(UserCalculation.source_model, self.db.func.count(UserCalculation.id))
+            .filter(UserCalculation.is_active == True)
+            .group_by(UserCalculation.source_model)
+            .all()
+        )
+        return {source_model.value: count for source_model, count in results}
+
+
+class SystemCalculationDAO:
+    """DAO for system-defined calculations"""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_all(self, group_level: Optional[GroupLevel] = None, approved_only: bool = False) -> List[SystemCalculation]:
+        """Get all active system calculations"""
+        query = self.db.query(SystemCalculation).filter(SystemCalculation.is_active == True)
+        
+        if group_level:
+            query = query.filter(SystemCalculation.group_level == group_level)
+        
+        if approved_only:
+            query = query.filter(SystemCalculation.approved_by.isnot(None))
+        
+        return query.order_by(SystemCalculation.name).all()
+
+    def get_by_id(self, calc_id: int) -> Optional[SystemCalculation]:
+        """Get system calculation by ID"""
         return (
-            self.db.query(Calculation)
+            self.db.query(SystemCalculation)
+            .filter(SystemCalculation.id == calc_id, SystemCalculation.is_active == True)
+            .first()
+        )
+
+    def get_by_name_and_group_level(self, name: str, group_level: GroupLevel) -> Optional[SystemCalculation]:
+        """Get system calculation by name and group level"""
+        return (
+            self.db.query(SystemCalculation)
             .filter(
-                Calculation.calculation_type == CalculationType.SYSTEM_FIELD,
-                Calculation.source_model == source_model,
-                Calculation.field_name == field_name,
-                Calculation.group_level == group_level,
-                Calculation.is_active == True,
+                SystemCalculation.name == name,
+                SystemCalculation.group_level == group_level,
+                SystemCalculation.is_active == True,
             )
             .first()
         )
 
-    def bulk_create_system_fields(self, calculations: List[Calculation]) -> List[Calculation]:
-        """Bulk create system field calculations for efficiency."""
-        self.db.add_all(calculations)
+    def get_by_created_by(self, created_by: str) -> List[SystemCalculation]:
+        """Get system calculations created by a specific user"""
+        return (
+            self.db.query(SystemCalculation)
+            .filter(SystemCalculation.created_by == created_by, SystemCalculation.is_active == True)
+            .order_by(SystemCalculation.created_at.desc())
+            .all()
+        )
+
+    def get_pending_approval(self) -> List[SystemCalculation]:
+        """Get system calculations pending approval"""
+        return (
+            self.db.query(SystemCalculation)
+            .filter(
+                SystemCalculation.is_active == True,
+                SystemCalculation.approved_by.is_(None)
+            )
+            .order_by(SystemCalculation.created_at.desc())
+            .all()
+        )
+
+    def get_approved(self) -> List[SystemCalculation]:
+        """Get approved system calculations"""
+        return (
+            self.db.query(SystemCalculation)
+            .filter(
+                SystemCalculation.is_active == True,
+                SystemCalculation.approved_by.isnot(None)
+            )
+            .order_by(SystemCalculation.approval_date.desc())
+            .all()
+        )
+
+    def get_by_complexity(self, complexity: str) -> List[SystemCalculation]:
+        """Get system calculations by performance complexity"""
+        return (
+            self.db.query(SystemCalculation)
+            .filter(
+                SystemCalculation.is_active == True,
+                SystemCalculation.metadata_config.contains({"performance_hints": {"complexity": complexity}})
+            )
+            .all()
+        )
+
+    def create(self, calculation: SystemCalculation) -> SystemCalculation:
+        """Create a new system calculation"""
+        self.db.add(calculation)
+        self.db.commit()
+        self.db.refresh(calculation)
+        return calculation
+
+    def update(self, calculation: SystemCalculation) -> SystemCalculation:
+        """Update an existing system calculation"""
+        self.db.commit()
+        self.db.refresh(calculation)
+        return calculation
+
+    def soft_delete(self, calculation: SystemCalculation) -> SystemCalculation:
+        """Soft delete a system calculation by setting is_active=False"""
+        calculation.is_active = False
+        self.db.commit()
+        return calculation
+
+    def hard_delete(self, calculation: SystemCalculation) -> None:
+        """Hard delete a system calculation (use with caution)"""
+        self.db.delete(calculation)
         self.db.commit()
 
-        # Refresh all objects
-        for calc in calculations:
-            self.db.refresh(calc)
+    def count_by_group_level(self) -> Dict[str, int]:
+        """Get count of system calculations by group level"""
+        results = (
+            self.db.query(SystemCalculation.group_level, self.db.func.count(SystemCalculation.id))
+            .filter(SystemCalculation.is_active == True)
+            .group_by(SystemCalculation.group_level)
+            .all()
+        )
+        return {group_level.value: count for group_level, count in results}
 
-        return calculations
+    def count_by_approval_status(self) -> Dict[str, int]:
+        """Get count of system calculations by approval status"""
+        approved_count = (
+            self.db.query(SystemCalculation)
+            .filter(
+                SystemCalculation.is_active == True,
+                SystemCalculation.approved_by.isnot(None)
+            )
+            .count()
+        )
+        
+        pending_count = (
+            self.db.query(SystemCalculation)
+            .filter(
+                SystemCalculation.is_active == True,
+                SystemCalculation.approved_by.is_(None)
+            )
+            .count()
+        )
+        
+        return {
+            "approved": approved_count,
+            "pending": pending_count
+        }
+
+
+class CalculationStatsDAO:
+    """DAO for calculation statistics across both types"""
+
+    def __init__(self, db: Session):
+        self.db = db
+        self.user_dao = UserCalculationDAO(db)
+        self.system_dao = SystemCalculationDAO(db)
+
+    def get_overall_counts(self) -> Dict[str, Any]:
+        """Get overall calculation counts and statistics"""
+        user_count = self.db.query(UserCalculation).filter(UserCalculation.is_active == True).count()
+        system_count = self.db.query(SystemCalculation).filter(SystemCalculation.is_active == True).count()
+        
+        return {
+            "total_calculations": user_count + system_count,
+            "user_calculations": user_count,
+            "system_calculations": system_count,
+            "user_by_group_level": self.user_dao.count_by_group_level(),
+            "user_by_aggregation_function": self.user_dao.count_by_aggregation_function(),
+            "user_by_source_model": self.user_dao.count_by_source_model(),
+            "system_by_group_level": self.system_dao.count_by_group_level(),
+            "system_by_approval_status": self.system_dao.count_by_approval_status()
+        }
+
+    def get_activity_summary(self, days: int = 30) -> Dict[str, Any]:
+        """Get calculation activity summary for the last N days"""
+        from datetime import datetime, timedelta
+        
+        cutoff_date = datetime.now() - timedelta(days=days)
+        
+        recent_user_calcs = (
+            self.db.query(UserCalculation)
+            .filter(
+                UserCalculation.is_active == True,
+                UserCalculation.created_at >= cutoff_date
+            )
+            .count()
+        )
+        
+        recent_system_calcs = (
+            self.db.query(SystemCalculation)
+            .filter(
+                SystemCalculation.is_active == True,
+                SystemCalculation.created_at >= cutoff_date
+            )
+            .count()
+        )
+        
+        recent_approvals = (
+            self.db.query(SystemCalculation)
+            .filter(
+                SystemCalculation.is_active == True,
+                SystemCalculation.approval_date >= cutoff_date
+            )
+            .count()
+        )
+        
+        return {
+            "period_days": days,
+            "recent_user_calculations": recent_user_calcs,
+            "recent_system_calculations": recent_system_calcs,
+            "recent_approvals": recent_approvals,
+            "total_recent": recent_user_calcs + recent_system_calcs
+        }
+
+    def get_creator_stats(self) -> Dict[str, Any]:
+        """Get statistics by creator"""
+        # User calculation creators
+        user_creators = (
+            self.db.query(UserCalculation.created_by, self.db.func.count(UserCalculation.id))
+            .filter(UserCalculation.is_active == True)
+            .group_by(UserCalculation.created_by)
+            .all()
+        )
+        
+        # System calculation creators
+        system_creators = (
+            self.db.query(SystemCalculation.created_by, self.db.func.count(SystemCalculation.id))
+            .filter(SystemCalculation.is_active == True)
+            .group_by(SystemCalculation.created_by)
+            .all()
+        )
+        
+        return {
+            "user_calculation_creators": {creator: count for creator, count in user_creators},
+            "system_calculation_creators": {creator: count for creator, count in system_creators}
+        }
+
+    def get_advanced_features_usage(self) -> Dict[str, Any]:
+        """Get statistics on advanced features usage"""
+        user_calcs_with_advanced = (
+            self.db.query(UserCalculation)
+            .filter(
+                UserCalculation.is_active == True,
+                UserCalculation.advanced_config.isnot(None)
+            )
+            .count()
+        )
+        
+        total_user_calcs = (
+            self.db.query(UserCalculation)
+            .filter(UserCalculation.is_active == True)
+            .count()
+        )
+        
+        # Analyze what advanced features are being used
+        advanced_calcs = (
+            self.db.query(UserCalculation.advanced_config)
+            .filter(
+                UserCalculation.is_active == True,
+                UserCalculation.advanced_config.isnot(None)
+            )
+            .all()
+        )
+        
+        feature_usage = {}
+        for (config,) in advanced_calcs:
+            if config:
+                for feature in config.keys():
+                    feature_usage[feature] = feature_usage.get(feature, 0) + 1
+        
+        return {
+            "total_user_calculations": total_user_calcs,
+            "calculations_with_advanced_features": user_calcs_with_advanced,
+            "advanced_features_adoption_rate": (
+                user_calcs_with_advanced / total_user_calcs * 100 
+                if total_user_calcs > 0 else 0
+            ),
+            "feature_usage_breakdown": feature_usage
+        }
