@@ -129,10 +129,11 @@ class ReportCreate(ReportBase):
         if not v:
             raise ValueError("At least one calculation must be selected")
 
-        # Check for duplicate calculation IDs
-        calc_ids = [calc.calculation_id for calc in v]
-        if len(set(calc_ids)) != len(calc_ids):
-            raise ValueError("Duplicate calculation IDs are not allowed")
+        # Check for duplicate calculation IDs considering calculation type
+        # The combination of calculation_id + calculation_type should be unique
+        calc_tuples = [(calc.calculation_id, calc.calculation_type) for calc in v]
+        if len(set(calc_tuples)) != len(calc_tuples):
+            raise ValueError("Duplicate calculation ID and type combinations are not allowed")
 
         return v
 

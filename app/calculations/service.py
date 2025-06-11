@@ -112,7 +112,7 @@ class UserCalculationService:
         return self.user_calc_dao.get_by_id(calc_id)
 
     def create_user_calculation(self, request: UserCalculationCreate, created_by: str = "api_user") -> UserCalculation:
-        """Create a new user calculation"""
+        """Create a new user calculation with automatic approval for development"""
         
         # Check if calculation name already exists at this group level
         existing = self.user_calc_dao.get_by_name_and_group_level(request.name, request.group_level)
@@ -139,7 +139,25 @@ class UserCalculationService:
             created_by=created_by,
         )
 
-        return self.user_calc_dao.create(calculation)
+        # Create the calculation first
+        created_calc = self.user_calc_dao.create(calculation)
+        
+        # Auto-approve for development (TODO: implement proper approval workflow)
+        approved_calc = self.approve_user_calculation(created_calc.id, "system_auto_approval")
+        
+        return approved_calc
+
+    def approve_user_calculation(self, calc_id: int, approved_by: str) -> UserCalculation:
+        """Approve a user calculation"""
+        calculation = self.get_user_calculation_by_id(calc_id)
+        if not calculation:
+            raise CalculationNotFoundError(f"User calculation with ID {calc_id} not found")
+
+        from datetime import datetime
+        calculation.approved_by = approved_by
+        calculation.approval_date = datetime.now()
+        
+        return self.user_calc_dao.update(calculation)
 
     def update_user_calculation(self, calc_id: int, request: UserCalculationUpdate) -> UserCalculation:
         """Update an existing user calculation"""

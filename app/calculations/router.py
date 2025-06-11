@@ -158,6 +158,19 @@ def get_user_calculation_usage(
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.post("/user/{calc_id}/approve", response_model=UserCalculationResponse)
+def approve_user_calculation(
+    calc_id: int,
+    approved_by: str = Body(..., embed=True),
+    service: UserCalculationService = Depends(get_user_calculation_service)
+):
+    """Approve a user calculation"""
+    try:
+        return service.approve_user_calculation(calc_id, approved_by)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 # ===== SYSTEM CALCULATION ENDPOINTS =====
 
 @router.get("/system", response_model=List[SystemCalculationResponse])
@@ -187,11 +200,115 @@ def create_system_calculation(
     request: SystemCalculationCreate,
     service: SystemCalculationService = Depends(get_system_calculation_service)
 ):
-    """Create a new system-defined calculation (admin only)"""
+    """Create a new system-defined calculation with automatic approval for development"""
     try:
-        return service.create_system_calculation(request)
+        # Create the system calculation
+        created_calc = service.create_system_calculation(request)
+        
+        # Auto-approve for development (TODO: implement proper approval workflow)
+        approved_calc = service.approve_system_calculation(created_calc.id, "system_auto_approval")
+        
+        return approved_calc
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/validate-system-sql")
+def validate_system_sql(request: Dict[str, Any]):
+    """Validate system SQL before creation"""
+    try:
+        sql_text = request.get("sql_text", "").strip()
+        group_level = request.get("group_level", "")
+        result_column_name = request.get("result_column_name", "")
+        
+        if not sql_text:
+            return {
+                "validation_result": {
+                    "is_valid": False,
+                    "errors": ["SQL text cannot be empty"],
+                    "warnings": []
+                }
+            }
+        
+        if not group_level or group_level not in ["deal", "tranche"]:
+            return {
+                "validation_result": {
+                    "is_valid": False,
+                    "errors": ["Valid group_level is required (deal or tranche)"],
+                    "warnings": []
+                }
+            }
+        
+        if not result_column_name:
+            return {
+                "validation_result": {
+                    "is_valid": False,
+                    "errors": ["Result column name is required"],
+                    "warnings": []
+                }
+            }
+        
+        # Basic SQL validation
+        sql_lower = sql_text.lower().strip()
+        errors = []
+        warnings = []
+        
+        # Check basic structure
+        if not sql_lower.startswith('select'):
+            errors.append("SQL must be a SELECT statement")
+        
+        if 'from' not in sql_lower:
+            errors.append("SQL must include a FROM clause")
+        
+        # Check for dangerous operations
+        dangerous_keywords = ['drop', 'delete', 'insert', 'update', 'alter', 'truncate', 'create']
+        for keyword in dangerous_keywords:
+            if keyword in sql_lower:
+                errors.append(f"Dangerous operation '{keyword.upper()}' not allowed")
+        
+        # Check for required fields based on group level
+        if group_level == "deal":
+            if 'deal.dl_nbr' not in sql_lower and 'dl_nbr' not in sql_lower:
+                errors.append("Deal-level SQL must include deal.dl_nbr for proper grouping")
+        
+        if group_level == "tranche":
+            has_deal_nbr = 'deal.dl_nbr' in sql_lower or 'dl_nbr' in sql_lower
+            has_tranche_id = 'tranche.tr_id' in sql_lower or 'tr_id' in sql_lower
+            
+            if not has_deal_nbr:
+                errors.append("Tranche-level SQL must include deal.dl_nbr for proper grouping")
+            if not has_tranche_id:
+                errors.append("Tranche-level SQL must include tranche.tr_id for proper grouping")
+        
+        # Check result column name format
+        import re
+        if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', result_column_name):
+            errors.append("Result column name must be a valid SQL identifier (letters, numbers, underscores, starting with letter)")
+        
+        # Check if result column appears in SQL
+        if result_column_name.lower() not in sql_lower:
+            warnings.append(f"Result column '{result_column_name}' should appear in your SQL SELECT clause")
+        
+        # Additional warnings
+        if 'order by' in sql_lower:
+            warnings.append("ORDER BY clauses may impact performance in aggregated reports")
+        
+        return {
+            "validation_result": {
+                "is_valid": len(errors) == 0,
+                "errors": errors,
+                "warnings": warnings
+            }
+        }
+        
+    except Exception as e:
+        return {
+            "validation_result": {
+                "is_valid": False,
+                "errors": [f"Validation error: {str(e)}"],
+                "warnings": []
+            }
+        }
 
 
 @router.post("/system/{calc_id}/approve", response_model=SystemCalculationResponse)

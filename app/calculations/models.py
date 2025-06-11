@@ -74,6 +74,11 @@ class UserCalculation(Base):
     #   "calculated_fields": [{"name": "ratio", "formula": "field_a / field_b"}]
     # }
 
+    # Security and governance (added for consistency with system calculations)
+    # TODO: Implement proper approval workflow - for now auto-approving
+    approved_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    approval_date: Mapped[Optional[DateTime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
     # Metadata
     created_by: Mapped[str] = mapped_column(String(100), nullable=False)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -109,6 +114,10 @@ class UserCalculation(Base):
     def has_advanced_features(self) -> bool:
         """Check if this calculation uses advanced features."""
         return bool(self.advanced_config)
+
+    def is_approved(self) -> bool:
+        """Check if this calculation has been approved."""
+        return self.approved_by is not None and self.approval_date is not None
 
     def get_display_name(self) -> str:
         """Get display name for UI."""

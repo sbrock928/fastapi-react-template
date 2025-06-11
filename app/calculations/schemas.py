@@ -72,6 +72,8 @@ class UserCalculationResponse(UserCalculationBase):
     """Response schema for user calculations"""
     id: int
     calculation_type: str = "USER_DEFINED"  # Added for frontend compatibility
+    approved_by: Optional[str] = None
+    approval_date: Optional[datetime] = None
     created_by: str
     created_at: datetime
     updated_at: datetime
@@ -84,6 +86,10 @@ class UserCalculationResponse(UserCalculationBase):
     def get_source_description(self) -> str:
         """Get source description for UI"""
         return f"{self.source_model.value}.{self.source_field}"
+
+    def is_approved(self) -> bool:
+        """Check if calculation is approved"""
+        return self.approved_by is not None
 
     class Config:
         from_attributes = True
