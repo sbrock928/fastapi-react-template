@@ -1,4 +1,5 @@
-"""Clean reporting service using only the new separated calculation system."""
+# app/reporting/service.py
+"""Clean reporting service using only the new separated calculation system with execution logging."""
 
 from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
@@ -26,7 +27,7 @@ import time
 
 
 class ReportService:
-    """Clean service for managing reports with the new calculation system."""
+    """Clean service for managing reports with the new calculation system and execution logging."""
 
     def __init__(self, report_dao: ReportDAO, dw_dao: DatawarehouseDAO, 
                  user_calc_service: UserCalculationService = None,
@@ -39,6 +40,9 @@ class ReportService:
         self.user_calc_service = user_calc_service
         self.system_calc_service = system_calc_service
         self.report_execution_service = report_execution_service
+        
+        # Execution log service will be injected by dependency system
+        self.execution_log_service = None
 
     # ===== CALCULATION MANAGEMENT =====
 
@@ -229,7 +233,28 @@ class ReportService:
     async def get_all_summaries(self) -> List[ReportSummary]:
         """Get all reports with summary information."""
         reports = await self.report_dao.get_all()
-        return [self._build_summary(report) for report in reports]
+        summaries = []
+        
+        for report in reports:
+            summary = self._build_summary(report)
+            
+            # Add execution statistics if execution log service is available
+            if self.execution_log_service:
+                try:
+                    exec_stats = self.execution_log_service.get_execution_stats_for_report(report.id)
+                    summary.total_executions = exec_stats.get("total_executions", 0)
+                    summary.last_executed = exec_stats.get("last_execution_date")
+                    summary.last_execution_success = (
+                        exec_stats.get("successful_executions", 0) > 0 
+                        if exec_stats.get("total_executions", 0) > 0 else None
+                    )
+                except Exception as e:
+                    # If execution stats fail, just use defaults
+                    print(f"Warning: Could not fetch execution stats for report {report.id}: {e}")
+            
+            summaries.append(summary)
+        
+        return summaries
 
     def _build_summary(self, report: Report) -> ReportSummary:
         """Build summary for a single report."""
@@ -243,11 +268,10 @@ class ReportService:
             for deal in report.selected_deals
         )
 
-        # For now, return basic summary without execution logs since we don't have direct DB access
-        # TODO: Add execution log service or pass through report_execution_service
         return ReportSummary(
             id=report.id,
             name=report.name,
+            description=report.description,
             scope=ReportScope(report.scope),
             created_by=report.created_by or "system",
             created_date=report.created_date,
@@ -255,9 +279,10 @@ class ReportService:
             tranche_count=tranche_count,
             calculation_count=len(report.selected_calculations),
             is_active=report.is_active,
-            total_executions=0,  # TODO: Implement via service
-            last_executed=None,  # TODO: Implement via service
-            last_execution_success=None,  # TODO: Implement via service
+            # These will be updated by get_all_summaries if execution log service is available
+            total_executions=0,
+            last_executed=None,
+            last_execution_success=None,
         )
 
     async def create(self, report_data: ReportCreate) -> ReportRead:
@@ -363,14 +388,14 @@ class ReportService:
 
     # ===== REPORT EXECUTION =====
 
-    async def run_saved_report(self, report_id: int, cycle_code: int) -> List[Dict[str, Any]]:
-        """Execute a report using the new calculation system."""
+    async def run_saved_report(self, report_id: int, cycle_code: int, executed_by: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Execute a report using the new calculation system with proper logging."""
         if not self.report_execution_service:
             raise HTTPException(status_code=500, detail="Report execution service not available")
 
         report = await self._get_report_or_404(report_id)
         start_time = time.time()
-
+        
         try:
             # Convert report to calculation requests
             deal_tranche_map, calculation_requests = self._prepare_execution(report)
@@ -382,20 +407,30 @@ class ReportService:
                 cycle_code
             )
 
-            # Log execution
+            # Log successful execution
+            execution_time_ms = (time.time() - start_time) * 1000
             await self._log_execution(
-                report_id, cycle_code, "api_user",
-                (time.time() - start_time) * 1000,
-                len(result['data']), True
+                report_id=report_id,
+                cycle_code=cycle_code,
+                executed_by=executed_by or "api_user",
+                execution_time_ms=execution_time_ms,
+                row_count=len(result['data']),
+                success=True
             )
 
             return result['data']
 
         except Exception as e:
+            # Log failed execution
+            execution_time_ms = (time.time() - start_time) * 1000
             await self._log_execution(
-                report_id, cycle_code, "api_user",
-                (time.time() - start_time) * 1000,
-                0, False, str(e)
+                report_id=report_id,
+                cycle_code=cycle_code,
+                executed_by=executed_by or "api_user",
+                execution_time_ms=execution_time_ms,
+                row_count=0,
+                success=False,
+                error_message=str(e)
             )
             raise
 
@@ -517,19 +552,37 @@ class ReportService:
         """Get execution logs for a report."""
         await self._get_report_or_404(report_id)
         
-        # TODO: Implement execution log retrieval via service
-        # For now, return empty list since we don't have direct DB access
-        return []
+        if not self.execution_log_service:
+            return []  # Return empty if service not available
+        
+        try:
+            return self.execution_log_service.get_execution_logs_for_report(report_id, limit)
+        except Exception as e:
+            print(f"Warning: Could not fetch execution logs: {e}")
+            return []
 
     async def _log_execution(
         self, report_id: int, cycle_code: int, executed_by: str,
         execution_time_ms: float, row_count: int, success: bool,
         error_message: str = None
     ) -> None:
-        """Log report execution."""
-        # TODO: Implement execution logging via service
-        # For now, skip logging since we don't have direct DB access
-        pass
+        """Log report execution using the execution log service."""
+        if not self.execution_log_service:
+            return  # Skip logging if service not available
+        
+        try:
+            self.execution_log_service.log_execution(
+                report_id=report_id,
+                cycle_code=cycle_code,
+                executed_by=executed_by,
+                execution_time_ms=execution_time_ms,
+                row_count=row_count,
+                success=success,
+                error_message=error_message
+            )
+        except Exception as e:
+            print(f"Warning: Could not log execution: {e}")
+            # Don't raise the exception as it's not critical to the main operation
 
     # ===== DATA WAREHOUSE ENDPOINTS =====
 

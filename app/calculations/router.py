@@ -29,6 +29,16 @@ from .schemas import (
     CalculationUsageResponse,
     CalculationRequestSchema
 )
+from app.calculations.audit_models import flush_pending_audits, get_audit_stats
+
+# Additional endpoints to add to app/calculations/router.py
+"""Audit trail endpoints for the calculation router."""
+
+from datetime import datetime, timedelta
+from typing import Optional, List, Dict, Any
+from fastapi import Query, HTTPException, Body
+from app.calculations.audit_service import CalculationAuditService
+from app.core.dependencies import get_calculation_audit_service
 
 router = APIRouter(prefix="/calculations", tags=["calculations"])
 
@@ -547,3 +557,365 @@ def get_all_calculations(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving calculations: {str(e)}")
+    
+
+# Add this dependency function to the router
+def get_audit_service(
+    config_db: Session = Depends(get_db)
+) -> CalculationAuditService:
+    """Get calculation audit service"""
+    from app.calculations.audit_dao import CalculationAuditDAO
+    audit_dao = CalculationAuditDAO(config_db)
+    return CalculationAuditService(audit_dao)
+
+# ===== AUDIT TRAIL ENDPOINTS =====
+
+@router.get("/audit/recent")
+def get_recent_audit_activity(
+    limit: int = Query(100, ge=1, le=500, description="Maximum number of records to return"),
+    audit_service: CalculationAuditService = Depends(get_audit_service)
+):
+    """Get recent audit activity across all calculations."""
+    try:
+        return {
+            "success": True,
+            "data": audit_service.get_recent_audit_activity(limit),
+            "metadata": {
+                "limit": limit,
+                "timestamp": datetime.now().isoformat()
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving audit activity: {str(e)}")
+
+
+@router.get("/audit/calculation/{calculation_type}/{calculation_id}")
+def get_calculation_audit_history(
+    calculation_type: str,
+    calculation_id: int,
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of records to return"),
+    audit_service: CalculationAuditService = Depends(get_audit_service)
+):
+    """Get audit history for a specific calculation."""
+    try:
+        # Validate calculation type
+        if calculation_type not in ['user', 'system']:
+            raise HTTPException(
+                status_code=400, 
+                detail="calculation_type must be 'user' or 'system'"
+            )
+        
+        history = audit_service.get_audit_history_for_calculation(
+            calculation_type, calculation_id, limit
+        )
+        
+        return {
+            "success": True,
+            "data": history,
+            "metadata": {
+                "calculation_type": calculation_type,
+                "calculation_id": calculation_id,
+                "limit": limit,
+                "record_count": len(history)
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving audit history: {str(e)}")
+
+
+@router.get("/audit/calculation/{calculation_type}/{calculation_id}/timeline")
+def get_calculation_change_timeline(
+    calculation_type: str,
+    calculation_id: int,
+    audit_service: CalculationAuditService = Depends(get_audit_service)
+):
+    """Get detailed change timeline for a specific calculation."""
+    try:
+        if calculation_type not in ['user', 'system']:
+            raise HTTPException(
+                status_code=400, 
+                detail="calculation_type must be 'user' or 'system'"
+            )
+        
+        timeline = audit_service.get_calculation_change_timeline(calculation_type, calculation_id)
+        
+        return {
+            "success": True,
+            "data": timeline,
+            "metadata": {
+                "calculation_type": calculation_type,
+                "calculation_id": calculation_id
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving change timeline: {str(e)}")
+
+
+@router.get("/audit/user/{username}")
+def get_audit_activity_by_user(
+    username: str,
+    limit: int = Query(100, ge=1, le=500, description="Maximum number of records to return"),
+    audit_service: CalculationAuditService = Depends(get_audit_service)
+):
+    """Get audit activity for a specific user."""
+    try:
+        activity = audit_service.get_audit_activity_by_user(username, limit)
+        
+        return {
+            "success": True,
+            "data": activity,
+            "metadata": {
+                "username": username,
+                "limit": limit,
+                "record_count": len(activity)
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving user audit activity: {str(e)}")
+
+
+@router.get("/audit/operation/{operation}")
+def get_audit_activity_by_operation(
+    operation: str,
+    limit: int = Query(100, ge=1, le=500, description="Maximum number of records to return"),
+    audit_service: CalculationAuditService = Depends(get_audit_service)
+):
+    """Get audit activity for a specific operation type (INSERT, UPDATE, DELETE)."""
+    try:
+        activity = audit_service.get_audit_activity_by_operation(operation, limit)
+        
+        return {
+            "success": True,
+            "data": activity,
+            "metadata": {
+                "operation": operation.upper(),
+                "limit": limit,
+                "record_count": len(activity)
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving operation audit activity: {str(e)}")
+
+
+@router.get("/audit/type/{calculation_type}")
+def get_audit_activity_by_calculation_type(
+    calculation_type: str,
+    limit: int = Query(100, ge=1, le=500, description="Maximum number of records to return"),
+    audit_service: CalculationAuditService = Depends(get_audit_service)
+):
+    """Get audit activity for a specific calculation type (user or system)."""
+    try:
+        activity = audit_service.get_audit_activity_by_calculation_type(calculation_type, limit)
+        
+        return {
+            "success": True,
+            "data": activity,
+            "metadata": {
+                "calculation_type": calculation_type,
+                "limit": limit,
+                "record_count": len(activity)
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving calculation type audit activity: {str(e)}")
+
+
+@router.post("/audit/search")
+def search_audit_logs(
+    search_params: Dict[str, Any] = Body(...),
+    audit_service: CalculationAuditService = Depends(get_audit_service)
+):
+    """Advanced search for audit logs with multiple filters."""
+    try:
+        # Extract search parameters with defaults
+        calculation_ids = search_params.get("calculation_ids")
+        calculation_types = search_params.get("calculation_types")
+        operations = search_params.get("operations")
+        users = search_params.get("users")
+        limit = search_params.get("limit", 100)
+        
+        # Parse date strings if provided
+        start_date = None
+        end_date = None
+        if search_params.get("start_date"):
+            start_date = datetime.fromisoformat(search_params["start_date"].replace('Z', '+00:00'))
+        if search_params.get("end_date"):
+            end_date = datetime.fromisoformat(search_params["end_date"].replace('Z', '+00:00'))
+        
+        results = audit_service.search_audit_logs(
+            calculation_ids=calculation_ids,
+            calculation_types=calculation_types,
+            operations=operations,
+            users=users,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit
+        )
+        
+        return {
+            "success": True,
+            "data": results,
+            "metadata": {
+                "search_params": search_params,
+                "record_count": len(results)
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error searching audit logs: {str(e)}")
+
+
+@router.get("/audit/statistics")
+def get_audit_statistics(
+    days_back: int = Query(30, ge=1, le=365, description="Number of days to look back"),
+    audit_service: CalculationAuditService = Depends(get_audit_service)
+):
+    """Get audit statistics for dashboard display."""
+    try:
+        stats = audit_service.get_audit_statistics(days_back)
+        
+        return {
+            "success": True,
+            "data": stats,
+            "metadata": {
+                "generated_at": datetime.now().isoformat()
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving audit statistics: {str(e)}")
+
+
+@router.get("/audit/trends")
+def get_audit_trends(
+    days_back: int = Query(30, ge=7, le=365, description="Number of days to analyze"),
+    audit_service: CalculationAuditService = Depends(get_audit_service)
+):
+    """Get audit activity trends for analytics."""
+    try:
+        trends = audit_service.get_audit_trends(days_back)
+        
+        return {
+            "success": True,
+            "data": trends,
+            "metadata": {
+                "generated_at": datetime.now().isoformat()
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving audit trends: {str(e)}")
+
+
+@router.post("/audit/cleanup")
+def cleanup_old_audit_logs(
+    cleanup_params: Dict[str, int] = Body(..., example={"days_to_keep": 365}),
+    audit_service: CalculationAuditService = Depends(get_audit_service)
+):
+    """Clean up old audit logs (admin function)."""
+    try:
+        days_to_keep = cleanup_params.get("days_to_keep", 365)
+        result = audit_service.cleanup_old_audit_logs(days_to_keep)
+        
+        return {
+            "success": True,
+            "data": result,
+            "message": f"Cleaned up audit logs older than {days_to_keep} days"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error cleaning up audit logs: {str(e)}")
+
+
+# ===== AUDIT DASHBOARD ENDPOINT =====
+
+@router.get("/audit/dashboard")
+def get_audit_dashboard(
+    days_back: int = Query(30, ge=1, le=365, description="Number of days for dashboard data"),
+    audit_service: CalculationAuditService = Depends(get_audit_service)
+):
+    """Get comprehensive audit dashboard data."""
+    try:
+        # Get statistics and trends
+        stats = audit_service.get_audit_statistics(days_back)
+        trends = audit_service.get_audit_trends(min(days_back, 30))  # Limit trends to 30 days max
+        recent_activity = audit_service.get_recent_audit_activity(20)  # Last 20 activities
+        
+        dashboard_data = {
+            "overview": {
+                "period_days": days_back,
+                "total_changes": stats["total_changes"],
+                "daily_average": stats["daily_average"],
+                "unique_calculations_changed": stats["unique_calculations_changed"],
+                "insights": stats["insights"]
+            },
+            "statistics": stats,
+            "trends": trends,
+            "recent_activity": recent_activity[:10],  # Top 10 most recent
+            "summary": {
+                "top_users": stats["most_active_users"][:5],  # Top 5 users
+                "operation_breakdown": stats["by_operation"],
+                "calculation_type_breakdown": stats.get("by_table_display", {}),
+                "busiest_day": trends["summary"].get("busiest_day", {}).get("date") if trends["daily_trends"] else None
+            }
+        }
+        
+        return {
+            "success": True,
+            "data": dashboard_data,
+            "metadata": {
+                "generated_at": datetime.now().isoformat(),
+                "dashboard_version": "1.0"
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating audit dashboard: {str(e)}")
+
+
+# ===== AUDIT MONITORING ENDPOINTS =====
+
+@router.get("/audit/stats")
+def get_audit_system_stats():
+    """Get audit system statistics for monitoring."""
+    try:
+        stats = get_audit_stats()
+        return {
+            "success": True,
+            "data": stats,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving audit stats: {str(e)}")
+
+
+@router.post("/audit/flush")
+def flush_audit_logs():
+    """Manually flush pending audit logs (admin function)."""
+    try:
+        stats_before = get_audit_stats()
+        flush_pending_audits()
+        stats_after = get_audit_stats()
+        
+        return {
+            "success": True,
+            "message": "Audit logs flushed successfully",
+            "stats_before": stats_before,
+            "stats_after": stats_after,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error flushing audit logs: {str(e)}")

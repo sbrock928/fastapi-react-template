@@ -1,5 +1,5 @@
 # app/calculations/service.py
-"""Simplified calculation service using the new separated model architecture"""
+"""Simplified calculation service using the new separated model architecture with audit context."""
 
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
@@ -26,6 +26,8 @@ from .schemas import (
     SystemCalculationCreate,
     StaticFieldInfo
 )
+# NEW: Import audit context
+from .audit_models import audit_context
 
 
 class ReportExecutionService:
@@ -97,7 +99,7 @@ class ReportExecutionService:
 
 
 class UserCalculationService:
-    """Service for managing user-defined calculations"""
+    """Service for managing user-defined calculations with audit trail."""
 
     def __init__(self, user_calc_dao: UserCalculationDAO):
         self.user_calc_dao = user_calc_dao
@@ -130,102 +132,107 @@ class UserCalculationService:
         return self.user_calc_dao.get_by_id(calc_id)
 
     def create_user_calculation(self, request: UserCalculationCreate, created_by: str = "api_user") -> UserCalculation:
-        """Create a new user calculation with automatic approval for development"""
+        """Create a new user calculation with automatic approval and audit logging."""
         
-        # Check if calculation name already exists at this group level
-        existing = self.user_calc_dao.get_by_name_and_group_level(request.name, request.group_level)
-        
-        if existing:
-            raise CalculationAlreadyExistsError(
-                f"User calculation with name '{request.name}' already exists at {request.group_level} level"
-            )
-
-        # Validate weighted average has weight field
-        if request.aggregation_function == AggregationFunction.WEIGHTED_AVG and not request.weight_field:
-            raise InvalidCalculationError("Weighted average calculations require a weight_field")
-
-        # Create new calculation
-        calculation = UserCalculation(
-            name=request.name,
-            description=request.description,
-            aggregation_function=request.aggregation_function,
-            source_model=request.source_model,
-            source_field=request.source_field,
-            weight_field=request.weight_field,
-            group_level=request.group_level,
-            advanced_config=request.advanced_config,
-            created_by=created_by,
-        )
-
-        # Create the calculation first
-        created_calc = self.user_calc_dao.create(calculation)
-        
-        # Auto-approve for development (TODO: implement proper approval workflow)
-        approved_calc = self.approve_user_calculation(created_calc.id, "system_auto_approval")
-        
-        return approved_calc
-
-    def approve_user_calculation(self, calc_id: int, approved_by: str) -> UserCalculation:
-        """Approve a user calculation"""
-        calculation = self.get_user_calculation_by_id(calc_id)
-        if not calculation:
-            raise CalculationNotFoundError(f"User calculation with ID {calc_id} not found")
-
-        from datetime import datetime
-        calculation.approved_by = approved_by
-        calculation.approval_date = datetime.now()
-        
-        return self.user_calc_dao.update(calculation)
-
-    def update_user_calculation(self, calc_id: int, request: UserCalculationUpdate) -> UserCalculation:
-        """Update an existing user calculation"""
-        calculation = self.get_user_calculation_by_id(calc_id)
-        if not calculation:
-            raise CalculationNotFoundError(f"User calculation with ID {calc_id} not found")
-
-        # Check if another calculation with the same name exists at this group level (excluding current one)
-        if request.name:
-            group_level = request.group_level or calculation.group_level
-            existing = self.user_calc_dao.get_by_name_and_group_level(request.name, group_level)
+        # Use audit context to track who created the calculation
+        with audit_context(created_by):
+            # Check if calculation name already exists at this group level
+            existing = self.user_calc_dao.get_by_name_and_group_level(request.name, request.group_level)
             
-            if existing and existing.id != calc_id:
+            if existing:
                 raise CalculationAlreadyExistsError(
-                    f"Another user calculation with name '{request.name}' already exists at that group level"
+                    f"User calculation with name '{request.name}' already exists at {request.group_level} level"
                 )
 
-        # Update fields that are provided
-        if request.name is not None:
-            calculation.name = request.name
-        if request.description is not None:
-            calculation.description = request.description
-        if request.aggregation_function is not None:
-            calculation.aggregation_function = request.aggregation_function
-        if request.source_model is not None:
-            calculation.source_model = request.source_model
-        if request.source_field is not None:
-            calculation.source_field = request.source_field
-        if request.weight_field is not None:
-            calculation.weight_field = request.weight_field
-        if request.group_level is not None:
-            calculation.group_level = request.group_level
-        if request.advanced_config is not None:
-            calculation.advanced_config = request.advanced_config
+            # Validate weighted average has weight field
+            if request.aggregation_function == AggregationFunction.WEIGHTED_AVG and not request.weight_field:
+                raise InvalidCalculationError("Weighted average calculations require a weight_field")
 
-        # Validate weighted average has weight field
-        if (calculation.aggregation_function == AggregationFunction.WEIGHTED_AVG 
-            and not calculation.weight_field):
-            raise InvalidCalculationError("Weighted average calculations require a weight_field")
+            # Create new calculation
+            calculation = UserCalculation(
+                name=request.name,
+                description=request.description,
+                aggregation_function=request.aggregation_function,
+                source_model=request.source_model,
+                source_field=request.source_field,
+                weight_field=request.weight_field,
+                group_level=request.group_level,
+                advanced_config=request.advanced_config,
+                created_by=created_by,
+            )
 
-        return self.user_calc_dao.update(calculation)
+            # Create the calculation first (this will trigger audit logging)
+            created_calc = self.user_calc_dao.create(calculation)
+            
+            # Auto-approve for development (TODO: implement proper approval workflow)
+            approved_calc = self.approve_user_calculation(created_calc.id, "system_auto_approval")
+            
+            return approved_calc
 
-    def delete_user_calculation(self, calc_id: int) -> Dict[str, str]:
-        """Soft delete a user calculation"""
-        calculation = self.get_user_calculation_by_id(calc_id)
-        if not calculation:
-            raise CalculationNotFoundError(f"User calculation with ID {calc_id} not found")
+    def approve_user_calculation(self, calc_id: int, approved_by: str) -> UserCalculation:
+        """Approve a user calculation with audit logging."""
+        with audit_context(approved_by):
+            calculation = self.get_user_calculation_by_id(calc_id)
+            if not calculation:
+                raise CalculationNotFoundError(f"User calculation with ID {calc_id} not found")
 
-        self.user_calc_dao.soft_delete(calculation)
-        return {"message": f"User calculation '{calculation.name}' deleted successfully"}
+            from datetime import datetime
+            calculation.approved_by = approved_by
+            calculation.approval_date = datetime.now()
+            
+            return self.user_calc_dao.update(calculation)
+
+    def update_user_calculation(self, calc_id: int, request: UserCalculationUpdate, updated_by: str = "api_user") -> UserCalculation:
+        """Update an existing user calculation with audit logging."""
+        with audit_context(updated_by):
+            calculation = self.get_user_calculation_by_id(calc_id)
+            if not calculation:
+                raise CalculationNotFoundError(f"User calculation with ID {calc_id} not found")
+
+            # Check if another calculation with the same name exists at this group level (excluding current one)
+            if request.name:
+                group_level = request.group_level or calculation.group_level
+                existing = self.user_calc_dao.get_by_name_and_group_level(request.name, group_level)
+                
+                if existing and existing.id != calc_id:
+                    raise CalculationAlreadyExistsError(
+                        f"Another user calculation with name '{request.name}' already exists at that group level"
+                    )
+
+            # Update fields that are provided
+            if request.name is not None:
+                calculation.name = request.name
+            if request.description is not None:
+                calculation.description = request.description
+            if request.aggregation_function is not None:
+                calculation.aggregation_function = request.aggregation_function
+            if request.source_model is not None:
+                calculation.source_model = request.source_model
+            if request.source_field is not None:
+                calculation.source_field = request.source_field
+            if request.weight_field is not None:
+                calculation.weight_field = request.weight_field
+            if request.group_level is not None:
+                calculation.group_level = request.group_level
+            if request.advanced_config is not None:
+                calculation.advanced_config = request.advanced_config
+
+            # Validate weighted average has weight field
+            if (calculation.aggregation_function == AggregationFunction.WEIGHTED_AVG 
+                and not calculation.weight_field):
+                raise InvalidCalculationError("Weighted average calculations require a weight_field")
+
+            return self.user_calc_dao.update(calculation)
+
+    def delete_user_calculation(self, calc_id: int, deleted_by: str = "api_user") -> Dict[str, str]:
+        """Soft delete a user calculation with audit logging."""
+        with audit_context(deleted_by):
+            calculation = self.get_user_calculation_by_id(calc_id)
+            if not calculation:
+                raise CalculationNotFoundError(f"User calculation with ID {calc_id} not found")
+
+            self.user_calc_dao.soft_delete(calculation)
+            return {"message": f"User calculation '{calculation.name}' deleted successfully"}
 
     def get_user_calculation_usage(self, calc_id: int) -> Dict[str, Any]:
         """Get usage information for a user calculation"""
@@ -279,7 +286,7 @@ class UserCalculationService:
 
 
 class SystemCalculationService:
-    """Service for managing system-defined calculations"""
+    """Service for managing system-defined calculations with audit trail."""
 
     def __init__(self, system_calc_dao: SystemCalculationDAO):
         self.system_calc_dao = system_calc_dao
@@ -313,52 +320,55 @@ class SystemCalculationService:
 
     def create_system_calculation(self, request: SystemCalculationCreate, 
                                 created_by: str = "admin") -> SystemCalculation:
-        """Create a new system calculation"""
+        """Create a new system calculation with audit logging."""
         
-        # Check if calculation name already exists at this group level
-        existing = self.system_calc_dao.get_by_name_and_group_level(request.name, request.group_level)
-        
-        if existing:
-            raise CalculationAlreadyExistsError(
-                f"System calculation with name '{request.name}' already exists at {request.group_level} level"
+        with audit_context(created_by):
+            # Check if calculation name already exists at this group level
+            existing = self.system_calc_dao.get_by_name_and_group_level(request.name, request.group_level)
+            
+            if existing:
+                raise CalculationAlreadyExistsError(
+                    f"System calculation with name '{request.name}' already exists at {request.group_level} level"
+                )
+
+            # Basic SQL validation
+            self._validate_system_sql(request.raw_sql, request.group_level, request.result_column_name)
+
+            # Create new calculation
+            calculation = SystemCalculation(
+                name=request.name,
+                description=request.description,
+                raw_sql=request.raw_sql,
+                result_column_name=request.result_column_name,
+                group_level=request.group_level,
+                metadata_config=request.metadata_config,
+                created_by=created_by,
             )
 
-        # Basic SQL validation
-        self._validate_system_sql(request.raw_sql, request.group_level, request.result_column_name)
-
-        # Create new calculation
-        calculation = SystemCalculation(
-            name=request.name,
-            description=request.description,
-            raw_sql=request.raw_sql,
-            result_column_name=request.result_column_name,
-            group_level=request.group_level,
-            metadata_config=request.metadata_config,
-            created_by=created_by,
-        )
-
-        return self.system_calc_dao.create(calculation)
+            return self.system_calc_dao.create(calculation)
 
     def approve_system_calculation(self, calc_id: int, approved_by: str) -> SystemCalculation:
-        """Approve a system calculation"""
-        calculation = self.get_system_calculation_by_id(calc_id)
-        if not calculation:
-            raise CalculationNotFoundError(f"System calculation with ID {calc_id} not found")
+        """Approve a system calculation with audit logging."""
+        with audit_context(approved_by):
+            calculation = self.get_system_calculation_by_id(calc_id)
+            if not calculation:
+                raise CalculationNotFoundError(f"System calculation with ID {calc_id} not found")
 
-        from datetime import datetime
-        calculation.approved_by = approved_by
-        calculation.approval_date = datetime.now()
-        
-        return self.system_calc_dao.update(calculation)
+            from datetime import datetime
+            calculation.approved_by = approved_by
+            calculation.approval_date = datetime.now()
+            
+            return self.system_calc_dao.update(calculation)
 
-    def delete_system_calculation(self, calc_id: int) -> Dict[str, str]:
-        """Soft delete a system calculation"""
-        calculation = self.get_system_calculation_by_id(calc_id)
-        if not calculation:
-            raise CalculationNotFoundError(f"System calculation with ID {calc_id} not found")
+    def delete_system_calculation(self, calc_id: int, deleted_by: str = "admin") -> Dict[str, str]:
+        """Soft delete a system calculation with audit logging."""
+        with audit_context(deleted_by):
+            calculation = self.get_system_calculation_by_id(calc_id)
+            if not calculation:
+                raise CalculationNotFoundError(f"System calculation with ID {calc_id} not found")
 
-        self.system_calc_dao.soft_delete(calculation)
-        return {"message": f"System calculation '{calculation.name}' deleted successfully"}
+            self.system_calc_dao.soft_delete(calculation)
+            return {"message": f"System calculation '{calculation.name}' deleted successfully"}
 
     def get_system_calculation_usage(self, calc_id: int) -> Dict[str, Any]:
         """Get usage information for a system calculation"""

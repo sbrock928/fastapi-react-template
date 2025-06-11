@@ -272,3 +272,346 @@ async def export_to_xlsx(request: Dict[str, Any]) -> Response:
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error creating Excel file: {str(e)}")
+
+
+# Additional endpoints to add to app/reporting/router.py
+"""Execution log endpoints for the reporting router."""
+
+from datetime import datetime, timedelta
+from typing import Optional, List, Dict, Any
+from fastapi import Query, HTTPException, Body
+from app.reporting.execution_log_service import ReportExecutionLogService
+
+# Add this import to the top of the reporting router
+from app.core.dependencies import get_report_execution_log_service
+
+# ===== EXECUTION LOG ENDPOINTS =====
+
+@router.get("/execution-logs/recent")
+def get_recent_execution_logs(
+    limit: int = Query(100, ge=1, le=500, description="Maximum number of records to return"),
+    execution_log_service: ReportExecutionLogService = Depends(get_report_execution_log_service)
+):
+    """Get recent execution logs across all reports."""
+    try:
+        logs = execution_log_service.get_recent_executions(limit)
+        
+        return {
+            "success": True,
+            "data": logs,
+            "metadata": {
+                "limit": limit,
+                "record_count": len(logs),
+                "timestamp": datetime.now().isoformat()
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving execution logs: {str(e)}")
+
+
+@router.get("/execution-logs/failed")
+def get_failed_execution_logs(
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of records to return"),
+    execution_log_service: ReportExecutionLogService = Depends(get_report_execution_log_service)
+):
+    """Get recent failed execution logs for troubleshooting."""
+    try:
+        failed_logs = execution_log_service.get_failed_executions(limit)
+        
+        return {
+            "success": True,
+            "data": failed_logs,
+            "metadata": {
+                "limit": limit,
+                "record_count": len(failed_logs),
+                "timestamp": datetime.now().isoformat()
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving failed execution logs: {str(e)}")
+
+
+@router.get("/{report_id}/execution-logs/detailed")
+async def get_detailed_report_execution_logs(
+    report_id: int,
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of records to return"),
+    execution_log_service: ReportExecutionLogService = Depends(get_report_execution_log_service),
+    service: ReportService = Depends(get_report_service)
+):
+    """Get detailed execution logs for a specific report with statistics."""
+    try:
+        # Verify report exists
+        report = await service.get_by_id(report_id)
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        # Get execution logs and statistics
+        logs = execution_log_service.get_execution_logs_for_report(report_id, limit)
+        stats = execution_log_service.get_execution_stats_for_report(report_id)
+        
+        return {
+            "success": True,
+            "data": {
+                "report_info": {
+                    "id": report.id,
+                    "name": report.name,
+                    "description": report.description,
+                    "scope": report.scope
+                },
+                "execution_logs": logs,
+                "statistics": stats
+            },
+            "metadata": {
+                "report_id": report_id,
+                "limit": limit,
+                "log_count": len(logs)
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving detailed execution logs: {str(e)}")
+
+
+@router.post("/execution-logs/search")
+def search_execution_logs(
+    search_params: Dict[str, Any] = Body(...),
+    execution_log_service: ReportExecutionLogService = Depends(get_report_execution_log_service)
+):
+    """Search execution logs by date range and other criteria."""
+    try:
+        # Parse dates
+        start_date_str = search_params.get("start_date")
+        end_date_str = search_params.get("end_date")
+        report_id = search_params.get("report_id")
+        
+        if not start_date_str or not end_date_str:
+            raise HTTPException(
+                status_code=400, 
+                detail="Both start_date and end_date are required"
+            )
+        
+        # Parse date strings
+        start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00'))
+        end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
+        
+        logs = execution_log_service.get_executions_by_date_range(
+            start_date, end_date, report_id
+        )
+        
+        return {
+            "success": True,
+            "data": logs,
+            "metadata": {
+                "search_params": search_params,
+                "record_count": len(logs),
+                "date_range": {
+                    "start": start_date.isoformat(),
+                    "end": end_date.isoformat()
+                }
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error searching execution logs: {str(e)}")
+
+
+@router.get("/execution-logs/performance")
+def get_performance_dashboard(
+    days_back: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
+    execution_log_service: ReportExecutionLogService = Depends(get_report_execution_log_service)
+):
+    """Get performance metrics dashboard."""
+    try:
+        performance_data = execution_log_service.get_performance_dashboard(days_back)
+        
+        return {
+            "success": True,
+            "data": performance_data,
+            "metadata": {
+                "generated_at": datetime.now().isoformat(),
+                "dashboard_version": "1.0"
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving performance dashboard: {str(e)}")
+
+
+@router.get("/execution-logs/trends")
+def get_execution_trends(
+    days_back: int = Query(30, ge=7, le=365, description="Number of days to analyze"),
+    execution_log_service: ReportExecutionLogService = Depends(get_report_execution_log_service)
+):
+    """Get execution trends for analytics."""
+    try:
+        trends = execution_log_service.get_execution_trends(days_back)
+        
+        return {
+            "success": True,
+            "data": trends,
+            "metadata": {
+                "generated_at": datetime.now().isoformat()
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving execution trends: {str(e)}")
+
+
+@router.post("/execution-logs/cleanup")
+def cleanup_old_execution_logs(
+    cleanup_params: Dict[str, int] = Body(..., example={"days_to_keep": 90}),
+    execution_log_service: ReportExecutionLogService = Depends(get_report_execution_log_service)
+):
+    """Clean up old execution logs (admin function)."""
+    try:
+        days_to_keep = cleanup_params.get("days_to_keep", 90)
+        result = execution_log_service.cleanup_old_logs(days_to_keep)
+        
+        return {
+            "success": True,
+            "data": result,
+            "message": f"Cleaned up execution logs older than {days_to_keep} days"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error cleaning up execution logs: {str(e)}")
+
+
+# ===== EXECUTION ANALYTICS ENDPOINTS =====
+
+@router.get("/{report_id}/execution-logs/analytics")
+async def get_report_execution_analytics(
+    report_id: int,
+    days_back: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
+    execution_log_service: ReportExecutionLogService = Depends(get_report_execution_log_service),
+    service: ReportService = Depends(get_report_service)
+):
+    """Get comprehensive execution analytics for a specific report."""
+    try:
+        # Verify report exists
+        report = await service.get_by_id(report_id)
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        # Get comprehensive stats
+        stats = execution_log_service.get_execution_stats_for_report(report_id)
+        
+        # Get recent executions for trends
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days_back)
+        recent_logs = execution_log_service.get_executions_by_date_range(
+            start_date, end_date, report_id
+        )
+        
+        # Calculate daily execution counts
+        daily_counts = {}
+        for log_data in recent_logs:
+            log_date = datetime.fromisoformat(log_data["executed_at"]).date()
+            date_key = log_date.isoformat()
+            if date_key not in daily_counts:
+                daily_counts[date_key] = {"successful": 0, "failed": 0, "total": 0}
+            
+            daily_counts[date_key]["total"] += 1
+            if log_data["success"]:
+                daily_counts[date_key]["successful"] += 1
+            else:
+                daily_counts[date_key]["failed"] += 1
+        
+        # Format for charts
+        daily_trends = [
+            {
+                "date": date,
+                "successful_executions": counts["successful"],
+                "failed_executions": counts["failed"],
+                "total_executions": counts["total"]
+            }
+            for date, counts in sorted(daily_counts.items())
+        ]
+        
+        analytics_data = {
+            "report_info": {
+                "id": report.id,
+                "name": report.name,
+                "description": report.description,
+                "scope": report.scope
+            },
+            "overall_statistics": stats,
+            "period_analysis": {
+                "period_days": days_back,
+                "start_date": start_date.date().isoformat(),
+                "end_date": end_date.date().isoformat(),
+                "daily_trends": daily_trends,
+                "total_executions_in_period": len(recent_logs)
+            },
+            "performance_insights": {
+                "reliability_score": stats["success_rate"],
+                "avg_execution_time_display": stats.get("average_execution_time_display", "N/A"),
+                "has_recent_failures": any(not log["success"] for log in recent_logs[-10:]) if recent_logs else False,
+                "execution_frequency": len(recent_logs) / days_back if days_back > 0 else 0
+            }
+        }
+        
+        return {
+            "success": True,
+            "data": analytics_data,
+            "metadata": {
+                "report_id": report_id,
+                "analysis_period_days": days_back,
+                "generated_at": datetime.now().isoformat()
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating execution analytics: {str(e)}")
+
+
+# ===== SYSTEM-WIDE EXECUTION DASHBOARD =====
+
+@router.get("/execution-logs/dashboard")
+def get_execution_dashboard(
+    days_back: int = Query(30, ge=1, le=365, description="Number of days for dashboard data"),
+    execution_log_service: ReportExecutionLogService = Depends(get_report_execution_log_service)
+):
+    """Get comprehensive execution dashboard data for all reports."""
+    try:
+        # Get various metrics
+        performance_data = execution_log_service.get_performance_dashboard(days_back)
+        recent_failures = execution_log_service.get_failed_executions(10)
+        trends = execution_log_service.get_execution_trends(min(days_back, 30))
+        
+        dashboard_data = {
+            "overview": {
+                "period_days": days_back,
+                "total_executions": performance_data["total_executions"],
+                "success_rate": performance_data["success_rate"],
+                "average_execution_time": performance_data["average_execution_time_display"],
+                "reports_executed": performance_data["reports_executed"]
+            },
+            "performance_metrics": performance_data,
+            "trends": trends,
+            "recent_failures": recent_failures,
+            "alerts": {
+                "high_failure_rate": performance_data["failure_rate"] > 10,
+                "slow_executions": performance_data["average_execution_time_ms"] > 30000,  # 30 seconds
+                "recent_failures_count": len(recent_failures)
+            },
+            "summary": {
+                "healthiest_period": "Good" if performance_data["success_rate"] > 95 else "Needs Attention",
+                "execution_volume": "High" if performance_data["total_executions"] > days_back * 10 else "Normal",
+                "system_status": "Healthy" if performance_data["success_rate"] > 90 and len(recent_failures) < 5 else "Warning"
+            }
+        }
+        
+        return {
+            "success": True,
+            "data": dashboard_data,
+            "metadata": {
+                "generated_at": datetime.now().isoformat(),
+                "dashboard_version": "1.0"
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating execution dashboard: {str(e)}")
