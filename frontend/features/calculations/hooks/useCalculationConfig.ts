@@ -35,8 +35,45 @@ export const useCalculationConfig = () => {
       const response = await calculationsApi.getCalculationConfig();
       const data: CalculationConfig = response.data.data || response.data;
       
+      // Process static_fields into allAvailableFields format
+      const fieldsMap: Record<string, CalculationField[]> = {};
+      
+      if (data.static_fields) {
+        data.static_fields.forEach(field => {
+          const [modelName, fieldName] = field.field_path.split('.');
+          
+          // Map the lowercase model names to the exact Source Model values from API
+          let modelKey: string;
+          switch (modelName) {
+            case 'deal':
+              modelKey = 'Deal';
+              break;
+            case 'tranche':
+              modelKey = 'Tranche';
+              break;
+            case 'tranchebal':
+              modelKey = 'TrancheBal'; // Exact match with Source Model value
+              break;
+            default:
+              modelKey = modelName.charAt(0).toUpperCase() + modelName.slice(1);
+          }
+          
+          if (!fieldsMap[modelKey]) {
+            fieldsMap[modelKey] = [];
+          }
+          
+          fieldsMap[modelKey].push({
+            value: fieldName,
+            label: field.name,
+            type: field.type as any,
+            description: field.description,
+            nullable: field.nullable
+          });
+        });
+      }
+      
       // Set all configuration data from API
-      setAllAvailableFields({}); // This will need to be populated from static_fields data
+      setAllAvailableFields(fieldsMap);
       setAggregationFunctions(data.aggregation_functions || []);
       setSourceModels(data.source_models || []);
       setGroupLevels(data.group_levels || []);
@@ -46,7 +83,8 @@ export const useCalculationConfig = () => {
         staticFields: data.static_fields?.length || 0,
         aggregationFunctions: data.aggregation_functions?.length || 0,
         sourceModels: data.source_models?.length || 0,
-        groupLevels: data.group_levels?.length || 0
+        groupLevels: data.group_levels?.length || 0,
+        fieldsMap: Object.keys(fieldsMap).map(key => `${key}: ${fieldsMap[key].length} fields`)
       });
     } catch (error: any) {
       console.error('❌ Error fetching calculation configuration:', error);

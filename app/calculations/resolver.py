@@ -196,7 +196,7 @@ class SimpleCalculationResolver:
             select_columns = ["deal.dl_nbr AS deal_number", "tranche.tr_id AS tranche_id", "tranchebal.cycle_cde AS cycle_code"]
             result_columns = ["deal_number", "tranche_id", "cycle_code"]
 
-        select_columns.append(f"{agg_expr} AS {request.alias}")
+        select_columns.append(f'{agg_expr} AS "{request.alias}"')
         result_columns.append(request.alias)
 
         # Build FROM/JOIN clause - always include all tables for user calculations

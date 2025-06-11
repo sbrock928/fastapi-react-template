@@ -146,15 +146,14 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
               className="form-select"
               disabled={groupLevels.length === 0}
             >
-              {groupLevels.length === 0 ? (
-                <option value="">Loading group levels...</option>
-              ) : (
-                groupLevels.map((level: GroupLevelInfo) => (
-                  <option key={level.value} value={level.value}>
-                    {level.label}
-                  </option>
-                ))
-              )}
+              <option value="">
+                {groupLevels.length === 0 ? 'Loading group levels...' : 'Select group level...'}
+              </option>
+              {groupLevels.map((level: GroupLevelInfo) => (
+                <option key={level.value} value={level.value}>
+                  {level.label}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -198,17 +197,14 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
               className="form-select"
               disabled={aggregationFunctions.length === 0}
             >
-              {aggregationFunctions.length === 0 ? (
-                <option value="">Loading aggregation functions...</option>
-              ) : (
-                aggregationFunctions
-                  .filter(func => func.category === 'aggregated') // Only aggregated functions for user-defined
-                  .map((func: AggregationFunctionInfo) => (
-                    <option key={func.value} value={func.value}>
-                      {func.label}
-                    </option>
-                  ))
-              )}
+              <option value="">
+                {aggregationFunctions.length === 0 ? 'Loading aggregation functions...' : 'Select aggregation function...'}
+              </option>
+              {aggregationFunctions.map((func: AggregationFunctionInfo) => (
+                <option key={func.value} value={func.value}>
+                  {func.label}
+                </option>
+              ))}
             </select>
           </div>
 
