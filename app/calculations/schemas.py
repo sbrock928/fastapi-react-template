@@ -1,7 +1,7 @@
 # app/calculations/schemas.py
 """Pydantic schemas for the new separated calculation system"""
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from .models import AggregationFunction, SourceModel, GroupLevel
@@ -27,10 +27,11 @@ class UserCalculationBase(BaseModel):
 class UserCalculationCreate(UserCalculationBase):
     """Schema for creating user calculations"""
     
-    @validator("weight_field")
-    def validate_weight_field_for_weighted_avg(cls, v, values):
+    @field_validator("weight_field")
+    @classmethod
+    def validate_weight_field_for_weighted_avg(cls, v, info):
         """Validate weight field is provided for weighted averages."""
-        if values.get("aggregation_function") == AggregationFunction.WEIGHTED_AVG and not v:
+        if info.data.get("aggregation_function") == AggregationFunction.WEIGHTED_AVG and not v:
             raise ValueError("weight_field is required for weighted average calculations")
         return v
 
@@ -94,7 +95,7 @@ class SystemCalculationBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
     raw_sql: str = Field(..., min_length=10)
-    result_column_name: str = Field(..., min_length=1, max_length=100, regex=r"^[a-zA-Z][a-zA-Z0-9_]*$")
+    result_column_name: str = Field(..., min_length=1, max_length=100, pattern=r"^[a-zA-Z][a-zA-Z0-9_]*$")
     group_level: GroupLevel
     metadata_config: Optional[Dict[str, Any]] = None
 
@@ -105,7 +106,8 @@ class SystemCalculationBase(BaseModel):
 class SystemCalculationCreate(SystemCalculationBase):
     """Schema for creating system calculations"""
     
-    @validator("raw_sql")
+    @field_validator("raw_sql")
+    @classmethod
     def validate_sql_basic(cls, v):
         """Basic SQL validation"""
         if not v or not v.strip():
@@ -199,23 +201,25 @@ class StaticFieldInfo(BaseModel):
 
 class CalculationRequestSchema(BaseModel):
     """Schema for calculation requests in reports"""
-    calc_type: str = Field(..., regex="^(static_field|user_calculation|system_calculation)$")
+    calc_type: str = Field(..., pattern="^(static_field|user_calculation|system_calculation)$")
     calc_id: Optional[int] = None  # Required for user_calculation and system_calculation
     field_path: Optional[str] = None  # Required for static_field
     alias: Optional[str] = None  # Custom alias for result column
 
-    @validator("calc_id")
-    def validate_calc_id_when_required(cls, v, values):
+    @field_validator("calc_id")
+    @classmethod
+    def validate_calc_id_when_required(cls, v, info):
         """Validate calc_id is provided when needed"""
-        calc_type = values.get("calc_type")
+        calc_type = info.data.get("calc_type")
         if calc_type in ["user_calculation", "system_calculation"] and not v:
             raise ValueError(f"calc_id is required for {calc_type}")
         return v
 
-    @validator("field_path")
-    def validate_field_path_when_required(cls, v, values):
+    @field_validator("field_path")
+    @classmethod
+    def validate_field_path_when_required(cls, v, info):
         """Validate field_path is provided when needed"""
-        calc_type = values.get("calc_type")
+        calc_type = info.data.get("calc_type")
         if calc_type == "static_field" and not v:
             raise ValueError("field_path is required for static_field")
         return v
@@ -250,14 +254,16 @@ class ReportExecutionRequest(BaseModel):
     deal_tranche_map: Dict[int, List[str]]  # deal_id -> [tranche_ids] or [] for all
     cycle_code: int
 
-    @validator("calculation_requests")
+    @field_validator("calculation_requests")
+    @classmethod
     def validate_calculation_requests_not_empty(cls, v):
         """Validate at least one calculation is requested"""
         if not v:
             raise ValueError("At least one calculation must be requested")
         return v
 
-    @validator("deal_tranche_map")
+    @field_validator("deal_tranche_map")
+    @classmethod
     def validate_deal_tranche_map_not_empty(cls, v):
         """Validate at least one deal is specified"""
         if not v:

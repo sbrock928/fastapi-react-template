@@ -1,15 +1,10 @@
 # app/calculations/router.py
-"""API router for the new separated calculation system"""
+"""Clean API router for the separated calculation system"""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from app.core.dependencies import get_db, get_dw_db
-from app.core.exceptions import (
-    CalculationNotFoundError,
-    CalculationAlreadyExistsError,
-    InvalidCalculationError,
-)
 
 from .service import (
     UserCalculationService,
@@ -122,7 +117,7 @@ def create_user_calculation(
     """Create a new user-defined calculation"""
     try:
         return service.create_user_calculation(request)
-    except (CalculationAlreadyExistsError, InvalidCalculationError) as e:
+    except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -135,9 +130,7 @@ def update_user_calculation(
     """Update an existing user calculation"""
     try:
         return service.update_user_calculation(calc_id, request)
-    except CalculationNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except (CalculationAlreadyExistsError, InvalidCalculationError) as e:
+    except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -149,9 +142,7 @@ def delete_user_calculation(
     """Delete a user calculation"""
     try:
         return service.delete_user_calculation(calc_id)
-    except CalculationNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except InvalidCalculationError as e:
+    except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -163,7 +154,7 @@ def get_user_calculation_usage(
     """Get usage information for a user calculation"""
     try:
         return service.get_user_calculation_usage(calc_id)
-    except CalculationNotFoundError as e:
+    except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 
@@ -199,7 +190,7 @@ def create_system_calculation(
     """Create a new system-defined calculation (admin only)"""
     try:
         return service.create_system_calculation(request)
-    except (CalculationAlreadyExistsError, InvalidCalculationError) as e:
+    except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -212,7 +203,7 @@ def approve_system_calculation(
     """Approve a system calculation"""
     try:
         return service.approve_system_calculation(calc_id, approved_by)
-    except CalculationNotFoundError as e:
+    except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 
@@ -224,9 +215,7 @@ def delete_system_calculation(
     """Delete a system calculation"""
     try:
         return service.delete_system_calculation(calc_id)
-    except CalculationNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except InvalidCalculationError as e:
+    except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -363,77 +352,6 @@ def get_calculation_counts(
         raise HTTPException(status_code=500, detail=f"Error retrieving calculation counts: {str(e)}")
 
 
-# ===== LEGACY COMPATIBILITY ENDPOINTS (for migration) =====
-
-@router.get("/legacy/all")
-def get_all_calculations_legacy_format(
-    user_service: UserCalculationService = Depends(get_user_calculation_service),
-    system_service: SystemCalculationService = Depends(get_system_calculation_service)
-):
-    """Get all calculations in legacy format for migration compatibility"""
-    user_calcs = user_service.get_all_user_calculations()
-    system_calcs = system_service.get_all_system_calculations()
-    static_fields = StaticFieldService.get_all_static_fields()
-    
-    # Convert to legacy format
-    legacy_calculations = []
-    
-    # Add user calculations
-    for calc in user_calcs:
-        legacy_calculations.append({
-            "id": calc.id,
-            "name": calc.name,
-            "description": calc.description,
-            "calculation_type": "USER_DEFINED",
-            "group_level": calc.group_level.value,
-            "aggregation_function": calc.aggregation_function.value,
-            "source_model": calc.source_model.value,
-            "source_field": calc.source_field,
-            "weight_field": calc.weight_field,
-            "display_type": calc.get_display_type(),
-            "source_description": calc.get_source_description(),
-            "is_system_managed": False,
-            "created_at": calc.created_at,
-            "created_by": calc.created_by
-        })
-    
-    # Add system calculations
-    for calc in system_calcs:
-        legacy_calculations.append({
-            "id": calc.id,
-            "name": calc.name,
-            "description": calc.description,
-            "calculation_type": "SYSTEM_SQL",
-            "group_level": calc.group_level.value,
-            "raw_sql": calc.raw_sql,
-            "result_column_name": calc.result_column_name,
-            "display_type": calc.get_display_type(),
-            "source_description": calc.get_source_description(),
-            "is_system_managed": True,
-            "created_at": calc.created_at,
-            "created_by": calc.created_by
-        })
-    
-    # Add static fields as legacy calculations
-    for field in static_fields:
-        legacy_calculations.append({
-            "id": f"static_{field.field_path}",  # Fake ID for compatibility
-            "name": field.name,
-            "description": field.description,
-            "calculation_type": "SYSTEM_FIELD",
-            "group_level": "tranche" if field.field_path.startswith(("tranche.", "tranchebal.")) else "deal",
-            "field_path": field.field_path,
-            "field_type": field.type,
-            "display_type": f"Static Field ({field.type})",
-            "source_description": field.field_path,
-            "is_system_managed": True,
-            "created_at": None,
-            "created_by": "system"
-        })
-    
-    return legacy_calculations
-
-
 # ===== HEALTH CHECK =====
 
 @router.get("/health")
@@ -441,13 +359,12 @@ def calculation_system_health():
     """Health check for the calculation system"""
     return {
         "status": "healthy",
-        "system": "new_separated_calculations",
+        "system": "separated_calculations",
         "features": [
             "user_calculations",
             "system_calculations", 
             "static_fields",
             "individual_sql_queries",
-            "in_memory_merging",
-            "future_expansion_ready"
+            "in_memory_merging"
         ]
     }

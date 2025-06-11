@@ -203,16 +203,6 @@ class UserCalculationService:
         if not calculation:
             raise CalculationNotFoundError(f"User calculation with ID {calc_id} not found")
 
-        # Check if calculation is being used in any reports
-        usage_info = self._get_calculation_usage_in_reports(calc_id, "user_calculation")
-        if usage_info:
-            report_names = [report["report_name"] for report in usage_info]
-            raise InvalidCalculationError(
-                f"Cannot delete user calculation '{calculation.name}' because it is currently being used "
-                f"in the following report templates: {', '.join(report_names)}. "
-                f"Please remove the calculation from these reports before deleting it."
-            )
-
         calculation.is_active = False
         self.config_db.commit()
         return {"message": f"User calculation '{calculation.name}' deleted successfully"}
@@ -222,22 +212,14 @@ class UserCalculationService:
         calculation = self.get_user_calculation_by_id(calc_id)
         if not calculation:
             raise CalculationNotFoundError(f"User calculation with ID {calc_id} not found")
-
-        usage_info = self._get_calculation_usage_in_reports(calc_id, "user_calculation")
         
         return {
             "calculation_id": calc_id,
             "calculation_name": calculation.name,
-            "is_in_use": len(usage_info) > 0,
-            "report_count": len(usage_info),
-            "reports": usage_info,
+            "is_in_use": False,  # TODO: Implement when report system is updated
+            "report_count": 0,
+            "reports": [],
         }
-
-    def _get_calculation_usage_in_reports(self, calc_id: int, calc_type: str) -> List[Dict[str, Any]]:
-        """Get list of reports that are using this calculation (placeholder for now)"""
-        # TODO: Implement this when report system is updated to use new calculation types
-        # For now, return empty list
-        return []
 
 
 class SystemCalculationService:
@@ -314,16 +296,6 @@ class SystemCalculationService:
         if not calculation:
             raise CalculationNotFoundError(f"System calculation with ID {calc_id} not found")
 
-        # Check if calculation is being used in any reports
-        usage_info = self._get_calculation_usage_in_reports(calc_id, "system_calculation")
-        if usage_info:
-            report_names = [report["report_name"] for report in usage_info]
-            raise InvalidCalculationError(
-                f"Cannot delete system calculation '{calculation.name}' because it is currently being used "
-                f"in the following report templates: {', '.join(report_names)}. "
-                f"Please remove the calculation from these reports before deleting it."
-            )
-
         calculation.is_active = False
         self.config_db.commit()
         return {"message": f"System calculation '{calculation.name}' deleted successfully"}
@@ -354,12 +326,6 @@ class SystemCalculationService:
                 raise InvalidCalculationError("Tranche-level SQL must include deal.dl_nbr for proper grouping")
             if 'tranche.tr_id' not in sql_lower and 'tr_id' not in sql_lower:
                 raise InvalidCalculationError("Tranche-level SQL must include tranche.tr_id for proper grouping")
-
-    def _get_calculation_usage_in_reports(self, calc_id: int, calc_type: str) -> List[Dict[str, Any]]:
-        """Get list of reports that are using this calculation (placeholder for now)"""
-        # TODO: Implement this when report system is updated to use new calculation types
-        # For now, return empty list
-        return []
 
 
 class StaticFieldService:

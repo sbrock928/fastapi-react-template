@@ -16,9 +16,8 @@ from app.reporting.schemas import (
     AvailableCalculation,
     ReportScope,
 )
-from app.core.dependencies import SessionDep, DWSessionDep, get_query_engine
+from app.core.dependencies import SessionDep, DWSessionDep
 from app.datawarehouse.dao import DatawarehouseDAO
-from app.query import QueryEngine
 
 
 router = APIRouter(prefix="/reports", tags=["reporting"])
@@ -35,8 +34,7 @@ def get_dw_dao(db: DWSessionDep) -> DatawarehouseDAO:
 
 def get_report_service(
     report_dao: ReportDAO = Depends(get_report_dao),
-    dw_dao: DatawarehouseDAO = Depends(get_dw_dao),
-    query_engine: QueryEngine = Depends(get_query_engine),
+    dw_dao: DatawarehouseDAO = Depends(get_dw_dao)
 ) -> ReportService:
     return ReportService(report_dao, dw_dao, query_engine)
 
