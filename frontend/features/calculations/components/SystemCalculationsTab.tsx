@@ -41,7 +41,7 @@ const SystemCalculationsTab: React.FC<SystemCalculationsTabProps> = ({
         <div className="btn-group">
           <button
             onClick={onCreateSystemSql}
-            className="btn btn-warning"
+            className="btn btn-success"
             title="Create a new custom SQL calculation"
           >
             <i className="bi bi-code-square me-2"></i>
@@ -76,8 +76,8 @@ const SystemCalculationsTab: React.FC<SystemCalculationsTabProps> = ({
 
       {/* System SQL Calculations Section */}
       <div className="card">
-        <div className="card-header bg-warning">
-          <h6 className="card-title mb-0 text-dark">
+        <div className="card-header bg-success">
+          <h6 className="card-title mb-0 text-white">
             <i className="bi bi-code-square me-2"></i>
             System SQL Calculations ({systemSqlCalcs.length})
           </h6>
@@ -85,7 +85,7 @@ const SystemCalculationsTab: React.FC<SystemCalculationsTabProps> = ({
         <div className="card-body">
           {loading ? (
             <div className="text-center py-4">
-              <div className="spinner-border text-warning" role="status">
+              <div className="spinner-border text-success" role="status">
                 <span className="visually-hidden">Loading...</span>
               </div>
               <p className="mt-2 mb-0">Loading system SQL calculations...</p>
@@ -114,7 +114,7 @@ const SystemCalculationsTab: React.FC<SystemCalculationsTabProps> = ({
                   <p className="mb-3">System SQL calculations provide advanced custom logic using validated SQL.</p>
                   <button
                     onClick={onCreateSystemSql}
-                    className="btn btn-warning"
+                    className="btn btn-success"
                   >
                     <i className="bi bi-code-square me-2"></i>
                     Create First SQL Calculation

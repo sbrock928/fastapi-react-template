@@ -48,7 +48,7 @@ const CalculationCard: React.FC<CalculationCardProps> = ({
     if (isUserDefinedCalculation(calculation)) {
       return 'bg-primary';
     } else if (isSystemSqlCalculation(calculation)) {
-      return 'bg-warning text-dark';
+      return 'bg-success text-white';
     }
     return 'bg-secondary';
   };

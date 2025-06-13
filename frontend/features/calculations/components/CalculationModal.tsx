@@ -76,7 +76,7 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
       case 'user-defined':
         return 'bg-primary';
       case 'system-sql':
-        return 'bg-warning text-dark';
+        return 'bg-success text-white';
       default:
         return 'bg-primary';
     }
@@ -301,7 +301,7 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
 
     return (
       <>
-        <div className="alert alert-warning">
+        <div className="alert alert-success">
           <i className="bi bi-code-square me-2"></i>
           <strong>System SQL Calculation:</strong> Advanced custom calculation using validated SQL queries.
           Must include proper join fields and return exactly one new column.
@@ -543,7 +543,7 @@ FROM deal${calculation.level === 'tranche' ? '\nJOIN tranche ON deal.dl_nbr = tr
                 (modalType === 'system-sql' && (!sqlValidationResult || !sqlValidationResult.is_valid))
               }
               className={`btn ${
-                modalType === 'user-defined' ? 'btn-primary' : 'btn-warning'
+                modalType === 'user-defined' ? 'btn-primary' : 'btn-success'
               }`}
             >
               {isSaving ? (
