@@ -290,7 +290,7 @@ const CalculationBuilder: React.FC = () => {
 
       {/* Calculation Statistics - now using summary from unified endpoint */}
       {isConfigAvailable() && (
-        <div className="card bg-light mt-4">
+        <div className="card bg-light mt-4 mb-4">
           <div className="card-body">
             <h6 className="card-title text-center mb-3">
               <i className="bi bi-bar-chart me-2"></i>

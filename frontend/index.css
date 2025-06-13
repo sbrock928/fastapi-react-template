@@ -497,17 +497,27 @@ body.sidebar-collapsed #sidebar-wrapper:hover .sidebar-text {
   border-color: var(--primary) !important;
 }
 
-.btn-primary {
-  background-color: var(--primary);
-  border-color: var(--primary);
+.btn-primary,
+button.btn-primary,
+.btn.btn-primary {
+  background-color: var(--primary) !important;
+  border-color: var(--primary) !important;
+  color: white !important;
   box-shadow: 0 2px 5px rgba(147, 24, 108, 0.3);
 }
 
 .btn-primary:hover, 
 .btn-primary:focus, 
-.btn-primary:active {
-  background-color: var(--primary-dark);
-  border-color: var(--primary-dark);
+.btn-primary:active,
+button.btn-primary:hover,
+button.btn-primary:focus,
+button.btn-primary:active,
+.btn.btn-primary:hover,
+.btn.btn-primary:focus,
+.btn.btn-primary:active {
+  background-color: var(--primary-dark) !important;
+  border-color: var(--primary-dark) !important;
+  color: white !important;
   box-shadow: 0 4px 10px rgba(147, 24, 108, 0.4);
   transform: translateY(-1px);
 }

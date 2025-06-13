@@ -38,12 +38,20 @@ const StatusDistributionChart: React.FC<StatusDistributionChartProps> = ({
   // Define colors for different status groups
   const getColorForGroup = (description: string): string => {
     switch (description) {
-      case 'Success': return '#93186c';
-      case '2xx': return '#93186c';
-      case '3xx': return '#ffc107';
-      case '4xx': return '#fd7e14';
-      case '5xx': return '#dc3545';
-      default: return '#93186c'; // Changed from #6c757d to match our new theme
+      case 'Success': 
+      case '2xx': 
+        return '#28a745'; // Green for success
+      case 'Redirection':
+      case '3xx': 
+        return '#17a2b8'; // Blue for redirects
+      case 'Client Error':
+      case '4xx': 
+        return '#ffc107'; // Yellow for client errors
+      case 'Server Error':
+      case '5xx': 
+        return '#dc3545'; // Red for server errors
+      default: 
+        return '#6c757d'; // Gray for unknown
     }
   };
 
