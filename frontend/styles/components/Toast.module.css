@@ -35,9 +35,9 @@
   color: white;
 }
 
-/* Toast type colors using our green theme */
+/* Toast type colors using Computershare purple theme */
 .toast.bg-success {
-  background-color: #28a745 !important;
+  background-color: #93186c !important;
 }
 
 .toast.bg-danger {

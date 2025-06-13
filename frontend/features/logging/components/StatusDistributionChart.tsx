@@ -38,11 +38,12 @@ const StatusDistributionChart: React.FC<StatusDistributionChartProps> = ({
   // Define colors for different status groups
   const getColorForGroup = (description: string): string => {
     switch (description) {
-      case 'Success': return '#28a745';
-      case 'Redirection': return '#fd7e14';
-      case 'Client Error': return '#dc3545';
-      case 'Server Error': return '#6f42c1';
-      default: return '#28a745'; // Changed from #6c757d to match our new theme
+      case 'Success': return '#93186c';
+      case '2xx': return '#93186c';
+      case '3xx': return '#ffc107';
+      case '4xx': return '#fd7e14';
+      case '5xx': return '#dc3545';
+      default: return '#93186c'; // Changed from #6c757d to match our new theme
     }
   };
 

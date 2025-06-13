@@ -390,7 +390,7 @@ const CalculationBuilder: React.FC = () => {
                   >
                     <i className="bi bi-gear-fill me-2"></i>
                     System Defined Calculations
-                    <span className="badge bg-success ms-2">{systemCalculations.length}</span>
+                    <span className="badge bg-primary ms-2">{systemCalculations.length}</span>
                   </button>
                 </div>
               </nav>

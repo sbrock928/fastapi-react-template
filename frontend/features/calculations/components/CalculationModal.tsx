@@ -76,7 +76,7 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
       case 'user-defined':
         return 'bg-primary';
       case 'system-sql':
-        return 'bg-success text-white';
+        return 'bg-primary text-white';
       default:
         return 'bg-primary';
     }
@@ -542,9 +542,7 @@ FROM deal${calculation.level === 'tranche' ? '\nJOIN tranche ON deal.dl_nbr = tr
                 fieldsLoading || 
                 (modalType === 'system-sql' && (!sqlValidationResult || !sqlValidationResult.is_valid))
               }
-              className={`btn ${
-                modalType === 'user-defined' ? 'btn-primary' : 'btn-success'
-              }`}
+              className="btn btn-primary"
             >
               {isSaving ? (
                 <>

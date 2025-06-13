@@ -4,21 +4,21 @@
 }
 
 .cardHeader {
-  background-color: var(--primary, #28a745) !important;
+  background-color: var(--primary, #93186c) !important;
   color: white;
   border-bottom: none;
 }
 
 .runButton {
-  background-color: var(--primary, #28a745);
-  border-color: var(--primary, #28a745);
+  background-color: var(--primary, #93186c);
+  border-color: var(--primary, #93186c);
   color: white;
   font-weight: 500;
 }
 
 .runButton:hover {
-  background-color: var(--primary-dark, #1e7e34);
-  border-color: var(--primary-dark, #1e7e34);
+  background-color: var(--primary-dark, #6d1350);
+  border-color: var(--primary-dark, #6d1350);
 }
 
 .runButton:disabled {

@@ -369,7 +369,7 @@ const Documentation = () => {
               </div>
               <div className="card-body">
                 <p className="card-text">Learn how to use the Vibes + Hype application effectively.</p>
-                <a href="#" className="btn" style={{ backgroundColor: '#28a745', color: 'white' }} onClick={handleUserGuideClick}>View User Guide</a>
+                <a href="#" className="btn btn-primary" onClick={handleUserGuideClick}>View User Guide</a>
               </div>
             </div>
           </div>
@@ -381,7 +381,7 @@ const Documentation = () => {
               </div>
               <div className="card-body">
                 <p className="card-text">Technical reference for the Vibes + Hype API endpoints.</p>
-                <a href="#" className="btn" style={{ backgroundColor: '#28a745', color: 'white' }} onClick={handleApiDocsClick}>View API Docs</a>
+                <a href="#" className="btn btn-primary" onClick={handleApiDocsClick}>View API Docs</a>
               </div>
             </div>
           </div>
@@ -394,8 +394,7 @@ const Documentation = () => {
               <div className="card-body">
                 <p className="card-text">Details about new features and bug fixes in each version.</p>
                 <button 
-                  className="btn" 
-                  style={{ backgroundColor: '#28a745', color: 'white' }}
+                  className="btn btn-primary"
                   disabled 
                   title="Coming soon"
                 >

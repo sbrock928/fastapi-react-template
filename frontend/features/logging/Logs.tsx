@@ -120,8 +120,7 @@ const Logs = () => {
           
           <button 
             id="refreshLogs" 
-            className="btn"
-            style={{ backgroundColor: '#28a745', color: 'white' }}
+            className="btn btn-primary"
             onClick={handleCombinedRefresh}
           >
             <i className="bi bi-arrow-clockwise"></i> Refresh

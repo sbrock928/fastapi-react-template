@@ -40,7 +40,7 @@ const UsageModal: React.FC<UsageModalProps> = ({
                     <div className="card">
                       <div className="card-body text-center">
                         <h6 className="card-title">Status</h6>
-                        <span className={`badge fs-6 ${selectedUsageData.is_in_use ? 'bg-warning text-dark' : 'bg-success'}`}>
+                        <span className={`badge fs-6 ${selectedUsageData.is_in_use ? 'bg-warning text-dark' : 'bg-primary'}`}>
                           {selectedUsageData.is_in_use ? 'In Use' : 'Available for Deletion'}
                         </span>
                       </div>
