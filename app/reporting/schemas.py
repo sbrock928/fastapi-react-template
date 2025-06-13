@@ -1,6 +1,6 @@
 """Simplified Pydantic schemas for the reporting module."""
 
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Dict, Any
 from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel, field_validator, ConfigDict
@@ -11,6 +11,35 @@ class ReportScope(str, Enum):
 
     DEAL = "DEAL"
     TRANCHE = "TRANCHE"
+
+
+class ColumnFormat(str, Enum):
+    """Column formatting options."""
+    TEXT = "text"
+    NUMBER = "number"
+    CURRENCY = "currency"
+    PERCENTAGE = "percentage"
+    DATE_MDY = "date_mdy"  # MM/DD/YYYY
+    DATE_DMY = "date_dmy"  # DD/MM/YYYY
+
+
+class ColumnPreference(BaseModel):
+    """Individual column preference configuration."""
+    column_id: str  # Matches calculation_id or static field name
+    display_name: str  # User-friendly column name
+    is_visible: bool = True  # Whether to include in final output
+    display_order: int = 0  # Order in the final output
+    format_type: ColumnFormat = ColumnFormat.TEXT  # How to format values
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ReportColumnPreferences(BaseModel):
+    """Complete column preferences for a report."""
+    columns: List[ColumnPreference] = []
+    include_default_columns: bool = True  # Whether to include Deal Number, TR ID, Cycle Code
+    
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ===== CALCULATION SCHEMAS =====
@@ -89,6 +118,7 @@ class ReportBase(BaseModel):
     scope: ReportScope
     created_by: Optional[str] = "system"
     is_active: bool = True
+    column_preferences: Optional[ReportColumnPreferences] = None  # NEW: Column preferences
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
@@ -156,6 +186,7 @@ class ReportUpdate(BaseModel):
     scope: Optional[ReportScope] = None
     selected_deals: Optional[List[ReportDealCreate]] = None
     selected_calculations: Optional[List[ReportCalculationCreate]] = None
+    column_preferences: Optional[ReportColumnPreferences] = None  # NEW: Column preferences
     is_active: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")

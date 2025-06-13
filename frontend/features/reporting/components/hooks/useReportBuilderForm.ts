@@ -1,14 +1,11 @@
-import { useState, useEffect } from 'react';
-import type { ReportConfig, ReportCalculation } from '@/types/reporting';
-
-export interface ReportBuilderFormState {
-  reportName: string;
-  reportDescription: string;
-  reportScope: 'DEAL' | 'TRANCHE' | '';
-  selectedDeals: number[];
-  selectedTranches: Record<number, string[]>;
-  selectedCalculations: ReportCalculation[]; // Changed from selectedFields
-}
+import { useState, useEffect, useCallback } from 'react';
+import type { 
+  ReportConfig, 
+  ReportCalculation, 
+  ReportColumnPreferences,
+  ReportScope
+} from '@/types/reporting';
+import { ColumnFormat, getDefaultColumnPreferences } from '@/types/reporting';
 
 interface UseReportBuilderFormProps {
   editingReport?: ReportConfig | null;
@@ -16,112 +13,119 @@ interface UseReportBuilderFormProps {
 }
 
 export const useReportBuilderForm = ({ editingReport, isEditMode }: UseReportBuilderFormProps) => {
-  const [formState, setFormState] = useState<ReportBuilderFormState>({
-    reportName: '',
-    reportDescription: '',
-    reportScope: '',
-    selectedDeals: [],
-    selectedTranches: {},
-    selectedCalculations: [] // Changed from selectedFields
-  });
+  const [reportName, setReportName] = useState<string>('');
+  const [reportDescription, setReportDescription] = useState<string>('');
+  const [reportScope, setReportScope] = useState<ReportScope | ''>('');
+  const [selectedDeals, setSelectedDeals] = useState<number[]>([]);
+  const [selectedTranches, setSelectedTranches] = useState<Record<number, string[]>>({});
+  const [selectedCalculations, setSelectedCalculations] = useState<ReportCalculation[]>([]);
+  const [columnPreferences, setColumnPreferences] = useState<ReportColumnPreferences | undefined>();
 
-// Initialize form with editing data if in edit mode
-useEffect(() => {
-  if (isEditMode && editingReport) {
-    setFormState({
-      reportName: editingReport.name || '',
-      reportDescription: editingReport.description || '',
-      reportScope: editingReport.scope || '',
-      selectedDeals: editingReport.selected_deals?.map(deal => deal.dl_nbr) || [],
-      selectedTranches: editingReport.selected_deals?.reduce((acc, deal) => {
-        if (deal.selected_tranches && deal.selected_tranches.length > 0) {
-          // Deal has explicit tranche selections stored
-          acc[deal.dl_nbr] = deal.selected_tranches.map(tranche => tranche.tr_id);
-        } else {
-          // Deal uses "smart" all-tranches selection - we'll populate this later when tranches load
-          // For now, mark it as empty so it gets populated when available tranches load
-          acc[deal.dl_nbr] = [];
+  // Auto-generate column preferences when calculations or scope change
+  const updateColumnPreferencesFromCalculations = useCallback((
+    calculations: ReportCalculation[], 
+    scope: ReportScope | '',
+    preserveExisting: boolean = false
+  ) => {
+    if (calculations.length > 0 && scope && (scope === 'DEAL' || scope === 'TRANCHE')) {
+      if (!preserveExisting || !columnPreferences) {
+        const defaultPrefs = getDefaultColumnPreferences(calculations, scope as ReportScope, true);
+        setColumnPreferences(defaultPrefs);
+      } else {
+        // Update existing preferences to include new calculations
+        const existingColumnIds = columnPreferences.columns.map(col => col.column_id);
+        const newCalculations = calculations.filter(calc => 
+          !existingColumnIds.includes(String(calc.calculation_id))
+        );
+        
+        if (newCalculations.length > 0) {
+          const newColumns = newCalculations.map((calc, index) => ({
+            column_id: String(calc.calculation_id),
+            display_name: calc.display_name || `Calculation ${calc.calculation_id}`,
+            is_visible: true,
+            display_order: columnPreferences.columns.length + index,
+            format_type: ColumnFormat.TEXT
+          }));
+          
+          setColumnPreferences({
+            ...columnPreferences,
+            columns: [...columnPreferences.columns, ...newColumns]
+          });
         }
-        return acc;
-      }, {} as Record<number, string[]>) || {},
-      selectedCalculations: editingReport.selected_calculations || []
-    });
-  } else {
-    // Reset form for new report
-    setFormState({
-      reportName: '',
-      reportDescription: '',
-      reportScope: '',
-      selectedDeals: [],
-      selectedTranches: {},
-      selectedCalculations: []
-    });
-  }
-}, [isEditMode, editingReport]);
-
-  // Individual state setters for backward compatibility
-  const setReportName = (name: string) => {
-    setFormState(prev => ({ ...prev, reportName: name }));
-  };
-
-  const setReportDescription = (description: string) => {
-    setFormState(prev => ({ ...prev, reportDescription: description }));
-  };
-
-  const setReportScope = (scope: 'DEAL' | 'TRANCHE' | '') => {
-    setFormState(prev => ({ ...prev, reportScope: scope }));
-  };
-
-  const setSelectedDeals = (deals: number[] | ((prev: number[]) => number[])) => {
-    if (typeof deals === 'function') {
-      setFormState(prev => ({ ...prev, selectedDeals: deals(prev.selectedDeals) }));
-    } else {
-      setFormState(prev => ({ ...prev, selectedDeals: deals }));
+      }
     }
-  };
+  }, [columnPreferences]);
 
-  const setSelectedTranches = (tranches: Record<number, string[]> | ((prev: Record<number, string[]>) => Record<number, string[]>)) => {
-    if (typeof tranches === 'function') {
-      setFormState(prev => ({ ...prev, selectedTranches: tranches(prev.selectedTranches) }));
-    } else {
-      setFormState(prev => ({ ...prev, selectedTranches: tranches }));
+  // Update column preferences when calculations change
+  useEffect(() => {
+    if (!isEditMode) {
+      updateColumnPreferencesFromCalculations(selectedCalculations, reportScope, true);
     }
-  };
+  }, [selectedCalculations, reportScope, isEditMode, updateColumnPreferencesFromCalculations]);
 
-  const setSelectedCalculations = (calculations: ReportCalculation[]) => {
-    setFormState(prev => ({ ...prev, selectedCalculations: calculations }));
-  };
+  // Initialize form when editing
+  useEffect(() => {
+    if (isEditMode && editingReport) {
+      setReportName(editingReport.name || '');
+      setReportDescription(editingReport.description || '');
+      setReportScope(editingReport.scope || '');
+      
+      // Set selected deals
+      const dealNumbers = editingReport.selected_deals?.map(deal => deal.dl_nbr) || [];
+      setSelectedDeals(dealNumbers);
+      
+      // Set selected tranches
+      const trancheMap: Record<number, string[]> = {};
+      editingReport.selected_deals?.forEach(deal => {
+        if (deal.selected_tranches) {
+          trancheMap[deal.dl_nbr] = deal.selected_tranches.map(t => t.tr_id);
+        }
+      });
+      setSelectedTranches(trancheMap);
+      
+      // Set selected calculations
+      setSelectedCalculations(editingReport.selected_calculations || []);
+      
+      // Set column preferences or generate defaults
+      if (editingReport.column_preferences) {
+        setColumnPreferences(editingReport.column_preferences);
+      } else if (editingReport.selected_calculations && editingReport.scope) {
+        // Generate default preferences for existing report without column preferences
+        const defaultPrefs = getDefaultColumnPreferences(
+          editingReport.selected_calculations, 
+          editingReport.scope, 
+          true
+        );
+        setColumnPreferences(defaultPrefs);
+      }
+    }
+  }, [isEditMode, editingReport]);
 
-  // Reset form
   const resetForm = () => {
-    setFormState({
-      reportName: '',
-      reportDescription: '',
-      reportScope: '',
-      selectedDeals: [],
-      selectedTranches: {},
-      selectedCalculations: [] // Changed from selectedFields
-    });
+    setReportName('');
+    setReportDescription('');
+    setReportScope('');
+    setSelectedDeals([]);
+    setSelectedTranches({});
+    setSelectedCalculations([]);
+    setColumnPreferences(undefined);
   };
 
   return {
-    // State values
-    reportName: formState.reportName,
-    reportDescription: formState.reportDescription,
-    reportScope: formState.reportScope,
-    selectedDeals: formState.selectedDeals,
-    selectedTranches: formState.selectedTranches,
-    selectedCalculations: formState.selectedCalculations, // Changed from selectedFields
-    
-    // State setters
+    reportName,
+    reportDescription,
+    reportScope,
+    selectedDeals,
+    selectedTranches,
+    selectedCalculations,
+    columnPreferences,
     setReportName,
     setReportDescription,
     setReportScope,
     setSelectedDeals,
     setSelectedTranches,
-    setSelectedCalculations, // Changed from setSelectedFields
-    
-    // Utility functions
+    setSelectedCalculations,
+    setColumnPreferences,
     resetForm
   };
 };

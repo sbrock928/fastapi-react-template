@@ -9,12 +9,12 @@ import {
 } from './hooks';
 import {
   ReportConfigurationStep,
-  CombinedDealTrancheSelectionStep, // New combined component
+  CombinedDealTrancheSelectionStep,
   CalculationSelectionStep,
   ReviewConfigurationStep
 } from './wizardSteps';
 import WizardNavigation from './WizardNavigation';
-import { transformFormDataForApi } from './utils/reportBusinessLogic'; // Import the new function
+import { transformFormDataForApi } from './utils/reportBusinessLogic';
 import type { ReportConfig, TrancheReportSummary } from '@/types/reporting';
 
 interface ReportBuilderWizardProps {
@@ -41,13 +41,15 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     reportScope,
     selectedDeals,
     selectedTranches,
-    selectedCalculations, // Changed from selectedFields
+    selectedCalculations,
+    columnPreferences, // NEW: Add column preferences
     setReportName,
     setReportDescription,
     setReportScope,
     setSelectedDeals,
     setSelectedTranches,
-    setSelectedCalculations, // Changed from setSelectedFields
+    setSelectedCalculations,
+    setColumnPreferences, // NEW: Add setter
     resetForm
   } = useReportBuilderForm({ editingReport, isEditMode });
 
@@ -61,43 +63,26 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     calculationsLoading // Changed from fieldsLoading
   } = useReportBuilderData({ reportScope, selectedDeals, isEditMode });
 
-  // Validation management
+  // Validation and navigation
   const formState = {
     reportName,
     reportDescription,
     reportScope,
     selectedDeals,
     selectedTranches,
-    selectedCalculations // Changed from selectedFields
+    selectedCalculations,
+    columnPreferences
   };
 
-  // Start with step 1, will be updated by wizard navigation
-  const [currentWizardStep, setCurrentWizardStep] = useState<number>(1);
-  
-  const {
-    canProceed,
-    hasFieldError,
-    getFieldErrorMessage,
-    validateSpecificStep
-  } = useReportBuilderValidation({ formState, currentStep: currentWizardStep });
-
-  // Wizard navigation management
-  const {
-    currentStep,
-    totalSteps,
-    displayStep,
-    nextStep,
-    prevStep,
-    resetToFirstStep
-  } = useWizardNavigation({
-    onValidationError: (message: string) => showToast(message, 'error'),
-    validateStep: validateSpecificStep
+  const { canProceed, hasFieldError, getFieldErrorMessage, validateSpecificStep } = useReportBuilderValidation({ 
+    formState, 
+    currentStep: 1 // Initialize with step 1
   });
 
-  // Update wizard step state when navigation changes
-  React.useEffect(() => {
-    setCurrentWizardStep(currentStep);
-  }, [currentStep]);
+  const { currentStep, displayStep, totalSteps, nextStep, prevStep, resetToFirstStep } = useWizardNavigation({
+    validateStep: (step: number) => ({ isValid: validateSpecificStep(step), errors: [] }),
+    onValidationError: (message: string) => showToast(message, 'error')
+  });
 
   // Handle deal addition (new method for combined component)
   const handleDealAdd = (dlNbr: number) => {
@@ -156,46 +141,42 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
   };
 
   // Save or update report configuration
-  const saveReportConfig = async () => {
-    // Final validation before saving - now step 4 instead of step 5
-    const finalValidation = validateSpecificStep(4);
-    if (!finalValidation.isValid) {
-      finalValidation.errors.forEach((error: any) => {
-        showToast(error.message, 'error');
-      });
-      return;
-    }
-
-    setLoading(true);
-    
+  const saveReportConfig = async (): Promise<void> => {
+    if (loading) return;
+  
     try {
-      // Use the smart business logic function that only includes tranches when explicitly needed
-      const transformedData = transformFormDataForApi(formState, tranches);
-
+      setLoading(true);
+      
+      // Transform form data including column preferences
+      const reportData = transformFormDataForApi({
+        reportName,
+        reportDescription,
+        reportScope,
+        selectedDeals,
+        selectedTranches,
+        selectedCalculations,
+        columnPreferences
+      });
+  
       if (isEditMode && editingReport?.id) {
-        await reportingApi.updateReport(editingReport.id, transformedData);
-        showToast('Report configuration updated successfully!', 'success');
+        // Update existing report
+        await reportingApi.updateReport(editingReport.id, reportData);
+        showToast('Report updated successfully!', 'success');
       } else {
-        const reportConfig = {
-          ...transformedData,
-          created_by: 'current_user'
-        };
-
-        await reportingApi.createReport(reportConfig);
-        showToast('Report configuration saved successfully!', 'success');
+        // Create new report
+        await reportingApi.createReport(reportData);
+        showToast('Report created successfully!', 'success');
       }
-      
+  
+      // Reset form and notify parent
+      resetForm();
+      resetToFirstStep();
       onReportSaved();
-      
-      if (!isEditMode) {
-        resetForm();
-        resetToFirstStep();
-      }
-      
+  
     } catch (error: any) {
       console.error('Error saving report:', error);
       
-      let errorMessage = `Error ${isEditMode ? 'updating' : 'saving'} report configuration`;
+      let errorMessage = isEditMode ? 'Failed to update report' : 'Failed to create report';
       
       if (error.response?.data?.detail) {
         const detail = error.response.data.detail;
@@ -219,6 +200,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       setLoading(false);
     }
   };
+  
 
   // Auto-select tranches based on report scope (updated logic for smart defaults)
   React.useEffect(() => {
@@ -275,7 +257,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
             getFieldErrorMessage={getFieldErrorMessage}
           />
         );
-
+  
       case 2:
         return (
           <CombinedDealTrancheSelectionStep
@@ -291,18 +273,18 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
             loading={dealsLoading || tranchesLoading}
           />
         );
-
+  
       case 3:
         return (
           <CalculationSelectionStep
             reportScope={reportScope}
-            availableCalculations={availableCalculations} // Changed from availableFields
-            selectedCalculations={selectedCalculations} // Changed from selectedFields
-            onCalculationsChange={setSelectedCalculations} // Changed from onFieldsChange
-            loading={calculationsLoading} // Changed from fieldsLoading
+            availableCalculations={availableCalculations}
+            selectedCalculations={selectedCalculations}
+            onCalculationsChange={setSelectedCalculations}
+            loading={calculationsLoading}
           />
         );
-
+  
       case 4:
         return (
           <ReviewConfigurationStep
@@ -311,11 +293,13 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
             reportScope={reportScope}
             selectedDeals={selectedDeals}
             selectedTranches={selectedTranches}
-            selectedCalculations={selectedCalculations} // Changed from selectedFields
+            selectedCalculations={selectedCalculations}
+            columnPreferences={columnPreferences}
+            onColumnPreferencesChange={setColumnPreferences}
             deals={deals}
           />
         );
-
+  
       default:
         return <div>Unknown step</div>;
     }

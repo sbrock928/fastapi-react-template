@@ -1,37 +1,36 @@
-"""Clean database models for the reporting module - streamlined for new calculation system."""
+# app/reporting/models.py - Updated Report model with column preferences
 
-from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Float
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, JSON, Float
 from sqlalchemy.orm import relationship
+from datetime import datetime
 from app.core.database import Base
 
 
 class Report(Base):
-    """Report configuration model."""
+    """Report configuration with column management support."""
 
     __tablename__ = "reports"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False, index=True)
-    description = Column(String, nullable=True)
+    description = Column(Text, nullable=True)
     scope = Column(String, nullable=False)  # 'DEAL' or 'TRANCHE'
-    created_by = Column(String, nullable=False, index=True)
+    created_by = Column(String, nullable=False, default="system")
     created_date = Column(DateTime, default=datetime.now)
     updated_date = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     is_active = Column(Boolean, default=True)
-
+    
+    # NEW: Column preferences for output customization
+    column_preferences = Column(JSON, nullable=True)  # Stores column order, visibility, formatting
+    
     # Relationships
-    selected_deals = relationship(
-        "ReportDeal", back_populates="report", cascade="all, delete-orphan"
-    )
-    selected_calculations = relationship(
-        "ReportCalculation", back_populates="report", cascade="all, delete-orphan"
-    )
+    selected_deals = relationship("ReportDeal", back_populates="report", cascade="all, delete-orphan")
+    selected_calculations = relationship("ReportCalculation", back_populates="report", cascade="all, delete-orphan")
     execution_logs = relationship("ReportExecutionLog", back_populates="report")
 
 
 class ReportDeal(Base):
-    """Report deal association - which deals are selected for a report."""
+    """Report deal association - which deals are included in a report."""
 
     __tablename__ = "report_deals"
 
@@ -39,15 +38,13 @@ class ReportDeal(Base):
     report_id = Column(Integer, ForeignKey("reports.id"), nullable=False)
     dl_nbr = Column(Integer, nullable=False)  # References data warehouse deal
 
-    # Relationships
+    # Relationship
     report = relationship("Report", back_populates="selected_deals")
-    selected_tranches = relationship(
-        "ReportTranche", back_populates="report_deal", cascade="all, delete-orphan"
-    )
+    selected_tranches = relationship("ReportTranche", back_populates="report_deal", cascade="all, delete-orphan")
 
 
 class ReportTranche(Base):
-    """Report tranche association - which tranches are selected for a report."""
+    """Report tranche association - which tranches are selected for a deal."""
 
     __tablename__ = "report_tranches"
 

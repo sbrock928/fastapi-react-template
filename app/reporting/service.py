@@ -1,37 +1,34 @@
-"""Clean reporting service using only the new separated calculation system."""
+# app/reporting/service.py - Complete service with all original functionality + column management
 
+import time
 from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
+from datetime import datetime
 
 from app.reporting.dao import ReportDAO
-from app.reporting.models import Report, ReportDeal, ReportTranche, ReportCalculation
-from app.reporting.schemas import (
-    ReportRead,
-    ReportCreate,
-    ReportUpdate,
-    ReportSummary,
-    ReportScope,
-    AvailableCalculation,
-)
 from app.datawarehouse.dao import DatawarehouseDAO
+from app.reporting.models import Report, ReportExecutionLog
+from app.reporting.schemas import (
+    ReportRead, ReportCreate, ReportUpdate, ReportSummary, AvailableCalculation, ReportScope,
+    ReportColumnPreferences, ColumnPreference, ColumnFormat
+)
+from app.calculations.resolver import CalculationRequest
 from app.calculations.service import (
-    UserCalculationService,
+    UserCalculationService, 
     SystemCalculationService, 
     StaticFieldService,
     ReportExecutionService
 )
 from app.calculations.models import GroupLevel
-from app.calculations.resolver import CalculationRequest
-import time
 
 
 class ReportService:
-    """Clean service for managing reports with the new calculation system."""
+    """Complete report service with calculation management and column preferences support."""
 
     def __init__(self, report_dao: ReportDAO, dw_dao: DatawarehouseDAO, 
                  user_calc_service: UserCalculationService = None,
                  system_calc_service: SystemCalculationService = None,
-                 report_execution_service: ReportExecutionService = None):
+                 report_execution_service: Optional[ReportExecutionService] = None):
         self.report_dao = report_dao
         self.dw_dao = dw_dao
         
@@ -39,6 +36,94 @@ class ReportService:
         self.user_calc_service = user_calc_service
         self.system_calc_service = system_calc_service
         self.report_execution_service = report_execution_service
+
+    # ===== CORE CRUD OPERATIONS =====
+
+    async def get_all(self) -> List[ReportRead]:
+        """Get all reports."""
+        reports = await self.report_dao.get_all()
+        return [ReportRead.model_validate(report) for report in reports]
+
+    async def get_by_id(self, report_id: int) -> Optional[ReportRead]:
+        """Get a report by ID with parsed column preferences."""
+        report = await self.report_dao.get_by_id(report_id)
+        if not report:
+            return None
+            
+        # Create a copy for the response without modifying the original database object
+        report_dict = {
+            'id': report.id,
+            'name': report.name,
+            'description': report.description,
+            'scope': report.scope,
+            'created_by': report.created_by,
+            'is_active': report.is_active,
+            'created_date': report.created_date,
+            'updated_date': report.updated_date,
+            'selected_deals': report.selected_deals,
+            'selected_calculations': report.selected_calculations,
+            'column_preferences': None
+        }
+        
+        # Parse column preferences from JSON for the response only
+        if report.column_preferences:
+            try:
+                report_dict['column_preferences'] = ReportColumnPreferences(**report.column_preferences)
+            except Exception as e:
+                print(f"Warning: Could not parse column preferences for report {report_id}: {e}")
+                report_dict['column_preferences'] = None
+        
+        return ReportRead.model_validate(report_dict)
+
+    async def get_all_summaries(self) -> List[ReportSummary]:
+        """Get all reports with summary information."""
+        reports = await self.report_dao.get_all()
+        return [self._build_summary(report) for report in reports]
+
+    def _build_summary(self, report: Report) -> ReportSummary:
+        """Build summary for a single report."""
+        return ReportSummary(
+            id=report.id,
+            name=report.name,
+            description=report.description,
+            scope=ReportScope(report.scope),
+            created_by=report.created_by,
+            created_date=report.created_date,
+            deal_count=len(report.selected_deals),
+            tranche_count=sum(len(deal.selected_tranches) for deal in report.selected_deals),
+            calculation_count=len(report.selected_calculations),
+            is_active=report.is_active,
+            # TODO: Add execution statistics from execution logs
+            total_executions=0,
+            last_executed=None,
+            last_execution_success=None
+        )
+
+    async def create(self, report_data: ReportCreate) -> ReportRead:
+        """Create a new report with column preferences."""
+        # Convert column preferences to JSON format for storage
+        column_prefs_json = None
+        if report_data.column_preferences:
+            column_prefs_json = report_data.column_preferences.model_dump()
+
+        report = await self.report_dao.create(report_data, column_prefs_json)
+        return ReportRead.model_validate(report)
+
+    async def update(self, report_id: int, report_data: ReportUpdate) -> ReportRead:
+        """Update an existing report with column preferences."""
+        # Convert column preferences to JSON format for storage
+        column_prefs_json = None
+        if report_data.column_preferences:
+            column_prefs_json = report_data.column_preferences.model_dump()
+
+        report = await self.report_dao.update(report_id, report_data, column_prefs_json)
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        return ReportRead.model_validate(report)
+
+    async def delete(self, report_id: int) -> bool:
+        """Delete a report."""
+        return await self.report_dao.delete(report_id)
 
     # ===== CALCULATION MANAGEMENT =====
 
@@ -214,179 +299,10 @@ class ReportService:
             # Non-numeric, non-static ID - default to user_calculation
             return "user_calculation"
 
-    # ===== CORE CRUD OPERATIONS =====
+    # ===== REPORT EXECUTION WITH COLUMN MANAGEMENT =====
 
-    async def get_all(self) -> List[ReportRead]:
-        """Get all reports."""
-        reports = await self.report_dao.get_all()
-        return [ReportRead.model_validate(report) for report in reports]
-
-    async def get_by_id(self, report_id: int) -> Optional[ReportRead]:
-        """Get a report by ID."""
-        report = await self.report_dao.get_by_id(report_id)
-        return ReportRead.model_validate(report) if report else None
-
-    async def get_all_summaries(self) -> List[ReportSummary]:
-        """Get all reports with summary information."""
-        reports = await self.report_dao.get_all()
-        return [self._build_summary(report) for report in reports]
-
-    def _build_summary(self, report: Report) -> ReportSummary:
-        """Build summary for a single report."""
-        deal_count = len(report.selected_deals)
-        tranche_count = sum(
-            (
-                len(deal.selected_tranches)
-                if deal.selected_tranches
-                else len(self.dw_dao.get_tranches_by_dl_nbr(deal.dl_nbr))
-            )
-            for deal in report.selected_deals
-        )
-
-        # Get execution stats from the database
-        try:
-            import asyncio
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If we're in an async context, we need to handle this differently
-                # For now, return basic stats and let the frontend fetch detailed stats separately
-                execution_stats = {
-                    'total_executions': 0,
-                    'last_executed': None,
-                    'last_execution_success': None
-                }
-            else:
-                execution_stats = loop.run_until_complete(
-                    self.report_dao.get_execution_log_stats(report.id)
-                )
-        except Exception as e:
-            print(f"Warning: Could not fetch execution stats: {e}")
-            execution_stats = {
-                'total_executions': 0,
-                'last_executed': None,
-                'last_execution_success': None
-            }
-
-        return ReportSummary(
-            id=report.id,
-            name=report.name,
-            scope=ReportScope(report.scope),
-            created_by=report.created_by or "system",
-            created_date=report.created_date,
-            deal_count=deal_count,
-            tranche_count=tranche_count,
-            calculation_count=len(report.selected_calculations),
-            is_active=report.is_active,
-            total_executions=execution_stats['total_executions'],
-            last_executed=execution_stats['last_executed'],
-            last_execution_success=execution_stats['last_execution_success'],
-        )
-
-    async def create(self, report_data: ReportCreate) -> ReportRead:
-        """Create a new report."""
-        report = self._build_report(report_data)
-        created_report = await self.report_dao.create(report)
-        return ReportRead.model_validate(created_report)
-
-    async def update(self, report_id: int, report_data: ReportUpdate) -> Optional[ReportRead]:
-        """Update a report."""
-        report = await self.report_dao.get_by_id(report_id)
-        if not report:
-            return None
-
-        self._update_report(report, report_data)
-        updated_report = await self.report_dao.update(report)
-        return ReportRead.model_validate(updated_report)
-
-    async def delete(self, report_id: int) -> bool:
-        """Delete a report."""
-        return await self.report_dao.delete(report_id)
-
-    def _build_report(self, report_data: ReportCreate) -> Report:
-        """Build Report entity from creation data."""
-        report_dict = report_data.model_dump(exclude={"selected_deals", "selected_calculations"})
-        report_dict["scope"] = report_data.scope.value
-        report = Report(**report_dict)
-
-        # Add selected deals
-        for deal_data in report_data.selected_deals:
-            report_deal = ReportDeal(dl_nbr=deal_data.dl_nbr)
-
-            if hasattr(deal_data, "selected_tranches") and deal_data.selected_tranches:
-                for tranche_data in deal_data.selected_tranches:
-                    report_tranche = ReportTranche(
-                        dl_nbr=tranche_data.dl_nbr or deal_data.dl_nbr, 
-                        tr_id=tranche_data.tr_id
-                    )
-                    report_deal.selected_tranches.append(report_tranche)
-
-            report.selected_deals.append(report_deal)
-
-        # Add selected calculations with proper calculation_type
-        for calc_data in report_data.selected_calculations:
-            # Determine calculation_type if not provided
-            calculation_type = calc_data.calculation_type
-            if not calculation_type:
-                calculation_type = self._determine_calculation_type(calc_data.calculation_id)
-            
-            report_calc = ReportCalculation(
-                calculation_id=str(calc_data.calculation_id),
-                calculation_type=calculation_type,
-                display_order=calc_data.display_order
-            )
-            report_calc.display_name = self._get_calculation_display_name(report_calc.calculation_id, report_calc.calculation_type)
-            report.selected_calculations.append(report_calc)
-
-        return report
-
-    def _update_report(self, report: Report, report_data: ReportUpdate) -> None:
-        """Update Report entity from update data."""
-        update_data = report_data.model_dump(
-            exclude_unset=True, exclude={"selected_deals", "selected_calculations"}
-        )
-
-        if "scope" in update_data and update_data["scope"]:
-            update_data["scope"] = update_data["scope"].value
-
-        for field, value in update_data.items():
-            setattr(report, field, value)
-
-        # Update relationships if provided
-        if report_data.selected_deals is not None:
-            report.selected_deals.clear()
-            for deal_data in report_data.selected_deals:
-                report_deal = ReportDeal(dl_nbr=deal_data.dl_nbr)
-
-                if hasattr(deal_data, "selected_tranches") and deal_data.selected_tranches:
-                    for tranche_data in deal_data.selected_tranches:
-                        report_tranche = ReportTranche(
-                            dl_nbr=tranche_data.dl_nbr or deal_data.dl_nbr, 
-                            tr_id=tranche_data.tr_id
-                        )
-                        report_deal.selected_tranches.append(report_tranche)
-
-                report.selected_deals.append(report_deal)
-
-        if report_data.selected_calculations is not None:
-            report.selected_calculations.clear()
-            for calc_data in report_data.selected_calculations:
-                # Determine calculation_type if not provided
-                calculation_type = calc_data.calculation_type
-                if not calculation_type:
-                    calculation_type = self._determine_calculation_type(calc_data.calculation_id)
-                
-                report_calc = ReportCalculation(
-                    calculation_id=str(calc_data.calculation_id),
-                    calculation_type=calculation_type,
-                    display_order=calc_data.display_order
-                )
-                report_calc.display_name = self._get_calculation_display_name(report_calc.calculation_id, report_calc.calculation_type)
-                report.selected_calculations.append(report_calc)
-
-    # ===== REPORT EXECUTION =====
-
-    async def run_saved_report(self, report_id: int, cycle_code: int) -> List[Dict[str, Any]]:
-        """Execute a report using the new calculation system."""
+    async def run_report(self, report_id: int, cycle_code: int) -> List[Dict[str, Any]]:
+        """Execute report with column preferences applied."""
         if not self.report_execution_service:
             raise HTTPException(status_code=500, detail="Report execution service not available")
 
@@ -404,14 +320,19 @@ class ReportService:
                 cycle_code
             )
 
+            print(f"Debug: Raw data before column preferences: {result['data'][:1] if result['data'] else 'No data'}")
+
+            # Apply column preferences to the result
+            formatted_data = self._apply_column_preferences(result['data'], report)
+
             # Log execution
             await self._log_execution(
                 report_id, cycle_code, "api_user",
                 (time.time() - start_time) * 1000,
-                len(result['data']), True
+                len(formatted_data), True
             )
 
-            return result['data']
+            return formatted_data
 
         except Exception as e:
             await self._log_execution(
@@ -420,6 +341,172 @@ class ReportService:
                 0, False, str(e)
             )
             raise
+
+    def _apply_column_preferences(self, raw_data: List[Dict[str, Any]], 
+                                  report: Report) -> List[Dict[str, Any]]:
+        """Apply column preferences to format and filter output data."""
+        if not raw_data:
+            return raw_data
+
+        # Use the parsed column preferences attached to the report
+        column_prefs = getattr(report, '_parsed_column_preferences', None)
+        
+        # If no column preferences, return data as-is
+        if not column_prefs:
+            return raw_data
+
+        # Build column mapping and formatting rules
+        column_mapping = {}
+        format_rules = {}
+        visible_columns = set()
+        
+        # Create a mapping from calculation IDs to display names for user/system calculations
+        calc_id_to_display_name = {}
+        for report_calc in report.selected_calculations:
+            calc_id = report_calc.calculation_id
+            calc_type = getattr(report_calc, 'calculation_type', None)
+            display_name = self._get_calculation_display_name(calc_id, calc_type)
+            calc_id_to_display_name[calc_id] = display_name
+        
+        for col_pref in column_prefs.columns:
+            if col_pref.is_visible:
+                column_id = col_pref.column_id
+                
+                # Handle different types of columns
+                if column_id.startswith("static_") or column_id.replace(".", "_") in ["deal_number", "tranche_id", "cycle_code"]:
+                    # Static fields - convert dots to underscores for raw data lookup
+                    raw_data_key = column_id.replace(".", "_")
+                elif column_id in calc_id_to_display_name:
+                    # User/system calculations - use the display name as the key
+                    raw_data_key = calc_id_to_display_name[column_id]
+                else:
+                    # Default case - use column_id as is
+                    raw_data_key = column_id
+                
+                column_mapping[raw_data_key] = col_pref.display_name
+                format_rules[raw_data_key] = col_pref.format_type
+                visible_columns.add(raw_data_key)
+
+        # Handle default columns based on report scope, but respect visibility settings
+        if report.scope == "DEAL":
+            default_columns = {'deal_number', 'cycle_code'}
+        else:  # TRANCHE scope
+            default_columns = {'deal_number', 'tranche_id', 'cycle_code'}
+        
+        # Create a set of explicitly hidden columns from column preferences
+        hidden_columns = set()
+        for col_pref in column_prefs.columns:
+            if not col_pref.is_visible:
+                # Convert column_id to raw_data_key format for comparison
+                if col_pref.column_id.startswith("static_") or col_pref.column_id.replace(".", "_") in ["deal_number", "tranche_id", "cycle_code"]:
+                    hidden_columns.add(col_pref.column_id.replace(".", "_"))
+                else:
+                    hidden_columns.add(col_pref.column_id)
+            
+        if column_prefs.include_default_columns:
+            for col in default_columns:
+                # Only add default columns if they're not explicitly hidden and not already visible
+                if col not in visible_columns and col not in hidden_columns and col in raw_data[0]:
+                    visible_columns.add(col)
+                    if col not in column_mapping:
+                        column_mapping[col] = col.replace('_', ' ').title()
+
+        # Process each row
+        formatted_data = []
+        for row in raw_data:
+            formatted_row = {}
+            
+            # Only include visible columns
+            for original_col, value in row.items():
+                if original_col in visible_columns:
+                    display_name = column_mapping.get(original_col, original_col)
+                    format_type = format_rules.get(original_col, ColumnFormat.TEXT)
+                    
+                    # Apply formatting
+                    formatted_value = self._format_value(value, format_type)
+                    formatted_row[display_name] = formatted_value
+            
+            formatted_data.append(formatted_row)
+
+        # Sort columns by display_order if specified
+        if column_prefs.columns:
+            ordered_columns = sorted(
+                [col for col in column_prefs.columns if col.is_visible],
+                key=lambda x: x.display_order
+            )
+            
+            # Reorder each row based on column preferences
+            reordered_data = []
+            for row in formatted_data:
+                reordered_row = {}
+                
+                # Add columns in preference order
+                for col_pref in ordered_columns:
+                    display_name = col_pref.display_name
+                    if display_name in row:
+                        reordered_row[display_name] = row[display_name]
+                
+                # Add any remaining columns not in preferences
+                for key, value in row.items():
+                    if key not in reordered_row:
+                        reordered_row[key] = value
+                
+                reordered_data.append(reordered_row)
+            
+            formatted_data = reordered_data
+
+        return formatted_data
+
+    def _format_value(self, value: Any, format_type: ColumnFormat) -> Any:
+        """Format a single value according to the specified format type."""
+        if value is None:
+            return None
+
+        try:
+            if format_type == ColumnFormat.CURRENCY:
+                if isinstance(value, (int, float)):
+                    return f"${value:,.2f}"
+                return value
+            
+            elif format_type == ColumnFormat.PERCENTAGE:
+                if isinstance(value, (int, float)):
+                    return f"{value:.1f}%"
+                return value
+            
+            elif format_type == ColumnFormat.NUMBER:
+                if isinstance(value, (int, float)):
+                    return f"{value:,}"
+                return value
+            
+            elif format_type == ColumnFormat.DATE_MDY:
+                if isinstance(value, datetime):
+                    return value.strftime("%m/%d/%Y")
+                elif isinstance(value, str):
+                    # Try to parse and reformat
+                    try:
+                        dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                        return dt.strftime("%m/%d/%Y")
+                    except:
+                        return value
+                return value
+            
+            elif format_type == ColumnFormat.DATE_DMY:
+                if isinstance(value, datetime):
+                    return value.strftime("%d/%m/%Y")
+                elif isinstance(value, str):
+                    try:
+                        dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                        return dt.strftime("%d/%m/%Y")
+                    except:
+                        return value
+                return value
+            
+            else:  # TEXT or unknown
+                return value
+                
+        except Exception as e:
+            print(f"Warning: Could not format value {value} with format {format_type}: {e}")
+            return value
 
     def _prepare_execution(self, report: Report) -> tuple[Dict[int, List[str]], List[CalculationRequest]]:
         """Convert report to execution format with enhanced calculation type detection."""
@@ -435,19 +522,60 @@ class ReportService:
 
         # Convert to calculation requests with improved logic
         calculation_requests = []
+        
+        # Add default columns if requested (NEW LOGIC)
+        include_defaults = True
+        column_prefs = getattr(report, '_parsed_column_preferences', None)
+        if column_prefs:
+            include_defaults = column_prefs.include_default_columns
+        
+        if include_defaults:
+            # Add the automatic backend columns
+            default_fields = [
+                ("deal.dl_nbr", "deal_number"),
+                ("tranche.tr_id", "tranche_id") if report.scope == "TRANCHE" else None,
+                ("tranchebal.cycle_cde", "cycle_code")
+            ]
+            
+            for field_info in default_fields:
+                if field_info:  # Skip None entries
+                    field_path, alias = field_info
+                    calc_request = CalculationRequest(
+                        calc_type="static_field",
+                        field_path=field_path,
+                        alias=alias
+                    )
+                    calculation_requests.append(calc_request)
+
+        # Add user-selected calculations with enhanced auto-detection
         for report_calc in report.selected_calculations:
             calc_id_str = report_calc.calculation_id
             calc_type = getattr(report_calc, 'calculation_type', None)
             
-            # Handle static fields (they always start with "static_")
-            if calc_id_str.startswith("static_"):
-                field_path = calc_id_str.replace("static_", "")
+            print(f"Debug: Processing calculation - ID: {calc_id_str}, Type: {calc_type}")
+            
+            # Handle static fields - check calculation_type first, then fallback to "static_" prefix
+            if calc_type == "static" or calc_id_str.startswith("static_"):
+                if calc_type == "static":
+                    # The calc_id_str IS the field path for static type, but may have "static_" prefix
+                    if calc_id_str.startswith("static_"):
+                        field_path = calc_id_str.replace("static_", "")
+                    else:
+                        field_path = calc_id_str
+                    # Use the calculation_id as the alias, but replace dots with underscores for valid SQL
+                    alias = calc_id_str.replace(".", "_")
+                else:
+                    # The calc_id_str has "static_" prefix, remove it
+                    field_path = calc_id_str.replace("static_", "")
+                    alias = calc_id_str.replace(".", "_")
+                    
                 calc_request = CalculationRequest(
                     calc_type="static_field",
                     field_path=field_path,
-                    alias=field_path.replace(".", "_")
+                    alias=alias
                 )
                 calculation_requests.append(calc_request)
+                print(f"Debug: Added static field request - Field: {field_path}, Alias: {alias}")
                 continue
             
             # Handle numeric calculation IDs
@@ -461,37 +589,41 @@ class ReportService:
             calc_request = None
             
             # If calculation_type is explicitly set, use it
-            if calc_type == "user_calculation":
-                user_calc = self.user_calc_service.get_user_calculation_by_id(numeric_id)
-                if user_calc:
-                    calc_request = CalculationRequest(
-                        calc_type="user_calculation",
-                        calc_id=numeric_id,
-                        alias=user_calc.name
-                    )
-            elif calc_type == "system_calculation":
-                system_calc = self.system_calc_service.get_system_calculation_by_id(numeric_id)
-                if system_calc:
-                    calc_request = CalculationRequest(
-                        calc_type="system_calculation",
-                        calc_id=numeric_id,
-                        alias=system_calc.name
-                    )
+            if calc_type == "user_calculation" or calc_type == "user":
+                if self.user_calc_service:
+                    user_calc = self.user_calc_service.get_user_calculation_by_id(numeric_id)
+                    if user_calc:
+                        calc_request = CalculationRequest(
+                            calc_type="user_calculation",
+                            calc_id=numeric_id,
+                            alias=user_calc.name
+                        )
+            elif calc_type == "system_calculation" or calc_type == "system":
+                if self.system_calc_service:
+                    system_calc = self.system_calc_service.get_system_calculation_by_id(numeric_id)
+                    if system_calc:
+                        calc_request = CalculationRequest(
+                            calc_type="system_calculation",
+                            calc_id=numeric_id,
+                            alias=system_calc.name
+                        )
             else:
                 # calculation_type is NULL or missing - try to auto-detect
                 # This handles the legacy data issue
                 print(f"Warning: calculation_type is NULL for calc_id {numeric_id}, attempting auto-detection")
                 
                 # Check user calculations first
-                user_calc = self.user_calc_service.get_user_calculation_by_id(numeric_id)
-                if user_calc:
-                    calc_request = CalculationRequest(
-                        calc_type="user_calculation",
-                        calc_id=numeric_id,
-                        alias=user_calc.name
-                    )
-                    print(f"Auto-detected as user_calculation: {user_calc.name}")
-                else:
+                if self.user_calc_service:
+                    user_calc = self.user_calc_service.get_user_calculation_by_id(numeric_id)
+                    if user_calc:
+                        calc_request = CalculationRequest(
+                            calc_type="user_calculation",
+                            calc_id=numeric_id,
+                            alias=user_calc.name
+                        )
+                        print(f"Auto-detected as user_calculation: {user_calc.name}")
+                
+                if not calc_request and self.system_calc_service:
                     # Try system calculations
                     system_calc = self.system_calc_service.get_system_calculation_by_id(numeric_id)
                     if system_calc:
@@ -501,20 +633,24 @@ class ReportService:
                             alias=system_calc.name
                         )
                         print(f"Auto-detected as system_calculation: {system_calc.name}")
-                    else:
-                        print(f"Warning: No calculation found with ID {numeric_id}")
+                
+                if not calc_request:
+                    print(f"Warning: No calculation found with ID {numeric_id}")
             
             if calc_request:
                 calculation_requests.append(calc_request)
 
         if not calculation_requests:
-            print("Debug: No valid calculations found. Report calculations:")
+            print("Debug: No valid calculations found for report")
+            print(f"Report calculations:")
             for report_calc in report.selected_calculations:
                 print(f"  - ID: {report_calc.calculation_id}, Type: {getattr(report_calc, 'calculation_type', 'NULL')}")
             raise HTTPException(status_code=400, detail="No valid calculations found for report")
 
         print(f"Debug: Successfully prepared {len(calculation_requests)} calculation requests")
         return deal_tranche_map, calculation_requests
+
+    # ===== OTHER REPORT OPERATIONS =====
 
     async def preview_report_sql(self, report_id: int, cycle_code: int) -> Dict[str, Any]:
         """Preview SQL for a report."""
@@ -539,10 +675,8 @@ class ReportService:
         """Get execution logs for a report."""
         await self._get_report_or_404(report_id)
         
-        # Get execution logs from the database
         execution_logs = await self.report_dao.get_execution_logs(report_id, limit)
         
-        # Convert to dictionaries for API response
         return [
             {
                 "id": log.id,
@@ -558,16 +692,10 @@ class ReportService:
             for log in execution_logs
         ]
 
-    async def _log_execution(
-        self, report_id: int, cycle_code: int, executed_by: str,
-        execution_time_ms: float, row_count: int, success: bool,
-        error_message: str = None
-    ) -> None:
+    async def _log_execution(self, report_id: int, cycle_code: int, executed_by: str,
+                            execution_time_ms: float, row_count: int, success: bool,
+                            error_message: str = None) -> None:
         """Log report execution."""
-        from app.reporting.models import ReportExecutionLog
-        from datetime import datetime
-        
-        # Create execution log entry
         execution_log = ReportExecutionLog(
             report_id=report_id,
             cycle_code=cycle_code,
@@ -579,8 +707,35 @@ class ReportService:
             executed_at=datetime.now()
         )
         
-        # Save to database
         await self.report_dao.create_execution_log(execution_log)
+
+    async def _get_report_or_404(self, report_id: int) -> Report:
+        """Get report or raise 404."""
+        report = await self.get_by_id(report_id)  # Use the enhanced get_by_id method
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        # Get the raw report from DAO without modifying it
+        raw_report = await self.report_dao.get_by_id(report_id)
+        
+        # Create a copy of the report for internal use with parsed column preferences
+        # but don't modify the original database object
+        if raw_report.column_preferences and isinstance(raw_report.column_preferences, dict):
+            try:
+                # Create a new Report object with parsed column preferences
+                # This avoids modifying the original database object
+                parsed_column_prefs = ReportColumnPreferences(**raw_report.column_preferences)
+                
+                # Create a new Report instance with the parsed preferences
+                # We'll use a simple approach - just attach the parsed preferences as an attribute
+                raw_report._parsed_column_preferences = parsed_column_prefs
+            except Exception as e:
+                print(f"Warning: Could not parse column preferences: {e}")
+                raw_report._parsed_column_preferences = None
+        else:
+            raw_report._parsed_column_preferences = None
+        
+        return raw_report
 
     # ===== DATA WAREHOUSE ENDPOINTS =====
 
@@ -601,9 +756,8 @@ class ReportService:
             print(f"Warning: Could not fetch deals: {e}")
             return []
 
-    def get_available_tranches_for_deals(
-        self, deal_ids: List[int], cycle_code: Optional[int] = None
-    ) -> Dict[int, List[Dict[str, Any]]]:
+    def get_available_tranches_for_deals(self, deal_ids: List[int], 
+                                        cycle_code: Optional[int] = None) -> Dict[int, List[Dict[str, Any]]]:
         """Get available tranches for deals."""
         try:
             return {
@@ -621,12 +775,3 @@ class ReportService:
         except Exception as e:
             print(f"Warning: Could not fetch cycles: {e}")
             return []
-
-    # ===== UTILITIES =====
-
-    async def _get_report_or_404(self, report_id: int) -> Report:
-        """Get report or raise 404."""
-        report = await self.report_dao.get_by_id(report_id)
-        if not report:
-            raise HTTPException(status_code=404, detail="Report not found")
-        return report

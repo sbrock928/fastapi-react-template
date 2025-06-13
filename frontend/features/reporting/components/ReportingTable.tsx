@@ -11,6 +11,14 @@ interface ReportingTableProps {
   loading: boolean;
   reportConfig: DynamicReportConfig;
   isSkeletonMode?: boolean;
+  // New props for backend column management
+  backendColumns?: Array<{
+    field: string;
+    header: string;
+    format_type: string;
+    display_order: number;
+  }>;
+  useBackendFormatting?: boolean;
 }
 
 const ReportingTable: React.FC<ReportingTableProps> = ({ 
@@ -18,7 +26,9 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
   reportData, 
   loading,
   reportConfig,
-  isSkeletonMode = false
+  isSkeletonMode = false,
+  backendColumns,
+  useBackendFormatting = false
 }) => {
   const [filteredReportData, setFilteredReportData] = useState<ReportRow[]>([]);
   const [filterText, setFilterText] = useState<string>('');
@@ -86,7 +96,8 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
       const exportData = {
         reportType: reportType,
         data: reportData,
-        fileName: fileName
+        fileName: fileName,
+        columnPreferences: undefined // Changed from null to undefined to match the type
       };
       
       const response = await reportingApi.exportXlsx(exportData);
@@ -103,6 +114,7 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      URL.revokeObjectURL(url);
       
     } catch (error) {
       console.error('Error exporting to XLSX:', error);
@@ -305,19 +317,22 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
   );
   
   function renderReportTable() {
+    // Use backend columns if available and backend formatting is enabled
+    const columnsToUse = useBackendFormatting && backendColumns ? backendColumns : reportConfig.columns;
+    
     if (filteredReportData.length === 0) {
       return (
         <table className="table table-striped" id="reportTable">
           <thead>
             <tr>
-              {reportConfig.columns.map(column => (
+              {columnsToUse.map(column => (
                 <th key={column.field}>{column.header}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td colSpan={reportConfig.columns.length} className="text-center py-4">
+              <td colSpan={columnsToUse.length} className="text-center py-4">
                 No matching data found. Try changing your filter or report parameters.
               </td>
             </tr>
@@ -331,7 +346,7 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
         <table className="table table-striped" id="reportTable">
           <thead>
             <tr>
-              {reportConfig.columns.map(column => (
+              {columnsToUse.map(column => (
                 <th key={column.field}>{column.header}</th>
               ))}
             </tr>
@@ -339,20 +354,39 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
           <tbody>
             {pagination.pageItems.map((row, idx) => (
               <tr key={idx}>
-                {reportConfig.columns.map(column => {
+                {columnsToUse.map(column => {
                   let cellValue = row[column.field];
                   let className = '';
                   
-                  // Format cell based on type
-                  if (column.type === 'number') {
-                    className = 'report-num-cell';
-                    cellValue = formatNumber(cellValue);
-                  } else if (column.type === 'percentage') {
-                    className = 'report-num-cell';
-                    cellValue = formatPercentage(cellValue);
-                  } else if (column.type === 'date') {
-                    className = 'report-date-cell';
-                    cellValue = formatDate(cellValue);
+                  // Use backend formatting if available, otherwise fall back to frontend formatting
+                  if (useBackendFormatting && 'format_type' in column) {
+                    // Backend formatting - data is already formatted, just apply CSS classes
+                    const formatType = column.format_type;
+                    
+                    if (formatType === 'number') {
+                      className = 'report-num-cell';
+                    } else if (formatType === 'currency') {
+                      className = 'report-num-cell';
+                    } else if (formatType === 'percentage') {
+                      className = 'report-num-cell';
+                    } else if (formatType === 'date_mdy' || formatType === 'date_dmy') {
+                      className = 'report-date-cell';
+                    }
+                    // For 'text' format type, no additional formatting or CSS class needed
+                    
+                  } else {
+                    // Legacy frontend formatting (for backwards compatibility)
+                    const legacyColumn = column as any;
+                    if (legacyColumn.type === 'number') {
+                      className = 'report-num-cell';
+                      cellValue = formatNumber(cellValue);
+                    } else if (legacyColumn.type === 'percentage') {
+                      className = 'report-num-cell';
+                      cellValue = formatPercentage(cellValue);
+                    } else if (legacyColumn.type === 'date') {
+                      className = 'report-date-cell';
+                      cellValue = formatDate(cellValue);
+                    }
                   }
                   
                   // Add skeleton class if in skeleton mode
@@ -360,12 +394,18 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
                     className += ' skeleton-shimmer';
                     
                     // For skeleton mode, replace actual values with reasonable placeholders
-                    if (column.type === 'number') {
+                    const formatType = useBackendFormatting && 'format_type' in column 
+                      ? column.format_type 
+                      : (column as any).type;
+                      
+                    if (formatType === 'number') {
                       cellValue = '10000';
-                    } else if (column.type === 'percentage') {
+                    } else if (formatType === 'percentage') {
                       cellValue = '100%';
-                    } else if (column.type === 'date') {
+                    } else if (formatType === 'date' || formatType === 'date_mdy' || formatType === 'date_dmy') {
                       cellValue = '2025-01-01';
+                    } else if (formatType === 'currency') {
+                      cellValue = '$10,000.00';
                     } else {
                       cellValue = 'Example data';
                     }
@@ -381,8 +421,6 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
             ))}
           </tbody>
         </table>
-        
-
       </>
     );
   }

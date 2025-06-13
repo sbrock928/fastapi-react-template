@@ -1,4 +1,4 @@
-import type { ReportCalculation } from '@/types/reporting';
+import type { ReportCalculation, ReportColumnPreferences } from '@/types/reporting';
 
 // Updated form state interface for calculations
 export interface ReportBuilderFormState {
@@ -8,6 +8,7 @@ export interface ReportBuilderFormState {
   selectedDeals: number[];
   selectedTranches: Record<number, string[]>;
   selectedCalculations: ReportCalculation[]; // Changed from selectedFields
+  columnPreferences?: ReportColumnPreferences; // NEW: Optional column preferences
 }
 
 export interface ValidationError {
@@ -95,9 +96,34 @@ export const validationRules = {
 
     if (formState.selectedCalculations.length === 0) {
       errors.push({
-        field: 'selectedCalculations', // Changed from selectedFields
+        field: 'selectedCalculations',
         message: 'At least one calculation must be selected'
       });
+    }
+
+    // Column preferences are optional but if present, validate them
+    if (formState.columnPreferences) {
+      const { columns } = formState.columnPreferences;
+      
+      // Check for duplicate display names
+      const displayNames = columns.map(col => col.display_name.toLowerCase().trim());
+      const duplicates = displayNames.filter((name, index) => displayNames.indexOf(name) !== index);
+      
+      if (duplicates.length > 0) {
+        errors.push({
+          field: 'columnPreferences',
+          message: 'Column display names must be unique'
+        });
+      }
+      
+      // Check that at least one column is visible
+      const visibleColumns = columns.filter(col => col.is_visible);
+      if (visibleColumns.length === 0 && !formState.columnPreferences.include_default_columns) {
+        errors.push({
+          field: 'columnPreferences',
+          message: 'At least one column must be visible in the output'
+        });
+      }
     }
 
     return {

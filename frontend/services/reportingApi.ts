@@ -6,10 +6,11 @@ import type {
   ReportConfig, 
   ReportSummary, 
   RunReportRequest,
-  AvailableCalculation // Changed from AvailableField
+  AvailableCalculation,
+  ReportColumnPreferences
 } from '@/types/reporting';
 
-// Reporting API service - Updated for calculation-based reporting
+// Reporting API service - Updated for calculation-based reporting with column management
 const reportingApi = {
   // ===== DEAL & TRANCHE DATA ENDPOINTS =====
   
@@ -57,12 +58,12 @@ const reportingApi = {
     return apiClient.get(`/reports/${reportId}`);
   },
 
-  // Create new report configuration
+  // Create new report configuration with column preferences
   createReport: (reportData: Omit<ReportConfig, 'id' | 'created_date' | 'updated_date'>): Promise<{ data: ReportConfig }> => {
     return apiClient.post('/reports/', reportData);
   },
 
-  // Update report configuration
+  // Update report configuration with column preferences
   updateReport: (reportId: number, reportData: Partial<ReportConfig>): Promise<{ data: ReportConfig }> => {
     return apiClient.patch(`/reports/${reportId}`, reportData);
   },
@@ -74,24 +75,35 @@ const reportingApi = {
 
   // ===== REPORT EXECUTION ENDPOINTS =====
 
-  // Run a saved report configuration
+  // Run a saved report configuration (returns formatted data based on column preferences)
   runSavedReport: (request: RunReportRequest): Promise<{ data: ReportRow[] }> => {
     return apiClient.post('/reports/run', request);
   },
 
-  // Run report by ID with cycle parameter
-  runReportById: (reportId: number, cycleCode: number): Promise<{ data: ReportRow[] }> => {
+  // Run report by ID with cycle parameter (returns formatted data with column metadata)
+  runReportById: (reportId: number, cycleCode: number): Promise<{ 
+    data: { 
+      data: ReportRow[]; 
+      columns: Array<{
+        field: string;
+        header: string;
+        format_type: string;
+        display_order: number;
+      }>;
+      total_rows: number;
+    } 
+  }> => {
     return apiClient.post(`/reports/run/${reportId}`, { cycle_code: cycleCode });
   },
 
-  // Preview SQL for a report (NEW)
+  // Preview SQL for a report
   previewReportSQL: (reportId: number, cycleCode: number): Promise<{ data: any }> => {
     return apiClient.get(`/reports/${reportId}/preview-sql`, { 
       params: { cycle_code: (cycleCode) } 
     });
   },
 
-  // Get execution logs for a report (NEW)
+  // Get execution logs for a report
   getExecutionLogs: (reportId: number, limit: number = 50): Promise<{ data: any[] }> => {
     return apiClient.get(`/reports/${reportId}/execution-logs`, { 
       params: { limit } 
@@ -105,15 +117,35 @@ const reportingApi = {
     return apiClient.get('/reports/data/cycles');
   },
 
-  // Export to Excel
-  exportXlsx: (data: { reportType: string, data: ReportRow[], fileName: string }) => 
-    apiClient.post('/reports/export-xlsx', data, { responseType: 'blob' }),
+  // Export to Excel with column management support
+  exportXlsx: (data: { 
+    reportType: string;
+    data: ReportRow[];
+    fileName: string;
+    columnPreferences?: ReportColumnPreferences;
+  }) => {
+    return apiClient.post('/reports/export-xlsx', data, { responseType: 'blob' });
+  },
 
-  // Get available calculations for report building (UPDATED)
+  // Get available calculations for report building
   getAvailableCalculations: (scope: 'DEAL' | 'TRANCHE'): Promise<{ data: AvailableCalculation[] }> => {
     return apiClient.get('/reports/calculations/available', {
       params: { scope }
     });
+  },
+
+  // ===== COLUMN MANAGEMENT UTILITIES =====
+
+  // Validate column preferences (client-side utility)
+  validateColumnPreferences: (preferences: ReportColumnPreferences): { isValid: boolean; errors: string[] } => {
+    const { validateColumnPreferences } = require('../components/utils/reportBusinessLogic');
+    return validateColumnPreferences(preferences);
+  },
+
+  // Generate preview of formatted data (client-side utility)  
+  previewFormattedData: (rawData: any[], columnPreferences: ReportColumnPreferences): any[] => {
+    const { generateFormattedPreview } = require('../components/utils/reportBusinessLogic');
+    return generateFormattedPreview(rawData, columnPreferences);
   }
 };
 

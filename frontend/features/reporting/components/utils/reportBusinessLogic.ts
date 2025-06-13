@@ -1,64 +1,91 @@
-// frontend/features/reporting/components/utils/reportBusinessLogic.ts
-// Updated to work with the new separated calculation system
+import type { 
+  ReportBuilderFormState, 
+  ReportConfig, 
+  ReportColumnPreferences,
+  AvailableCalculation,
+  ReportCalculation
+} from '@/types/reporting';
+import { ColumnFormat } from '@/types/reporting';
 
-import type { ReportBuilderFormState } from '../hooks/useReportBuilderForm';
-import type { AvailableCalculation, ReportCalculation } from '@/types/reporting';
+interface ExtendedFormState extends ReportBuilderFormState {
+  columnPreferences?: ReportColumnPreferences;
+}
 
-/**
- * Transform form state data into the format expected by the API (simplified structure)
- * Smart tranche handling for both DEAL and TRANCHE scope reports:
- * - Only include tranches if they represent explicit exclusions from "all selected" default
- * - If all available tranches are selected, don't include tranches (means "all included")
- * - If some tranches are deselected, include only the remaining selected ones (exclusionary behavior)
- */
-export const transformFormDataForApi = (formState: ReportBuilderFormState, availableTranches?: Record<number, any[]>) => {
-  const { selectedDeals, selectedTranches, selectedCalculations, reportName, reportDescription, reportScope } = formState;
+export const transformFormDataForApi = (
+  formState: ExtendedFormState
+): Omit<ReportConfig, 'id' | 'created_date' | 'updated_date'> => {
+  const {
+    reportName,
+    reportDescription,
+    reportScope,
+    selectedDeals,
+    selectedTranches,
+    selectedCalculations,
+    columnPreferences
+  } = formState;
 
-  const transformedSelectedDeals = selectedDeals.map((dlNbr: number) => {
-    const dealTranches = selectedTranches[dlNbr] || [];
-    const availableTrancheCount = availableTranches?.[dlNbr]?.length || 0;
-    
-    // Smart tranche handling: only include tranches if user explicitly excluded some
-    // This applies to both DEAL and TRANCHE scope reports for consistency
-    let shouldIncludeTranches = false;
-    
-    if (availableTrancheCount > 0 && dealTranches.length < availableTrancheCount) {
-      // User has explicitly deselected some tranches - include the remaining selected ones
-      shouldIncludeTranches = true;
-    }
-    // If dealTranches.length === availableTrancheCount, it means all are selected (default)
-    // If dealTranches.length === 0, it means none are selected (also don't store - let backend handle)
+  // Validate required fields
+  if (!reportName?.trim()) {
+    throw new Error('Report name is required');
+  }
+  
+  if (!reportScope) {
+    throw new Error('Report scope is required');
+  }
 
-    const dealData: any = {
+  if (selectedDeals.length === 0) {
+    throw new Error('At least one deal must be selected');
+  }
+
+  if (selectedCalculations.length === 0) {
+    throw new Error('At least one calculation must be selected');
+  }
+
+  // Transform deals with their selected tranches
+  const selected_deals = selectedDeals.map(dlNbr => ({
+    dl_nbr: dlNbr,
+    selected_tranches: (selectedTranches[dlNbr] || []).map(trId => ({
+      tr_id: trId,
       dl_nbr: dlNbr
-    };
-
-    // Only add selected_tranches if they represent explicit exclusions
-    if (shouldIncludeTranches) {
-      dealData.selected_tranches = dealTranches.map((trId: string) => ({
-        tr_id: trId
-      }));
-    }
-
-    return dealData;
-  });
-
-  // Transform calculations for the new API format
-  const transformedCalculations = selectedCalculations.map((calc, index) => ({
-    calculation_id: calc.calculation_id, // Keep as number, not string
-    calculation_type: calc.calculation_type,
-    display_order: calc.display_order ?? index,
-    display_name: calc.display_name || undefined
+    }))
   }));
 
+  // Ensure column preferences are valid if provided
+  let validatedColumnPreferences: ReportColumnPreferences | undefined = columnPreferences;
+  
+  if (columnPreferences) {
+    // Validate and clean column preferences
+    const cleanedColumns = columnPreferences.columns
+      .filter(col => col.display_name?.trim()) // Remove columns without names
+      .map((col, index) => ({
+        ...col,
+        display_name: col.display_name.trim(),
+        display_order: index // Ensure sequential ordering
+      }));
+
+    validatedColumnPreferences = {
+      ...columnPreferences,
+      columns: cleanedColumns
+    };
+
+    // Ensure at least one column is visible or default columns are included
+    const hasVisibleColumns = cleanedColumns.some(col => col.is_visible);
+    if (!hasVisibleColumns && !columnPreferences.include_default_columns) {
+      validatedColumnPreferences.include_default_columns = true;
+    }
+  }
+
   return {
-    name: reportName,
-    description: reportDescription || undefined,
+    name: reportName.trim(),
+    description: reportDescription?.trim() || undefined,
     scope: reportScope as 'DEAL' | 'TRANCHE',
-    selected_deals: transformedSelectedDeals,
-    selected_calculations: transformedCalculations
+    selected_deals,
+    selected_calculations: selectedCalculations,
+    column_preferences: validatedColumnPreferences,
+    is_active: true
   };
 };
+
 
 /**
  * Create new report configuration payload
@@ -251,4 +278,168 @@ export const filterCalculationsByCompatibility = (
   });
   
   return { compatible, incompatible };
+};
+
+/**
+ * Helper function to validate column preferences
+ */
+export const validateColumnPreferences = (
+  preferences: ReportColumnPreferences
+): { isValid: boolean; errors: string[] } => {
+  const errors: string[] = [];
+
+  // Check for duplicate display names
+  const displayNames = preferences.columns.map(col => col.display_name.toLowerCase().trim());
+  const duplicates = displayNames.filter((name, index) => 
+    name && displayNames.indexOf(name) !== index
+  );
+  
+  if (duplicates.length > 0) {
+    errors.push('Column display names must be unique');
+  }
+
+  // Check for empty display names
+  const emptyNames = preferences.columns.filter(col => !col.display_name?.trim());
+  if (emptyNames.length > 0) {
+    errors.push('All columns must have display names');
+  }
+
+  // Check that at least one column is visible
+  const visibleColumns = preferences.columns.filter(col => col.is_visible);
+  if (visibleColumns.length === 0 && !preferences.include_default_columns) {
+    errors.push('At least one column must be visible in the output');
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors
+  };
+};
+
+/**
+ * Helper function to merge column preferences when editing reports
+ */
+export const mergeColumnPreferences = (
+  existingPreferences: ReportColumnPreferences | undefined,
+  newCalculations: any[],
+  reportScope: 'DEAL' | 'TRANCHE'
+): ReportColumnPreferences => {
+  if (!existingPreferences) {
+    // Create new preferences from scratch
+    const { getDefaultColumnPreferences } = require('@/types/reporting');
+    return getDefaultColumnPreferences(newCalculations, reportScope, true);
+  }
+
+  // Get existing column IDs
+  const existingColumnIds = new Set(existingPreferences.columns.map(col => col.column_id));
+  
+  // Find new calculations that don't have column preferences yet
+  const newCalculationColumns = newCalculations
+    .filter(calc => !existingColumnIds.has(String(calc.calculation_id)))
+    .map((calc, index) => ({
+      column_id: String(calc.calculation_id),
+      display_name: calc.display_name || `Calculation ${calc.calculation_id}`,
+      is_visible: true,
+      display_order: existingPreferences.columns.length + index,
+      format_type: ColumnFormat.TEXT
+    }));
+
+  // Remove columns for calculations that no longer exist
+  const currentCalculationIds = new Set(newCalculations.map(calc => String(calc.calculation_id)));
+  const validExistingColumns = existingPreferences.columns.filter(col => 
+    currentCalculationIds.has(col.column_id) || 
+    ['deal_number', 'tranche_id', 'cycle_code'].includes(col.column_id) // Keep default columns
+  );
+
+  return {
+    ...existingPreferences,
+    columns: [...validExistingColumns, ...newCalculationColumns]
+  };
+};
+
+/**
+ * Helper function to generate sample formatted data for preview
+ */
+export const generateFormattedPreview = (
+  rawData: any[],
+  columnPreferences: ReportColumnPreferences
+): any[] => {
+  if (!rawData.length || !columnPreferences) {
+    return rawData;
+  }
+
+  return rawData.map(row => {
+    const formattedRow: any = {};
+
+    // Apply column preferences
+    columnPreferences.columns
+      .filter(col => col.is_visible)
+      .sort((a, b) => a.display_order - b.display_order)
+      .forEach(colPref => {
+        const originalValue = row[colPref.column_id];
+        const displayName = colPref.display_name;
+        
+        // Apply formatting based on format type
+        let formattedValue = originalValue;
+        
+        if (originalValue !== null && originalValue !== undefined) {
+          switch (colPref.format_type) {
+            case ColumnFormat.CURRENCY:
+              if (typeof originalValue === 'number') {
+                formattedValue = `$${originalValue.toLocaleString('en-US', { 
+                  minimumFractionDigits: 2, 
+                  maximumFractionDigits: 2 
+                })}`;
+              }
+              break;
+              
+            case ColumnFormat.PERCENTAGE:
+              if (typeof originalValue === 'number') {
+                formattedValue = `${originalValue.toFixed(1)}%`;
+              }
+              break;
+              
+            case ColumnFormat.NUMBER:
+              if (typeof originalValue === 'number') {
+                formattedValue = originalValue.toLocaleString('en-US');
+              }
+              break;
+              
+            case ColumnFormat.DATE_MDY:
+              if (originalValue instanceof Date) {
+                formattedValue = originalValue.toLocaleDateString('en-US');
+              } else if (typeof originalValue === 'string') {
+                try {
+                  const date = new Date(originalValue);
+                  formattedValue = date.toLocaleDateString('en-US');
+                } catch {
+                  // Keep original value if parsing fails
+                }
+              }
+              break;
+              
+            case ColumnFormat.DATE_DMY:
+              if (originalValue instanceof Date) {
+                formattedValue = originalValue.toLocaleDateString('en-GB');
+              } else if (typeof originalValue === 'string') {
+                try {
+                  const date = new Date(originalValue);
+                  formattedValue = date.toLocaleDateString('en-GB');
+                } catch {
+                  // Keep original value if parsing fails
+                }
+              }
+              break;
+              
+            default:
+              // TEXT format - keep as is
+              break;
+          }
+        }
+        
+        formattedRow[displayName] = formattedValue;
+      });
+
+    return formattedRow;
+  });
 };

@@ -1,5 +1,4 @@
-// frontend/types/reporting.ts
-// Updated reporting types to work with the new separated calculation system
+// frontend/types/reporting.ts - Updated with column management support
 
 // Base reporting types
 export interface ReportRow {
@@ -24,11 +23,35 @@ export type ReportScope = 'DEAL' | 'TRANCHE';
 // Cycle option for dropdown selections
 export interface CycleOption {
   label: string;
-  value: string | number; // Allow both string and number for flexibility
+  value: string | number;
+}
+
+// NEW: Column formatting options
+export enum ColumnFormat {
+  TEXT = "text",
+  NUMBER = "number", 
+  CURRENCY = "currency",
+  PERCENTAGE = "percentage",
+  DATE_MDY = "date_mdy",  // MM/DD/YYYY
+  DATE_DMY = "date_dmy"   // DD/MM/YYYY
+}
+
+// NEW: Individual column preference
+export interface ColumnPreference {
+  column_id: string;           // Matches calculation_id or static field name
+  display_name: string;        // User-friendly column name
+  is_visible: boolean;         // Whether to include in final output
+  display_order: number;       // Order in the final output
+  format_type: ColumnFormat;   // How to format values
+}
+
+// NEW: Complete column preferences for a report
+export interface ReportColumnPreferences {
+  columns: ColumnPreference[];
+  include_default_columns: boolean; // Whether to include Deal Number, TR ID, Cycle Code
 }
 
 // Updated calculation reference for reports
-// Now supports multiple calculation types with flexible ID system
 export interface ReportCalculation {
   calculation_id: number | string; // Support both numeric IDs (user/system) and string IDs (static fields)
   calculation_type?: 'user' | 'system' | 'static'; // Optional type hint
@@ -48,7 +71,7 @@ export interface ReportDeal {
   selected_tranches?: ReportTranche[]; // Empty means all tranches
 }
 
-// Core report configuration
+// Core report configuration with column preferences
 export interface ReportConfig {
   id?: number;
   name: string;
@@ -60,10 +83,10 @@ export interface ReportConfig {
   is_active?: boolean;
   selected_deals: ReportDeal[];
   selected_calculations: ReportCalculation[];
+  column_preferences?: ReportColumnPreferences; // NEW: Column management
 }
 
 // Available calculations for report building
-// This combines all calculation types into a unified interface
 export interface AvailableCalculation {
   id: number | string; // Number for user/system calcs, string for static fields
   name: string;
@@ -76,7 +99,7 @@ export interface AvailableCalculation {
   scope: ReportScope;
   category: string; // For UI grouping
   is_default: boolean;
-  calculation_type?: 'USER_DEFINED' | 'SYSTEM_SQL' | 'STATIC_FIELD'; // Added for new system
+  calculation_type?: 'USER_DEFINED' | 'SYSTEM_SQL' | 'STATIC_FIELD';
 }
 
 // Deal information (from data warehouse)
@@ -109,6 +132,7 @@ export interface ReportSummary {
   total_executions: number;
   last_executed?: string;
   last_execution_success?: boolean;
+  column_preferences?: ReportColumnPreferences; // NEW: Add column preferences to summary
 }
 
 // Report execution
@@ -129,14 +153,15 @@ export interface ReportExecutionLog {
   executed_at: string;
 }
 
-// Form state for report builder wizard
+// Form state for report builder wizard with column preferences
 export interface ReportBuilderFormState {
   reportName: string;
   reportDescription: string;
   reportScope: ReportScope | '';
   selectedDeals: number[];
   selectedTranches: Record<number, string[]>;
-  selectedCalculations: ReportCalculation[]; // Updated for new system
+  selectedCalculations: ReportCalculation[];
+  columnPreferences?: ReportColumnPreferences; // NEW: Column preferences
 }
 
 // Validation types
@@ -150,7 +175,7 @@ export interface ValidationResult {
   errors: ValidationError[];
 }
 
-// Helper functions for working with the new calculation system
+// Helper functions for working with the calculation system
 
 export function createReportCalculation(
   availableCalc: AvailableCalculation,
@@ -161,7 +186,6 @@ export function createReportCalculation(
   let calculationType: 'user' | 'system' | 'static';
 
   if (typeof availableCalc.id === 'string' && availableCalc.id.startsWith('static_')) {
-    // Static field - keep the string ID as-is (no more hashing!)
     calculationId = availableCalc.id;
     calculationType = 'static';
   } else if (typeof availableCalc.id === 'number') {
@@ -175,49 +199,116 @@ export function createReportCalculation(
     calculation_id: calculationId,
     calculation_type: calculationType,
     display_order: displayOrder,
-    display_name: displayName
+    display_name: displayName || availableCalc.name
   };
 }
 
+// NEW: Helper functions for column management
+
+export function createColumnPreference(
+  calculationId: string | number,
+  displayName: string,
+  displayOrder: number = 0,
+  formatType: ColumnFormat = ColumnFormat.TEXT,
+  isVisible: boolean = true
+): ColumnPreference {
+  return {
+    column_id: String(calculationId),
+    display_name: displayName,
+    is_visible: isVisible,
+    display_order: displayOrder,
+    format_type: formatType
+  };
+}
+
+export function getDefaultColumnPreferences(
+  calculations: ReportCalculation[],
+  scope: ReportScope,
+  includeDefaults: boolean = true
+): ReportColumnPreferences {
+  const columns: ColumnPreference[] = [];
+  let order = 0;
+
+  // Add default columns if requested
+  if (includeDefaults) {
+    columns.push(createColumnPreference('deal_number', 'Deal Number', order++, ColumnFormat.NUMBER));
+    
+    if (scope === 'TRANCHE') {
+      columns.push(createColumnPreference('tranche_id', 'Tranche ID', order++, ColumnFormat.TEXT));
+    }
+    
+    columns.push(createColumnPreference('cycle_code', 'Cycle Code', order++, ColumnFormat.NUMBER));
+  }
+
+  // Add calculation columns
+  calculations.forEach(calc => {
+    const columnId = String(calc.calculation_id);
+    const displayName = calc.display_name || `Calculation ${calc.calculation_id}`;
+    
+    // Try to guess format based on calculation type/name
+    let formatType = ColumnFormat.TEXT;
+    if (displayName.toLowerCase().includes('balance') || 
+        displayName.toLowerCase().includes('amount') ||
+        displayName.toLowerCase().includes('value')) {
+      formatType = ColumnFormat.CURRENCY;
+    } else if (displayName.toLowerCase().includes('rate') || 
+               displayName.toLowerCase().includes('percent')) {
+      formatType = ColumnFormat.PERCENTAGE;
+    } else if (displayName.toLowerCase().includes('date')) {
+      formatType = ColumnFormat.DATE_MDY;
+    } else if (displayName.toLowerCase().includes('count') ||
+               displayName.toLowerCase().includes('number')) {
+      formatType = ColumnFormat.NUMBER;
+    }
+
+    columns.push(createColumnPreference(columnId, displayName, order++, formatType));
+  });
+
+  return {
+    columns,
+    include_default_columns: includeDefaults
+  };
+}
+
+export function getColumnFormatLabel(format: ColumnFormat): string {
+  switch (format) {
+    case ColumnFormat.TEXT:
+      return 'Text';
+    case ColumnFormat.NUMBER:
+      return 'Number (1,000)';
+    case ColumnFormat.CURRENCY:
+      return 'Currency ($1,000.00)';
+    case ColumnFormat.PERCENTAGE:
+      return 'Percentage (25.5%)';
+    case ColumnFormat.DATE_MDY:
+      return 'Date (MM/DD/YYYY)';
+    case ColumnFormat.DATE_DMY:
+      return 'Date (DD/MM/YYYY)';
+    default:
+      return 'Text';
+  }
+}
+
+// NEW: Add missing helper functions for calculation compatibility
 export function isStaticFieldCalculation(calc: AvailableCalculation): boolean {
   return typeof calc.id === 'string' && calc.id.startsWith('static_');
 }
 
 export function isUserDefinedCalculation(calc: AvailableCalculation): boolean {
-  return calc.calculation_type === 'USER_DEFINED';
+  return typeof calc.id === 'number' && calc.calculation_type === 'USER_DEFINED';
 }
 
 export function isSystemSqlCalculation(calc: AvailableCalculation): boolean {
-  return calc.calculation_type === 'SYSTEM_SQL';
+  return typeof calc.id === 'number' && calc.calculation_type === 'SYSTEM_SQL';
 }
 
-export function getCalculationDisplayName(calc: AvailableCalculation): string {
-  return calc.name;
-}
-
-export function getCalculationDescription(calc: AvailableCalculation): string {
-  if (calc.description) {
-    return calc.description;
-  }
-  
-  if (isStaticFieldCalculation(calc)) {
-    return `Raw field value: ${calc.source_field}`;
-  } else if (isUserDefinedCalculation(calc)) {
-    return `${calc.aggregation_function} of ${calc.source_model}.${calc.source_field}`;
-  } else if (isSystemSqlCalculation(calc)) {
-    return 'Custom SQL calculation';
-  }
-  
-  return 'No description available';
-}
-
-export function getCalculationCompatibilityInfo(calc: AvailableCalculation, reportScope: ReportScope): {
-  isCompatible: boolean;
-  reason?: string;
-} {
+export function getCalculationCompatibilityInfo(
+  calc: AvailableCalculation,
+  scope: ReportScope
+): { isCompatible: boolean; reason?: string } {
   // Deal-level reports
-  if (reportScope === 'DEAL') {
-    if (isStaticFieldCalculation(calc) && calc.group_level === 'tranche') {
+  if (scope === 'DEAL') {
+    if (calc.calculation_type === 'STATIC_FIELD' && calc.group_level === 'tranche') {
       return {
         isCompatible: false,
         reason: 'Raw tranche fields would create multiple rows per deal'
@@ -233,8 +324,8 @@ export function getCalculationCompatibilityInfo(calc: AvailableCalculation, repo
   }
   
   // Tranche-level reports
-  if (reportScope === 'TRANCHE') {
-    if (calc.group_level === 'deal' && !isStaticFieldCalculation(calc)) {
+  if (scope === 'TRANCHE') {
+    if (calc.group_level === 'deal' && calc.calculation_type !== 'STATIC_FIELD') {
       return {
         isCompatible: false,
         reason: 'Deal-level calculations are designed for deal-level aggregation only'
@@ -243,54 +334,4 @@ export function getCalculationCompatibilityInfo(calc: AvailableCalculation, repo
   }
   
   return { isCompatible: true };
-}
-
-export function filterCalculationsByCompatibility(
-  calculations: AvailableCalculation[],
-  reportScope: ReportScope
-): {
-  compatible: AvailableCalculation[];
-  incompatible: AvailableCalculation[];
-} {
-  const compatible: AvailableCalculation[] = [];
-  const incompatible: AvailableCalculation[] = [];
-  
-  calculations.forEach(calc => {
-    const { isCompatible } = getCalculationCompatibilityInfo(calc, reportScope);
-    if (isCompatible) {
-      compatible.push(calc);
-    } else {
-      incompatible.push(calc);
-    }
-  });
-  
-  return { compatible, incompatible };
-}
-
-// Export utility for dealing with mixed calculation types in forms
-export function convertFormCalculationsToReportCalculations(
-  selectedCalculations: AvailableCalculation[]
-): ReportCalculation[] {
-  return selectedCalculations.map((calc, index) => 
-    createReportCalculation(calc, index)
-  );
-}
-
-export function findAvailableCalculationById(
-  calculations: AvailableCalculation[],
-  reportCalc: ReportCalculation
-): AvailableCalculation | undefined {
-  if (reportCalc.calculation_type === 'static') {
-    // For static fields, find by string ID directly (no more hashing)
-    return calculations.find(calc => 
-      typeof calc.id === 'string' && 
-      calc.id === reportCalc.calculation_id
-    );
-  } else {
-    // For user/system calculations, find by numeric ID
-    return calculations.find(calc => 
-      typeof calc.id === 'number' && 
-      calc.id === reportCalc.calculation_id
-    );
-  }
 }

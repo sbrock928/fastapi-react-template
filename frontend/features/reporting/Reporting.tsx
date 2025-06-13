@@ -20,6 +20,12 @@ const ReportingContent = () => {
 
   // ===== REPORT STATE =====
   const [reportData, setReportData] = useState<ReportRow[]>([]);
+  const [backendColumns, setBackendColumns] = useState<Array<{
+    field: string;
+    header: string;
+    format_type: string;
+    display_order: number;
+  }> | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [showResults, setShowResults] = useState<boolean>(false);
   const [isSkeletonMode, setIsSkeletonMode] = useState<boolean>(false);
@@ -82,7 +88,10 @@ const ReportingContent = () => {
       const reportId = parseInt(selectedSavedReport);
       const response = await reportingApi.runReportById(reportId, selectedCycle.value as number);
       
-      setReportData(response.data as ReportRow[]);
+      // Handle the new API response structure
+      const { data, columns } = response.data;
+      setReportData(data);
+      setBackendColumns(columns);
       setIsSkeletonMode(false);
       setShowResults(true);
       
@@ -179,6 +188,8 @@ const ReportingContent = () => {
           loading={loading}
           reportConfig={getCurrentReportConfig()!}
           isSkeletonMode={isSkeletonMode}
+          backendColumns={backendColumns || undefined}
+          useBackendFormatting={backendColumns !== null}
         />
       )}
 

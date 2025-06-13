@@ -19,7 +19,10 @@ from app.reporting.schemas import (
 from app.core.dependencies import SessionDep, DWSessionDep, get_user_calculation_service, get_system_calculation_service, get_report_execution_service
 from app.datawarehouse.dao import DatawarehouseDAO
 from app.calculations.service import UserCalculationService, SystemCalculationService, ReportExecutionService
-
+import io
+import pandas as pd
+from fastapi import Response, HTTPException
+from typing import Dict, Any
 
 router = APIRouter(prefix="/reports", tags=["reporting"])
 
@@ -115,20 +118,58 @@ async def run_report(
     request: RunReportRequest, service: ReportService = Depends(get_report_service)
 ) -> List[Dict[str, Any]]:
     """Run a saved report configuration."""
-    return await service.run_saved_report(
+    return await service.run_report(
         request.report_id, request.cycle_code
-    )  # FIXED: added await
+    )  # FIXED: changed from run_saved_report to run_report
 
 
-@router.post("/run/{report_id}", response_model=List[Dict[str, Any]])
+@router.post("/run/{report_id}")
 async def run_report_by_id(
     report_id: int, request: Dict[str, Any], service: ReportService = Depends(get_report_service)
-) -> List[Dict[str, Any]]:
-    """Run a saved report by ID with cycle parameter."""
+) -> Dict[str, Any]:
+    """Run a saved report by ID with cycle parameter - returns data with column metadata."""
     cycle_code = request.get("cycle_code")
     if not cycle_code:
         raise HTTPException(status_code=400, detail="cycle_code is required")
-    return await service.run_saved_report(report_id, cycle_code)  # FIXED: added await
+    
+    # Get the report configuration to extract column metadata
+    report = await service.get_by_id(report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    
+    # Run the report to get formatted data
+    data = await service.run_report(report_id, cycle_code)
+    
+    # Extract column metadata from the report's column preferences
+    column_metadata = []
+    if report.column_preferences and report.column_preferences.columns:
+        for col_pref in report.column_preferences.columns:
+            if col_pref.is_visible:
+                column_metadata.append({
+                    "field": col_pref.display_name,  # Use display name as field (matches data keys)
+                    "header": col_pref.display_name,
+                    "format_type": col_pref.format_type,
+                    "display_order": col_pref.display_order
+                })
+    else:
+        # Fallback: create basic metadata from data keys if no column preferences
+        if data:
+            for i, key in enumerate(data[0].keys()):
+                column_metadata.append({
+                    "field": key,
+                    "header": key,
+                    "format_type": "text",  # Default to text formatting
+                    "display_order": i
+                })
+    
+    # Sort columns by display order
+    column_metadata.sort(key=lambda x: x.get("display_order", 0))
+    
+    return {
+        "data": data,
+        "columns": column_metadata,
+        "total_rows": len(data)
+    }
 
 
 # ===== PREVIEW AND EXECUTION LOG ENDPOINTS =====
@@ -216,46 +257,45 @@ def get_available_cycles(
 
 @router.post("/export-xlsx")
 async def export_to_xlsx(request: Dict[str, Any]) -> Response:
-    """Export report data to Excel (XLSX) format."""
+    """
+    Export report data to Excel (XLSX) format with column management support.
+    The data should already be formatted and filtered by the backend.
+    """
     try:
-        report_type = request.get("reportType", "Unknown Report")
+        report_type = request.get("reportType", "Report")
         data = request.get("data", [])
         file_name = request.get("fileName", "report.xlsx")
+        
+        # Optional: Include column preferences for additional formatting
+        column_preferences = request.get("columnPreferences")
 
         if not data:
             raise HTTPException(status_code=400, detail="No data provided for export")
 
-        # Create DataFrame from the data
+        # Create DataFrame from the pre-formatted data
         df = pd.DataFrame(data)
+        
+        if df.empty:
+            raise HTTPException(status_code=400, detail="Data is empty")
 
         # Create Excel file in memory
         excel_buffer = io.BytesIO()
 
         with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
             # Write the data to the Excel file
-            df.to_excel(
-                writer, sheet_name=report_type[:31], index=False
-            )  # Excel sheet name limit is 31 chars
+            sheet_name = report_type[:31]  # Excel sheet name limit is 31 chars
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
 
-            # Get the workbook and worksheet to format
+            # Get the workbook and worksheet for formatting
             workbook = writer.book
-            worksheet = writer.sheets[report_type[:31]]
+            worksheet = writer.sheets[sheet_name]
 
-            # Auto-adjust column widths
-            for column in worksheet.columns:
-                max_length = 0
-                column_letter = column[0].column_letter
-
-                for cell in column:
-                    try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(str(cell.value))
-                    except:
-                        pass
-
-                # Set column width with some padding, max 50 characters
-                adjusted_width = min(max_length + 2, 50)
-                worksheet.column_dimensions[column_letter].width = adjusted_width
+            # Apply additional formatting based on column preferences
+            if column_preferences:
+                _apply_excel_formatting(worksheet, df, column_preferences)
+            else:
+                # Default formatting - auto-adjust column widths
+                _auto_adjust_columns(worksheet)
 
         excel_buffer.seek(0)
 
@@ -272,3 +312,89 @@ async def export_to_xlsx(request: Dict[str, Any]) -> Response:
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error creating Excel file: {str(e)}")
+
+
+def _apply_excel_formatting(worksheet, df: pd.DataFrame, column_preferences: Dict[str, Any]):
+    """Apply Excel formatting based on column preferences."""
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+    
+    # Header formatting
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    header_alignment = Alignment(horizontal="center", vertical="center")
+    
+    # Apply header formatting
+    for col_num in range(1, len(df.columns) + 1):
+        cell = worksheet.cell(row=1, column=col_num)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+
+    # Column-specific formatting based on preferences
+    columns_info = column_preferences.get("columns", [])
+    
+    for col_info in columns_info:
+        if not col_info.get("is_visible", True):
+            continue
+            
+        display_name = col_info.get("display_name", "")
+        format_type = col_info.get("format_type", "text")
+        
+        # Find column index by display name
+        try:
+            col_index = df.columns.get_loc(display_name) + 1
+            col_letter = get_column_letter(col_index)
+            
+            # Apply format-specific styling
+            if format_type == "currency":
+                # Format currency columns
+                for row in range(2, len(df) + 2):
+                    cell = worksheet.cell(row=row, column=col_index)
+                    if cell.value and isinstance(cell.value, str) and cell.value.startswith('$'):
+                        cell.alignment = Alignment(horizontal="right")
+                        
+            elif format_type == "percentage":
+                # Format percentage columns  
+                for row in range(2, len(df) + 2):
+                    cell = worksheet.cell(row=row, column=col_index)
+                    if cell.value and isinstance(cell.value, str) and cell.value.endswith('%'):
+                        cell.alignment = Alignment(horizontal="center")
+                        
+            elif format_type == "number":
+                # Format number columns
+                for row in range(2, len(df) + 2):
+                    cell = worksheet.cell(row=row, column=col_index)
+                    cell.alignment = Alignment(horizontal="right")
+                    
+            elif format_type in ["date_mdy", "date_dmy"]:
+                # Format date columns
+                for row in range(2, len(df) + 2):
+                    cell = worksheet.cell(row=row, column=col_index)
+                    cell.alignment = Alignment(horizontal="center")
+        
+        except (KeyError, ValueError):
+            # Column not found, skip formatting
+            continue
+
+    # Auto-adjust column widths
+    _auto_adjust_columns(worksheet)
+
+
+def _auto_adjust_columns(worksheet):
+    """Auto-adjust column widths for better readability."""
+    for column in worksheet.columns:
+        max_length = 0
+        column_letter = column[0].column_letter
+
+        for cell in column:
+            try:
+                cell_length = len(str(cell.value))
+                if cell_length > max_length:
+                    max_length = cell_length
+            except:
+                pass
+
+        # Set column width with some padding, max 50 characters
+        adjusted_width = min(max_length + 2, 50)
+        worksheet.column_dimensions[column_letter].width = adjusted_width

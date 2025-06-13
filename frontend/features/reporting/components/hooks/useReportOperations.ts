@@ -8,8 +8,7 @@ import {
   validateReportBeforeSave,
   getSuccessMessage
 } from '../utils/reportBusinessLogic';
-import type { ReportBuilderFormState } from './useReportBuilderForm';
-import type { ReportConfig } from '@/types/reporting';
+import type { ReportBuilderFormState, ReportConfig } from '@/types/reporting';
 
 interface UseReportOperationsProps {
   onSuccess: () => void;
