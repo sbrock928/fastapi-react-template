@@ -178,9 +178,6 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
                       <div className="col-sm-6">
                         <strong>Calculations:</strong> {selectedReport.calculation_count}
                       </div>
-                      <div className="col-sm-6">
-                        <strong>Total Executions:</strong> {selectedReport.total_executions}
-                      </div>
                       {selectedReport.scope === 'TRANCHE' && (
                         <div className="col-sm-6">
                           <strong>Tranches:</strong> {selectedReport.tranche_count}
