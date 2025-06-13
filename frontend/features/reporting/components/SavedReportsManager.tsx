@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { reportingApi } from '@/services/api';
 import { useToast } from '@/context/ToastContext';
 import { useReportContext } from '@/context/ReportContext';
+import ExecutionLogsModal from './ExecutionLogsModal';
 import type { ReportConfig } from '@/types';
 
 interface SavedReportsManagerProps {
@@ -23,6 +24,7 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
   const { savedReports, loading, refreshReports } = useReportContext();
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
   const [editLoading, setEditLoading] = useState<string | null>(null);
+  const [showExecutionLogs, setShowExecutionLogs] = useState(false);
 
   // Handle edit report (fetch full details and trigger edit mode)
   const handleEditReport = async (reportId: number) => {
@@ -270,8 +272,27 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
               </>
             )}
           </button>
+          
+          <button
+            type="button"
+            className="btn btn-outline-info w-100"
+            disabled={!selectedReportId}
+            onClick={() => setShowExecutionLogs(true)}
+          >
+            <i className="bi bi-clock-history"></i> View Execution Logs
+          </button>
         </div>
       </div>
+      
+      {/* Execution Logs Modal */}
+      {showExecutionLogs && selectedReportId && (
+        <ExecutionLogsModal
+          reportId={parseInt(selectedReportId)}
+          reportName={savedReports.find(r => r.id.toString() === selectedReportId)?.name || 'Unknown Report'}
+          isOpen={showExecutionLogs}
+          onClose={() => setShowExecutionLogs(false)}
+        />
+      )}
     </div>
   );
 };

@@ -243,8 +243,30 @@ class ReportService:
             for deal in report.selected_deals
         )
 
-        # For now, return basic summary without execution logs since we don't have direct DB access
-        # TODO: Add execution log service or pass through report_execution_service
+        # Get execution stats from the database
+        try:
+            import asyncio
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If we're in an async context, we need to handle this differently
+                # For now, return basic stats and let the frontend fetch detailed stats separately
+                execution_stats = {
+                    'total_executions': 0,
+                    'last_executed': None,
+                    'last_execution_success': None
+                }
+            else:
+                execution_stats = loop.run_until_complete(
+                    self.report_dao.get_execution_log_stats(report.id)
+                )
+        except Exception as e:
+            print(f"Warning: Could not fetch execution stats: {e}")
+            execution_stats = {
+                'total_executions': 0,
+                'last_executed': None,
+                'last_execution_success': None
+            }
+
         return ReportSummary(
             id=report.id,
             name=report.name,
@@ -255,9 +277,9 @@ class ReportService:
             tranche_count=tranche_count,
             calculation_count=len(report.selected_calculations),
             is_active=report.is_active,
-            total_executions=0,  # TODO: Implement via service
-            last_executed=None,  # TODO: Implement via service
-            last_execution_success=None,  # TODO: Implement via service
+            total_executions=execution_stats['total_executions'],
+            last_executed=execution_stats['last_executed'],
+            last_execution_success=execution_stats['last_execution_success'],
         )
 
     async def create(self, report_data: ReportCreate) -> ReportRead:
@@ -517,9 +539,24 @@ class ReportService:
         """Get execution logs for a report."""
         await self._get_report_or_404(report_id)
         
-        # TODO: Implement execution log retrieval via service
-        # For now, return empty list since we don't have direct DB access
-        return []
+        # Get execution logs from the database
+        execution_logs = await self.report_dao.get_execution_logs(report_id, limit)
+        
+        # Convert to dictionaries for API response
+        return [
+            {
+                "id": log.id,
+                "report_id": log.report_id,
+                "cycle_code": log.cycle_code,
+                "executed_by": log.executed_by,
+                "execution_time_ms": log.execution_time_ms,
+                "row_count": log.row_count,
+                "success": log.success,
+                "error_message": log.error_message,
+                "executed_at": log.executed_at.isoformat() if log.executed_at else None
+            }
+            for log in execution_logs
+        ]
 
     async def _log_execution(
         self, report_id: int, cycle_code: int, executed_by: str,
@@ -527,9 +564,23 @@ class ReportService:
         error_message: str = None
     ) -> None:
         """Log report execution."""
-        # TODO: Implement execution logging via service
-        # For now, skip logging since we don't have direct DB access
-        pass
+        from app.reporting.models import ReportExecutionLog
+        from datetime import datetime
+        
+        # Create execution log entry
+        execution_log = ReportExecutionLog(
+            report_id=report_id,
+            cycle_code=cycle_code,
+            executed_by=executed_by,
+            execution_time_ms=execution_time_ms,
+            row_count=row_count,
+            success=success,
+            error_message=error_message,
+            executed_at=datetime.now()
+        )
+        
+        # Save to database
+        await self.report_dao.create_execution_log(execution_log)
 
     # ===== DATA WAREHOUSE ENDPOINTS =====
 

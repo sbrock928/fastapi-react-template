@@ -3,7 +3,8 @@
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
 from typing import List, Optional
-from app.reporting.models import Report, ReportDeal, ReportTranche, ReportCalculation
+from datetime import datetime
+from app.reporting.models import Report, ReportDeal, ReportTranche, ReportCalculation, ReportExecutionLog
 
 
 class ReportDAO:
@@ -69,3 +70,58 @@ class ReportDAO:
             self.db.commit()
             return True
         return False
+
+    # ===== EXECUTION LOG METHODS =====
+
+    async def create_execution_log(self, execution_log: ReportExecutionLog) -> ReportExecutionLog:
+        """Create a new execution log entry."""
+        self.db.add(execution_log)
+        self.db.commit()
+        self.db.refresh(execution_log)
+        return execution_log
+
+    async def get_execution_logs(self, report_id: int, limit: int = 50) -> List[ReportExecutionLog]:
+        """Get execution logs for a report, ordered by most recent first."""
+        stmt = (
+            select(ReportExecutionLog)
+            .where(ReportExecutionLog.report_id == report_id)
+            .order_by(ReportExecutionLog.executed_at.desc())
+            .limit(limit)
+        )
+        result = self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_execution_log_stats(self, report_id: int) -> dict:
+        """Get execution statistics for a report."""
+        from sqlalchemy import func
+        
+        stmt = (
+            select(
+                func.count(ReportExecutionLog.id).label('total_executions'),
+                func.max(ReportExecutionLog.executed_at).label('last_executed'),
+                func.sum(func.case((ReportExecutionLog.success == True, 1), else_=0)).label('successful_executions')
+            )
+            .where(ReportExecutionLog.report_id == report_id)
+        )
+        result = self.db.execute(stmt).first()
+        
+        if result and result.total_executions:
+            return {
+                'total_executions': result.total_executions,
+                'last_executed': result.last_executed,
+                'last_execution_success': None if result.total_executions == 0 else (
+                    # Get the success status of the most recent execution
+                    self.db.execute(
+                        select(ReportExecutionLog.success)
+                        .where(ReportExecutionLog.report_id == report_id)
+                        .order_by(ReportExecutionLog.executed_at.desc())
+                        .limit(1)
+                    ).scalar()
+                )
+            }
+        
+        return {
+            'total_executions': 0,
+            'last_executed': None,
+            'last_execution_success': None
+        }

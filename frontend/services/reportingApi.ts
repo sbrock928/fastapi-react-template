@@ -91,6 +91,13 @@ const reportingApi = {
     });
   },
 
+  // Get execution logs for a report (NEW)
+  getExecutionLogs: (reportId: number, limit: number = 50): Promise<{ data: any[] }> => {
+    return apiClient.get(`/reports/${reportId}/execution-logs`, { 
+      params: { limit } 
+    });
+  },
+
   // ===== STATISTICS AND METADATA =====
   
   // Get available cycles from data warehouse
