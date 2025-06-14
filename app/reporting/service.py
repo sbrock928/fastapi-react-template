@@ -611,15 +611,48 @@ class ReportService:
                     )
                     calculation_requests.append(calc_request)
 
-        # Add user-selected calculations with enhanced auto-detection
+        # Add user-selected calculations with enhanced parsing for new formats
         for report_calc in report.selected_calculations:
             calc_id_str = report_calc.calculation_id
             calc_type = getattr(report_calc, 'calculation_type', None)
             
             print(f"Debug: Processing calculation - ID: {calc_id_str}, Type: {calc_type}")
             
+            calc_request = None
+            
+            # Handle NEW CALCULATION ID FORMATS FIRST
+            if calc_id_str.startswith("user."):
+                # User calculation: "user.{source_field}"
+                source_field = calc_id_str[5:]  # Remove "user." prefix
+                if self.user_calc_service:
+                    user_calc = self.user_calc_service.get_user_calculation_by_source_field(source_field)
+                    if user_calc:
+                        calc_request = CalculationRequest(
+                            calc_type="user_calculation",
+                            calc_id=user_calc.id,
+                            alias=user_calc.name
+                        )
+                        print(f"Debug: Found user calculation - {user_calc.name} for source_field: {source_field}")
+                    else:
+                        print(f"Warning: No user calculation found with source_field: {source_field}")
+            
+            elif calc_id_str.startswith("system."):
+                # System calculation: "system.{result_column_name}"
+                result_column = calc_id_str[7:]  # Remove "system." prefix
+                if self.system_calc_service:
+                    system_calc = self.system_calc_service.get_system_calculation_by_result_column(result_column)
+                    if system_calc:
+                        calc_request = CalculationRequest(
+                            calc_type="system_calculation",
+                            calc_id=system_calc.id,
+                            alias=system_calc.name
+                        )
+                        print(f"Debug: Found system calculation - {system_calc.name} for result_column: {result_column}")
+                    else:
+                        print(f"Warning: No system calculation found with result_column: {result_column}")
+            
             # Handle static fields - check calculation_type first, then fallback to "static_" prefix
-            if calc_type == "static" or calc_id_str.startswith("static_"):
+            elif calc_type == "static" or calc_id_str.startswith("static_"):
                 if calc_type == "static":
                     # The calc_id_str IS the field path for static type, but may have "static_" prefix
                     if calc_id_str.startswith("static_"):
@@ -638,68 +671,63 @@ class ReportService:
                     field_path=field_path,
                     alias=alias
                 )
-                calculation_requests.append(calc_request)
                 print(f"Debug: Added static field request - Field: {field_path}, Alias: {alias}")
-                continue
             
-            # Handle numeric calculation IDs
-            try:
-                numeric_id = int(calc_id_str)
-            except ValueError:
-                # Skip non-numeric, non-static IDs
-                print(f"Warning: Skipping invalid calculation_id: {calc_id_str}")
-                continue
-                
-            calc_request = None
-            
-            # If calculation_type is explicitly set, use it
-            if calc_type == "user_calculation" or calc_type == "user":
-                if self.user_calc_service:
-                    user_calc = self.user_calc_service.get_user_calculation_by_id(numeric_id)
-                    if user_calc:
-                        calc_request = CalculationRequest(
-                            calc_type="user_calculation",
-                            calc_id=numeric_id,
-                            alias=user_calc.name
-                        )
-            elif calc_type == "system_calculation" or calc_type == "system":
-                if self.system_calc_service:
-                    system_calc = self.system_calc_service.get_system_calculation_by_id(numeric_id)
-                    if system_calc:
-                        calc_request = CalculationRequest(
-                            calc_type="system_calculation",
-                            calc_id=numeric_id,
-                            alias=system_calc.name
-                        )
+            # Handle legacy numeric calculation IDs
             else:
-                # calculation_type is NULL or missing - try to auto-detect
-                # This handles the legacy data issue
-                print(f"Warning: calculation_type is NULL for calc_id {numeric_id}, attempting auto-detection")
-                
-                # Check user calculations first
-                if self.user_calc_service:
-                    user_calc = self.user_calc_service.get_user_calculation_by_id(numeric_id)
-                    if user_calc:
-                        calc_request = CalculationRequest(
-                            calc_type="user_calculation",
-                            calc_id=numeric_id,
-                            alias=user_calc.name
-                        )
-                        print(f"Auto-detected as user_calculation: {user_calc.name}")
-                
-                if not calc_request and self.system_calc_service:
-                    # Try system calculations
-                    system_calc = self.system_calc_service.get_system_calculation_by_id(numeric_id)
-                    if system_calc:
-                        calc_request = CalculationRequest(
-                            calc_type="system_calculation",
-                            calc_id=numeric_id,
-                            alias=system_calc.name
-                        )
-                        print(f"Auto-detected as system_calculation: {system_calc.name}")
-                
-                if not calc_request:
-                    print(f"Warning: No calculation found with ID {numeric_id}")
+                try:
+                    numeric_id = int(calc_id_str)
+                    
+                    # If calculation_type is explicitly set, use it
+                    if calc_type == "user_calculation" or calc_type == "user":
+                        if self.user_calc_service:
+                            user_calc = self.user_calc_service.get_user_calculation_by_id(numeric_id)
+                            if user_calc:
+                                calc_request = CalculationRequest(
+                                    calc_type="user_calculation",
+                                    calc_id=numeric_id,
+                                    alias=user_calc.name
+                                )
+                    elif calc_type == "system_calculation" or calc_type == "system":
+                        if self.system_calc_service:
+                            system_calc = self.system_calc_service.get_system_calculation_by_id(numeric_id)
+                            if system_calc:
+                                calc_request = CalculationRequest(
+                                    calc_type="system_calculation",
+                                    calc_id=numeric_id,
+                                    alias=system_calc.name
+                                )
+                    else:
+                        # calculation_type is NULL or missing - try to auto-detect
+                        print(f"Warning: calculation_type is NULL for calc_id {numeric_id}, attempting auto-detection")
+                        
+                        # Check user calculations first
+                        if self.user_calc_service:
+                            user_calc = self.user_calc_service.get_user_calculation_by_id(numeric_id)
+                            if user_calc:
+                                calc_request = CalculationRequest(
+                                    calc_type="user_calculation",
+                                    calc_id=numeric_id,
+                                    alias=user_calc.name
+                                )
+                                print(f"Auto-detected as user_calculation: {user_calc.name}")
+                        
+                        if not calc_request and self.system_calc_service:
+                            # Try system calculations
+                            system_calc = self.system_calc_service.get_system_calculation_by_id(numeric_id)
+                            if system_calc:
+                                calc_request = CalculationRequest(
+                                    calc_type="system_calculation",
+                                    calc_id=numeric_id,
+                                    alias=system_calc.name
+                                )
+                                print(f"Auto-detected as system_calculation: {system_calc.name}")
+                        
+                        if not calc_request:
+                            print(f"Warning: No calculation found with ID {numeric_id}")
+                except ValueError:
+                    # Non-numeric, non-prefixed ID - unknown format
+                    print(f"Warning: Unknown calculation_id format: {calc_id_str}")
             
             if calc_request:
                 calculation_requests.append(calc_request)
