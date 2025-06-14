@@ -29,6 +29,17 @@ class UserCalculationDAO:
             .first()
         )
 
+    def get_by_source_field(self, source_field: str) -> Optional[UserCalculation]:
+        """Get user calculation by source_field"""
+        return (
+            self.db.query(UserCalculation)
+            .filter(
+                UserCalculation.source_field == source_field,
+                UserCalculation.is_active == True
+            )
+            .first()
+        )
+
     def get_by_name_and_group_level(self, name: str, group_level: GroupLevel) -> Optional[UserCalculation]:
         """Get user calculation by name and group level"""
         return (
@@ -147,6 +158,17 @@ class SystemCalculationDAO:
         return (
             self.db.query(SystemCalculation)
             .filter(SystemCalculation.id == calc_id, SystemCalculation.is_active == True)
+            .first()
+        )
+
+    def get_by_result_column_name(self, result_column_name: str) -> Optional[SystemCalculation]:
+        """Get system calculation by result_column_name"""
+        return (
+            self.db.query(SystemCalculation)
+            .filter(
+                SystemCalculation.result_column_name == result_column_name,
+                SystemCalculation.is_active == True
+            )
             .first()
         )
 

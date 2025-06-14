@@ -11,6 +11,7 @@ import {
   getCalculationCompatibilityInfo,
   createReportCalculation
 } from '@/types/reporting';
+import { parseCalculationId } from '@/types/calculations';
 
 interface CalculationSelectorProps {
   scope: 'DEAL' | 'TRANCHE';
@@ -101,65 +102,20 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
     return { compatibleCalculations: compatible, incompatibleCalculations: incompatible };
   }, [availableCalculations, selectedCategory, searchTerm, calculationType, scope]);
 
-  // Check if a calculation is selected
+  // Check if a calculation is selected - UPDATED for string IDs
   const isCalculationSelected = (calc: AvailableCalculation): boolean => {
-    return selectedCalculations.some(selected => {
-      if (typeof calc.id === 'string' && calc.id.startsWith('static_')) {
-        // For static fields, compare by string ID directly
-        return selected.calculation_type === 'static' && 
-               calc.id === selected.calculation_id;
-      } else {
-        // For user/system calculations, compare by numeric ID AND calculation type
-        // Map AvailableCalculation.calculation_type to ReportCalculation.calculation_type
-        let calcType: 'user' | 'system' | 'static';
-        if (calc.calculation_type === 'SYSTEM_SQL') {
-          calcType = 'system';
-        } else if (calc.calculation_type === 'USER_DEFINED') {
-          calcType = 'user';
-        } else if (calc.calculation_type === 'STATIC_FIELD') {
-          calcType = 'static';
-        } else {
-          // Fallback logic for legacy data
-          calcType = isSystemSqlCalculation(calc) ? 'system' : 'user';
-        }
-        
-        return typeof calc.id === 'number' && 
-               calc.id === selected.calculation_id &&
-               calcType === selected.calculation_type;
-      }
-    });
+    return selectedCalculations.some(selected => selected.calculation_id === calc.id);
   };
 
-  // Handle calculation toggle
+  // Handle calculation toggle - UPDATED for string IDs
   const handleCalculationToggle = (availableCalc: AvailableCalculation) => {
     const isSelected = isCalculationSelected(availableCalc);
 
     if (isSelected) {
       // Remove calculation
-      const updatedCalculations = selectedCalculations.filter(selected => {
-        if (typeof availableCalc.id === 'string' && availableCalc.id.startsWith('static_')) {
-          return !(selected.calculation_type === 'static' && 
-                  availableCalc.id === selected.calculation_id);
-        } else {
-          // For user/system calculations, compare by numeric ID AND calculation type
-          // Map AvailableCalculation.calculation_type to ReportCalculation.calculation_type
-          let calcType: 'user' | 'system' | 'static';
-          if (availableCalc.calculation_type === 'SYSTEM_SQL') {
-            calcType = 'system';
-          } else if (availableCalc.calculation_type === 'USER_DEFINED') {
-            calcType = 'user';
-          } else if (availableCalc.calculation_type === 'STATIC_FIELD') {
-            calcType = 'static';
-          } else {
-            // Fallback logic for legacy data
-            calcType = isSystemSqlCalculation(availableCalc) ? 'system' : 'user';
-          }
-          
-          return !(typeof availableCalc.id === 'number' && 
-                  availableCalc.id === selected.calculation_id &&
-                  calcType === selected.calculation_type);
-        }
-      });
+      const updatedCalculations = selectedCalculations.filter(selected => 
+        selected.calculation_id !== availableCalc.id
+      );
       onCalculationsChange(updatedCalculations);
     } else {
       // Check compatibility before adding
@@ -329,20 +285,13 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
         </div>
       </div>
 
-      {/* Selected Calculations Summary */}
+      {/* Selected Calculations Summary - UPDATED for new string format */}
       {selectedCalculations.length > 0 && (
         <div className="alert alert-info mb-3">
           <strong>Selected Calculations ({selectedCalculations.length}):</strong>
           <div className="mt-2">
             {selectedCalculations.map(calc => {
-              const availableCalc = availableCalculations.find(ac => {
-                if (calc.calculation_type === 'static') {
-                  return typeof ac.id === 'string' && ac.id === calc.calculation_id;
-                } else {
-                  return typeof ac.id === 'number' && ac.id === calc.calculation_id;
-                }
-              });
-              
+              const availableCalc = availableCalculations.find(ac => ac.id === calc.calculation_id);
               const displayName = calc.display_name || availableCalc?.name || `Calculation ${calc.calculation_id}`;
               const calcType = calc.calculation_type || 'unknown';
               const badgeClass = calcType === 'static' ? 'bg-info' : calcType === 'system' ? 'bg-warning text-dark' : 'bg-primary';
@@ -350,7 +299,7 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
               
               return (
                 <span 
-                  key={`${calc.calculation_type}-${calc.calculation_id}`}
+                  key={calc.calculation_id}
                   className={`badge ${badgeClass} me-1 mb-1`}
                   title={`${calcType} calculation`}
                 >
@@ -403,6 +352,7 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
           <>
             {compatibleCalculations.map(calc => {
               const isSelected = isCalculationSelected(calc);
+              const parsed = parseCalculationId(calc.id);
               const isUser = isUserDefinedCalculation(calc);
               const isSystem = isSystemSqlCalculation(calc);
               const isStatic = isStaticFieldCalculation(calc);
@@ -417,7 +367,7 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
               }
 
               return (
-                <div key={`${calc.calculation_type}-${calc.id}`} className="col-md-6 col-lg-4 mb-3">
+                <div key={calc.id} className="col-md-6 col-lg-4 mb-3">
                   <div 
                     className={`card h-100 ${isSelected ? 'border-primary bg-light' : ''}`}
                     style={{ cursor: 'pointer' }}
@@ -453,16 +403,16 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
                         </span>
                       </div>
                       
-                      {/* Enhanced source information */}
+                      {/* Enhanced source information using parsed ID */}
                       <p className="card-text small text-muted">
                         {isUser && (
                           <><strong>Source:</strong> {calc.source_model}.{calc.source_field}</>
                         )}
                         {isSystem && (
-                          <><strong>Custom SQL</strong> → {calc.weight_field || 'result'}</>
+                          <><strong>Custom SQL</strong> → {parsed.identifier}</>
                         )}
                         {isStatic && (
-                          <><strong>Raw Field:</strong> {calc.source_field}</>
+                          <><strong>Raw Field:</strong> {parsed.identifier}</>
                         )}
                       </p>
                       
@@ -501,6 +451,7 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
             {/* Incompatible Calculations (shown as disabled) */}
             {incompatibleCalculations.map(calc => {
               const { reason } = getCalculationCompatibilityInfo(calc, scope);
+              const parsed = parseCalculationId(calc.id);
               const isUser = isUserDefinedCalculation(calc);
               const isSystem = isSystemSqlCalculation(calc);
               const isStatic = isStaticFieldCalculation(calc);
@@ -515,7 +466,7 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
               }
               
               return (
-                <div key={`incompatible-${calc.calculation_type}-${calc.id}`} className="col-md-6 col-lg-4 mb-3">
+                <div key={`incompatible-${calc.id}`} className="col-md-6 col-lg-4 mb-3">
                   <div 
                     className="card h-100 border-warning bg-light"
                     style={{ opacity: 0.7, cursor: 'not-allowed' }}
@@ -554,7 +505,7 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
                           <><strong>Custom SQL</strong></>
                         )}
                         {isStatic && (
-                          <><strong>Raw Field:</strong> {calc.source_field}</>
+                          <><strong>Raw Field:</strong> {parsed.identifier}</>
                         )}
                       </p>
                       

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
+from urllib.parse import unquote
 from app.core.dependencies import get_db, get_dw_db, get_user_calculation_dao, get_system_calculation_dao
 
 from .service import (
@@ -27,7 +28,17 @@ from .schemas import (
     ReportExecutionResponse,
     SQLPreviewResponse,
     CalculationUsageResponse,
-    CalculationRequestSchema
+    CalculationRequestSchema,
+    UserCalculationRead,
+    SystemCalculationRead,
+    StaticFieldRead,
+    UserCalculationStats,
+    SystemCalculationStats,
+    CalculationConfigRead,
+    CalculationExecutionRequest,
+    CalculationExecutionResponse,
+    CalculationExecutionSQLResponse,
+    SystemCalculationUpdate
 )
 
 router = APIRouter(prefix="/calculations", tags=["calculations"])
@@ -51,6 +62,50 @@ def get_report_execution_service(
 ) -> ReportExecutionService:
     """Get report execution service"""
     return ReportExecutionService(dw_db, config_db)
+
+
+# ===== UNIFIED CALCULATIONS ENDPOINT (ROOT) =====
+
+class UnifiedCalculationsResponse(BaseModel):
+    """Unified response containing both user and system calculations"""
+    user_calculations: List[UserCalculationResponse]
+    system_calculations: List[SystemCalculationResponse]
+    summary: Dict[str, Any]
+
+@router.get("", response_model=UnifiedCalculationsResponse)
+def get_all_calculations(
+    group_level: Optional[str] = Query(None, description="Filter by group level"),
+    user_service: UserCalculationService = Depends(get_user_calculation_service),
+    system_service: SystemCalculationService = Depends(get_system_calculation_service)
+):
+    """Get all calculations (user and system) in a unified response"""
+    try:
+        # Fetch both types of calculations
+        user_calcs = user_service.get_all_user_calculations(group_level)
+        system_calcs = system_service.get_all_system_calculations(group_level)
+        
+        # Create summary statistics
+        user_in_use = sum(1 for calc in user_calcs if calc.usage_info and calc.usage_info.get('is_in_use', False))
+        system_in_use = sum(1 for calc in system_calcs if calc.usage_info and calc.usage_info.get('is_in_use', False))
+        
+        summary = {
+            "total_calculations": len(user_calcs) + len(system_calcs),
+            "user_calculation_count": len(user_calcs),
+            "system_calculation_count": len(system_calcs),
+            "user_in_use_count": user_in_use,
+            "system_in_use_count": system_in_use,
+            "total_in_use": user_in_use + system_in_use,
+            "group_level_filter": group_level
+        }
+        
+        return UnifiedCalculationsResponse(
+            user_calculations=user_calcs,
+            system_calculations=system_calcs,
+            summary=summary
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving calculations: {str(e)}")
 
 
 # ===== CONFIGURATION ENDPOINTS =====
@@ -505,45 +560,126 @@ def calculation_system_health():
     }
 
 
-# ===== UNIFIED CALCULATIONS ENDPOINT =====
+# ===== NEW ENDPOINTS FOR LOOKUP BY SOURCE_FIELD AND RESULT_COLUMN =====
 
-class UnifiedCalculationsResponse(BaseModel):
-    """Unified response containing both user and system calculations"""
-    user_calculations: List[UserCalculationResponse]
-    system_calculations: List[SystemCalculationResponse]
-    summary: Dict[str, Any]
+@router.get("/user/by-source-field/{source_field}", response_model=UserCalculationRead)
+def get_user_calculation_by_source_field(
+    source_field: str,
+    service: UserCalculationService = Depends(get_user_calculation_service)
+):
+    """Get a user calculation by source_field (used with new calculation_id format)"""
+    # URL decode the source_field parameter
+    decoded_source_field = unquote(source_field)
+    
+    calculation = service.get_user_calculation_by_source_field(decoded_source_field)
+    if not calculation:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"User calculation with source_field '{decoded_source_field}' not found"
+        )
+    return calculation
 
-@router.get("", response_model=UnifiedCalculationsResponse)
-def get_all_calculations(
-    group_level: Optional[str] = Query(None, description="Filter by group level"),
-    user_service: UserCalculationService = Depends(get_user_calculation_service),
+
+@router.get("/system/by-result-column/{result_column}", response_model=SystemCalculationRead)
+def get_system_calculation_by_result_column(
+    result_column: str,
+    service: SystemCalculationService = Depends(get_system_calculation_service)
+):
+    """Get a system calculation by result_column_name (used with new calculation_id format)"""
+    # URL decode the result_column parameter
+    decoded_result_column = unquote(result_column)
+    
+    calculation = service.get_system_calculation_by_result_column(decoded_result_column)
+    if not calculation:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"System calculation with result_column '{decoded_result_column}' not found"
+        )
+    return calculation
+
+
+@router.get("/usage/{calculation_id}", response_model=CalculationUsageResponse)
+def get_calculation_usage_by_calculation_id(
+    calculation_id: str,
+    service: UserCalculationService = Depends(get_user_calculation_service),
     system_service: SystemCalculationService = Depends(get_system_calculation_service)
 ):
-    """Get all calculations (user and system) in a unified response"""
-    try:
-        # Fetch both types of calculations
-        user_calcs = user_service.get_all_user_calculations(group_level)
-        system_calcs = system_service.get_all_system_calculations(group_level)
-        
-        # Create summary statistics
-        user_in_use = sum(1 for calc in user_calcs if calc.usage_info and calc.usage_info.get('is_in_use', False))
-        system_in_use = sum(1 for calc in system_calcs if calc.usage_info and calc.usage_info.get('is_in_use', False))
-        
-        summary = {
-            "total_calculations": len(user_calcs) + len(system_calcs),
-            "user_calculation_count": len(user_calcs),
-            "system_calculation_count": len(system_calcs),
-            "user_in_use_count": user_in_use,
-            "system_in_use_count": system_in_use,
-            "total_in_use": user_in_use + system_in_use,
-            "group_level_filter": group_level
+    """Get calculation usage by the new calculation_id format"""
+    # URL decode the calculation_id parameter
+    decoded_calc_id = unquote(calculation_id)
+    
+    # Parse the calculation_id format
+    if decoded_calc_id.startswith("user."):
+        source_field = decoded_calc_id[5:]  # Remove "user." prefix
+        calculation = service.get_user_calculation_by_source_field(source_field)
+        if not calculation:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"User calculation with source_field '{source_field}' not found"
+            )
+        return service.get_user_calculation_usage(calculation.id)
+    
+    elif decoded_calc_id.startswith("system."):
+        result_column = decoded_calc_id[7:]  # Remove "system." prefix
+        calculation = system_service.get_system_calculation_by_result_column(result_column)
+        if not calculation:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"System calculation with result_column '{result_column}' not found"
+            )
+        return system_service.get_system_calculation_usage(calculation.id)
+    
+    elif decoded_calc_id.startswith("static_"):
+        # Static fields don't have usage tracking, return empty usage
+        field_path = decoded_calc_id.replace("static_", "")
+        return {
+            "calculation_id": decoded_calc_id,
+            "calculation_name": field_path,
+            "is_in_use": False,
+            "report_count": 0,
+            "reports": []
         }
-        
-        return UnifiedCalculationsResponse(
-            user_calculations=user_calcs,
-            system_calculations=system_calcs,
-            summary=summary
+    
+    else:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid calculation_id format: {decoded_calc_id}. Expected 'user.', 'system.', or 'static_' prefix."
         )
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error retrieving calculations: {str(e)}")
+
+
+# ===== VALIDATION ENDPOINTS FOR NEW FORMATS =====
+
+@router.post("/user/validate-source-field")
+def validate_user_calculation_source_field(
+    request: Dict[str, str],
+    service: UserCalculationService = Depends(get_user_calculation_service)
+):
+    """Validate if a source_field is available for user calculations"""
+    source_field = request.get("source_field")
+    if not source_field:
+        raise HTTPException(status_code=400, detail="source_field is required")
+    
+    existing_calc = service.get_user_calculation_by_source_field(source_field)
+    return {
+        "source_field": source_field,
+        "is_available": existing_calc is None,
+        "existing_calculation": existing_calc.name if existing_calc else None
+    }
+
+
+@router.post("/system/validate-result-column")
+def validate_system_calculation_result_column(
+    request: Dict[str, str],
+    service: SystemCalculationService = Depends(get_system_calculation_service)
+):
+    """Validate if a result_column_name is available for system calculations"""
+    result_column = request.get("result_column")
+    if not result_column:
+        raise HTTPException(status_code=400, detail="result_column is required")
+    
+    existing_calc = service.get_system_calculation_by_result_column(result_column)
+    return {
+        "result_column": result_column,
+        "is_available": existing_calc is None,
+        "existing_calculation": existing_calc.name if existing_calc else None
+    }

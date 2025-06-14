@@ -32,15 +32,15 @@ export const useReportBuilderForm = ({ editingReport, isEditMode }: UseReportBui
         const defaultPrefs = getDefaultColumnPreferences(calculations, scope as ReportScope, true);
         setColumnPreferences(defaultPrefs);
       } else {
-        // Update existing preferences to include new calculations
+        // Update existing preferences to include new calculations - UPDATED for string IDs
         const existingColumnIds = columnPreferences.columns.map(col => col.column_id);
         const newCalculations = calculations.filter(calc => 
-          !existingColumnIds.includes(String(calc.calculation_id))
+          !existingColumnIds.includes(calc.calculation_id) // Now using string comparison directly
         );
         
         if (newCalculations.length > 0) {
           const newColumns = newCalculations.map((calc, index) => ({
-            column_id: String(calc.calculation_id),
+            column_id: calc.calculation_id, // Already a string in new format
             display_name: calc.display_name || `Calculation ${calc.calculation_id}`,
             is_visible: true,
             display_order: columnPreferences.columns.length + index,
@@ -54,7 +54,7 @@ export const useReportBuilderForm = ({ editingReport, isEditMode }: UseReportBui
         }
       }
     }
-  }, [columnPreferences]);
+  }, [columnPreferences, setColumnPreferences]);
 
   // Update column preferences when calculations change
   useEffect(() => {

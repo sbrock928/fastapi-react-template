@@ -1,9 +1,10 @@
 # app/calculations/schemas.py
 """Pydantic schemas for the new separated calculation system"""
 
-from pydantic import BaseModel, Field, field_validator
-from typing import Optional, Dict, Any, List
+from pydantic import BaseModel, Field, field_validator, ConfigDict
+from typing import Optional, Dict, Any, List, Union, Literal
 from datetime import datetime
+from enum import Enum
 from .models import AggregationFunction, SourceModel, GroupLevel
 
 
@@ -153,6 +154,19 @@ class SystemCalculationCreate(SystemCalculationBase):
                 }
             }
         }
+
+
+class SystemCalculationUpdate(BaseModel):
+    """Schema for updating system calculations"""
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    raw_sql: Optional[str] = Field(None, min_length=10)
+    result_column_name: Optional[str] = Field(None, min_length=1, max_length=100, pattern=r"^[a-zA-Z][a-zA-Z0-9_]*$")
+    group_level: Optional[GroupLevel] = None
+    metadata_config: Optional[Dict[str, Any]] = None
+
+    class Config:
+        from_attributes = True
 
 
 class SystemCalculationResponse(SystemCalculationBase):
@@ -410,26 +424,116 @@ class CalculationConfigResponse(BaseModel):
 # ===== USAGE INFORMATION SCHEMAS =====
 
 class CalculationUsageResponse(BaseModel):
-    """Schema for calculation usage information"""
-    calculation_id: int
+    """Response schema for calculation usage information"""
+    calculation_id: Union[int, str]  # Can be numeric (legacy) or string (new format)
     calculation_name: str
     is_in_use: bool
     report_count: int
     reports: List[Dict[str, Any]]
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "calculation_id": 1,
-                "calculation_name": "Total Ending Balance",
-                "is_in_use": True,
-                "report_count": 2,
-                "reports": [
-                    {
-                        "report_id": 1,
-                        "report_name": "Monthly Deal Summary",
-                        "report_description": "Summary of all deals for the month"
-                    }
-                ]
-            }
+
+class AvailableCalculationResponse(BaseModel):
+    """Response schema for available calculations with new format"""
+    id: str  # Always string with new format: "user.{source_field}", "system.{result_column}", "static_{table}.{field}"
+    name: str
+    description: Optional[str] = None
+    aggregation_function: Optional[str] = None
+    source_model: Optional[str] = None
+    source_field: Optional[str] = None
+    group_level: str
+    weight_field: Optional[str] = None
+    scope: str
+    category: str
+    is_default: bool
+    calculation_type: Literal["USER_DEFINED", "SYSTEM_SQL", "STATIC_FIELD"]
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "id": "user.current_balance",
+                    "name": "Current Balance Sum",
+                    "description": "Sum of current balances",
+                    "aggregation_function": "SUM",
+                    "source_model": "TrancheBal", 
+                    "source_field": "current_balance",
+                    "group_level": "deal",
+                    "weight_field": None,
+                    "scope": "DEAL",
+                    "category": "Balance & Amount Calculations",
+                    "is_default": False,
+                    "calculation_type": "USER_DEFINED"
+                },
+                {
+                    "id": "system.total_wac",
+                    "name": "Total Weighted Average Coupon",
+                    "description": "Custom calculated WAC",
+                    "aggregation_function": None,
+                    "source_model": None,
+                    "source_field": "total_wac",
+                    "group_level": "deal", 
+                    "weight_field": None,
+                    "scope": "DEAL",
+                    "category": "System Calculations",
+                    "is_default": False,
+                    "calculation_type": "SYSTEM_SQL"
+                },
+                {
+                    "id": "static_deal.dl_nbr",
+                    "name": "Deal Number",
+                    "description": "Unique deal identifier",
+                    "aggregation_function": None,
+                    "source_model": None,
+                    "source_field": "deal.dl_nbr",
+                    "group_level": "deal",
+                    "weight_field": None,
+                    "scope": "DEAL", 
+                    "category": "Deal Information",
+                    "is_default": True,
+                    "calculation_type": "STATIC_FIELD"
+                }
+            ]
         }
+    )
+
+
+# ===== READ SCHEMAS (for backward compatibility) =====
+
+# Alias for backward compatibility
+UserCalculationRead = UserCalculationResponse
+SystemCalculationRead = SystemCalculationResponse
+StaticFieldRead = StaticFieldInfo
+CalculationConfigRead = CalculationConfigResponse
+
+# ===== MISSING SCHEMAS FOR ROUTER COMPATIBILITY =====
+
+class UserCalculationStats(BaseModel):
+    """Statistics for user calculations"""
+    total_count: int
+    active_count: int
+    approved_count: int
+    in_use_count: int
+
+class SystemCalculationStats(BaseModel):
+    """Statistics for system calculations"""
+    total_count: int
+    active_count: int
+    approved_count: int
+    in_use_count: int
+
+class CalculationExecutionRequest(BaseModel):
+    """Request schema for calculation execution"""
+    calculation_requests: List[CalculationRequestSchema]
+    deal_tranche_map: Dict[int, List[str]]
+    cycle_code: int
+
+class CalculationExecutionResponse(BaseModel):
+    """Response schema for calculation execution"""
+    data: List[Dict[str, Any]]
+    metadata: Dict[str, Any]
+
+class CalculationExecutionSQLResponse(BaseModel):
+    """SQL preview response for calculation execution"""
+    sql_previews: Dict[str, Dict[str, Any]]
+    parameters: Dict[str, Any]
+    summary: Dict[str, Any]

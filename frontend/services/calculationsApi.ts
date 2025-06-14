@@ -1,7 +1,8 @@
 // frontend/services/calculationsApi.ts
 // Updated API service to work with the new separated calculation system
 
-import axios, { AxiosResponse } from 'axios';
+import apiClient from './apiClient';
+import type { AxiosResponse } from 'axios';
 import type {
   UserCalculation,
   SystemCalculation,
@@ -15,17 +16,9 @@ import type {
   CalculationUsage,
   PreviewData
 } from '@/types/calculations';
+import { parseCalculationId } from '@/types/calculations';
 
-const API_BASE_URL = '/api';
-
-// Create axios instance with default config
-const apiClient = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
-
+// Updated to handle string-based calculation IDs
 export const calculationsApi = {
   // ===== CONFIGURATION ENDPOINTS =====
   async getCalculationConfig(): Promise<AxiosResponse<{ data: CalculationConfig }>> {
@@ -49,7 +42,7 @@ export const calculationsApi = {
     return apiClient.delete(`/calculations/user/${id}`);
   },
 
-  async getCalculationUsage(id: number): Promise<AxiosResponse<CalculationUsage>> {
+  async getUserCalculationUsage(id: number): Promise<AxiosResponse<CalculationUsage>> {
     return apiClient.get(`/calculations/user/${id}/usage`);
   },
 
@@ -229,6 +222,75 @@ export const calculationsApi = {
     return apiClient.get('/calculations', { params });
   },
 
+  // User calculations - these methods now need to handle lookup by source_field
+  async getUserCalculationBySourceField(sourceField: string): Promise<AxiosResponse<UserCalculation>> {
+    return apiClient.get(`/calculations/user/by-source-field/${encodeURIComponent(sourceField)}`);
+  },
+
+  // System calculations - these methods now need to handle lookup by result_column
+  async getSystemCalculationByResultColumn(resultColumn: string): Promise<AxiosResponse<SystemCalculation>> {
+    return apiClient.get(`/calculations/system/by-result-column/${encodeURIComponent(resultColumn)}`);
+  },
+
+  // Updated usage endpoints to handle string IDs
+  async getCalculationUsageByCalculationId(calculationId: string): Promise<AxiosResponse<CalculationUsage>> {
+    const parsed = parseCalculationId(calculationId);
+    
+    if (parsed.type === 'static') {
+      // Static fields don't have usage tracking - create a proper mock AxiosResponse
+      return Promise.resolve({
+        data: {
+          calculation_id: calculationId,
+          calculation_name: parsed.identifier,
+          is_in_use: false,
+          report_count: 0,
+          reports: []
+        },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: {
+          headers: {} as any
+        }
+      } as AxiosResponse<CalculationUsage>);
+    }
+    
+    // For user and system calculations, use the new endpoint that handles string IDs
+    return apiClient.get(`/calculations/usage/${encodeURIComponent(calculationId)}`);
+  },
+
+  // NEW: Validation endpoints for new formats
+  async validateUserCalculationSourceField(sourceField: string): Promise<AxiosResponse<{ is_available: boolean; existing_calculation?: string }>> {
+    return apiClient.post('/calculations/user/validate-source-field', { source_field: sourceField });
+  },
+
+  async validateSystemCalculationResultColumn(resultColumn: string): Promise<AxiosResponse<{ is_available: boolean; existing_calculation?: string }>> {
+    return apiClient.post('/calculations/system/validate-result-column', { result_column: resultColumn });
+  },
+
+  // Legacy method - updated to handle both formats for backward compatibility
+  async getCalculationUsage(calcId: number | string): Promise<AxiosResponse<CalculationUsage>> {
+    if (typeof calcId === 'string') {
+      return this.getCalculationUsageByCalculationId(calcId);
+    } else {
+      // Legacy numeric ID - determine type and convert to new format
+      // We'll need to try both user and system endpoints
+      try {
+        const userCalc = await this.getUserCalculationById(calcId);
+        const newId = `user.${userCalc.data.source_field}`;
+        return this.getCalculationUsageByCalculationId(newId);
+      } catch {
+        try {
+          const systemCalc = await this.getSystemCalculationById(calcId);
+          const newId = `system.${systemCalc.data.result_column_name}`;
+          return this.getCalculationUsageByCalculationId(newId);
+        } catch {
+          throw new Error(`Could not find calculation with ID: ${calcId}`);
+        }
+      }
+    }
+  },
+
   // Helper methods for compatibility
   categorizeCalculation(calc: UserCalculation): string {
     if (calc.source_model === 'Deal') {
@@ -275,14 +337,7 @@ export const calculationsApi = {
 
   isStaticFieldCompatibleWithScope(field: StaticFieldInfo, scope: 'DEAL' | 'TRANCHE'): boolean {
     const fieldGroupLevel = this.determineFieldGroupLevel(field.field_path);
-    
-    if (scope === 'DEAL') {
-      // Deal-level reports can only include deal-level fields
-      return fieldGroupLevel === 'deal';
-    } else {
-      // Tranche-level reports can include both deal and tranche level fields
-      return true;
-    }
+    return scope === 'TRANCHE' || fieldGroupLevel === 'deal';
   }
 };
 

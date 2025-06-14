@@ -15,7 +15,7 @@ import {
 } from './wizardSteps';
 import WizardNavigation from './WizardNavigation';
 import { transformFormDataForApi } from './utils/reportBusinessLogic';
-import type { ReportConfig, TrancheReportSummary } from '@/types/reporting';
+import type { ReportConfig } from '@/types/reporting';
 
 interface ReportBuilderWizardProps {
   onReportSaved: () => void;
@@ -55,13 +55,9 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
 
   // Data management
   const {
-    deals,
-    tranches,
-    availableCalculations, // Changed from availableFields
-    dealsLoading,
-    tranchesLoading,
-    calculationsLoading // Changed from fieldsLoading
-  } = useReportBuilderData({ reportScope, selectedDeals, isEditMode });
+    availableCalculations,
+    calculationsLoading
+  } = useReportBuilderData({ reportScope });
 
   // Validation and navigation
   const formState = {
@@ -132,12 +128,10 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
   };
 
   // Handle select all tranches for a deal
-  const handleSelectAllTranches = (dlNbr: number) => {
-    const allTrancheIds = (tranches[dlNbr] || []).map((t: TrancheReportSummary) => t.tr_id);
-    setSelectedTranches((prev: Record<number, string[]>) => ({
-      ...prev,
-      [dlNbr]: allTrancheIds
-    }));
+  const handleSelectAllTranches = () => {
+    // TODO: This would need to be implemented when tranche data is available
+    // For now, just keep the existing selections
+    console.warn('Select all tranches not implemented yet - need tranche data');
   };
 
   // Save or update report configuration
@@ -202,42 +196,11 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
   };
   
 
-  // Auto-select tranches based on report scope (updated logic for smart defaults)
+  // Auto-select tranches based on report scope (simplified for now)
   React.useEffect(() => {
-    if (Object.keys(tranches).length > 0) {
-      setSelectedTranches((prev: Record<number, string[]>) => {
-        const newSelectedTranches: Record<number, string[]> = {};
-        let hasChanges = false;
-        
-        Object.entries(tranches).forEach(([dealId, dealTranches]) => {
-          const dlNbr = parseInt(dealId);
-          if (selectedDeals.includes(dlNbr)) {
-            // Check if this deal has existing tranche selections or if it's empty (smart selection)
-            const existingTranches = prev[dlNbr] || [];
-            
-            if (isEditMode && existingTranches.length === 0) {
-              // For edit mode: if deal has no explicit selections, populate with all tranches (smart selection)
-              newSelectedTranches[dlNbr] = dealTranches.map((t: TrancheReportSummary) => t.tr_id);
-              hasChanges = true;
-            } else if (!isEditMode && existingTranches.length === 0) {
-              // For new reports: Auto-select ALL tranches by default for deals with no existing selections
-              newSelectedTranches[dlNbr] = dealTranches.map((t: TrancheReportSummary) => t.tr_id);
-              hasChanges = true;
-            } else {
-              // Keep existing selections
-              newSelectedTranches[dlNbr] = prev[dlNbr];
-            }
-          }
-        });
-        
-        // Only update if there are actual changes
-        if (hasChanges) {
-          return { ...prev, ...newSelectedTranches };
-        }
-        return prev;
-      });
-    }
-  }, [tranches, isEditMode, selectedDeals, reportScope]);
+    // TODO: This logic would need to be restored when deal/tranche data loading is implemented
+    // For now, this is a placeholder
+  }, [selectedDeals, reportScope]);
 
   // Render wizard step content
   const renderWizardStep = () => {
@@ -264,13 +227,13 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
             reportScope={reportScope}
             selectedDeals={selectedDeals}
             selectedTranches={selectedTranches}
-            tranches={tranches}
+            tranches={{}} // TODO: Provide actual tranche data when available
             onDealAdd={handleDealAdd}
             onDealRemove={handleDealRemove}
             onTrancheToggle={handleTrancheToggle}
             onSelectAllTranches={handleSelectAllTranches}
             onDeselectAllTranches={handleDeselectAllTranches}
-            loading={dealsLoading || tranchesLoading}
+            loading={false} // TODO: Use actual loading state when deal/tranche loading is implemented
           />
         );
   
@@ -296,7 +259,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
             selectedCalculations={selectedCalculations}
             columnPreferences={columnPreferences}
             onColumnPreferencesChange={setColumnPreferences}
-            deals={deals}
+            deals={[]} // TODO: Provide actual deal data when available
           />
         );
   

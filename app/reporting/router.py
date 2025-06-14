@@ -194,12 +194,23 @@ async def get_report_execution_logs(
 # ===== CALCULATION CONFIGURATION ENDPOINTS =====
 
 
-@router.get("/calculations/available", response_model=List[AvailableCalculation])
+@router.get("/calculations/available/{scope}", response_model=List[AvailableCalculation])
 def get_available_calculations(
-    scope: ReportScope, service: ReportService = Depends(get_report_service)
+    scope: str, service: ReportService = Depends(get_report_service)
 ) -> List[AvailableCalculation]:
-    """Get available calculations for report configuration based on scope."""
-    return service.get_available_calculations(scope)  # This one stays sync
+    """Get available calculations for report configuration based on scope with new calculation_id format"""
+    try:
+        scope_enum = ReportScope(scope.upper())
+        calculations = service.get_available_calculations_for_scope(scope_enum)
+        
+        # Add debugging info about the new format
+        print(f"Debug: Returning {len(calculations)} calculations with new format:")
+        for calc in calculations[:3]:  # Print first 3 for debugging
+            print(f"  - ID: {calc.id}, Name: {calc.name}, Type: {calc.calculation_type}")
+        
+        return calculations
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid scope: {scope}")
 
 
 # ===== DATA ENDPOINTS (for report building) =====

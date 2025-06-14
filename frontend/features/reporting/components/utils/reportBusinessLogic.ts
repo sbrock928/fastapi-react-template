@@ -41,47 +41,22 @@ export const transformFormDataForApi = (
     throw new Error('At least one calculation must be selected');
   }
 
-  // Transform deals with their selected tranches
-  const selected_deals = selectedDeals.map(dlNbr => ({
-    dl_nbr: dlNbr,
-    selected_tranches: (selectedTranches[dlNbr] || []).map(trId => ({
-      tr_id: trId,
-      dl_nbr: dlNbr
-    }))
+  // Transform selected deals with tranche information
+  const transformedDeals = selectedDeals.map(dealNumber => ({
+    dl_nbr: dealNumber,
+    selected_tranches: selectedTranches[dealNumber]?.map(trancheId => ({
+      tr_id: trancheId,
+      dl_nbr: dealNumber
+    })) || []
   }));
 
-  // Ensure column preferences are valid if provided
-  let validatedColumnPreferences: ReportColumnPreferences | undefined = columnPreferences;
-  
-  if (columnPreferences) {
-    // Validate and clean column preferences
-    const cleanedColumns = columnPreferences.columns
-      .filter(col => col.display_name?.trim()) // Remove columns without names
-      .map((col, index) => ({
-        ...col,
-        display_name: col.display_name.trim(),
-        display_order: index // Ensure sequential ordering
-      }));
-
-    validatedColumnPreferences = {
-      ...columnPreferences,
-      columns: cleanedColumns
-    };
-
-    // Ensure at least one column is visible or default columns are included
-    const hasVisibleColumns = cleanedColumns.some(col => col.is_visible);
-    if (!hasVisibleColumns && !columnPreferences.include_default_columns) {
-      validatedColumnPreferences.include_default_columns = true;
-    }
-  }
-
   return {
-    name: reportName.trim(),
-    description: reportDescription?.trim() || undefined,
-    scope: reportScope as 'DEAL' | 'TRANCHE',
-    selected_deals,
+    name: reportName,
+    description: reportDescription || undefined,
+    scope: reportScope,
+    selected_deals: transformedDeals,
     selected_calculations: selectedCalculations,
-    column_preferences: validatedColumnPreferences,
+    column_preferences: columnPreferences,
     is_active: true
   };
 };
@@ -172,13 +147,13 @@ export const getSuccessMessage = (operation: 'create' | 'update'): string => {
 
 /**
  * Convert available calculations to report calculations for form state
- * This helps when editing existing reports
+ * Updated to handle new calculation_id format
  */
 export const convertAvailableCalculationsToReportCalculations = (
   availableCalculations: AvailableCalculation[]
 ): ReportCalculation[] => {
   return availableCalculations.map((calc, index) => ({
-    calculation_id: typeof calc.id === 'string' ? calc.id : calc.id, // Keep string IDs as strings!
+    calculation_id: calc.id, // Now always a string with proper format
     calculation_type: determineCalculationType(calc),
     display_order: index,
     display_name: undefined
@@ -187,37 +162,82 @@ export const convertAvailableCalculationsToReportCalculations = (
 
 /**
  * Determine calculation type from available calculation
+ * Updated for new ID format
  */
 function determineCalculationType(calc: AvailableCalculation): 'user' | 'system' | 'static' {
-  if (calc.calculation_type === 'STATIC_FIELD' || (typeof calc.id === 'string' && calc.id.startsWith('static_'))) {
+  if (calc.calculation_type === 'STATIC_FIELD' || calc.id.startsWith('static_')) {
     return 'static';
-  } else if (calc.calculation_type === 'SYSTEM_SQL') {
+  } else if (calc.calculation_type === 'SYSTEM_SQL' || calc.id.startsWith('system.')) {
     return 'system';
-  } else {
+  } else if (calc.calculation_type === 'USER_DEFINED' || calc.id.startsWith('user.')) {
     return 'user';
   }
+  
+  // Fallback logic (shouldn't be needed with new format)
+  console.warn(`Unknown calculation type for calc: ${calc.id}`, calc);
+  return 'user';
 }
 
 /**
  * Find available calculation by report calculation
- * This is useful for displaying calculation details in forms
+ * Updated for new string-based ID format
  */
 export const findAvailableCalculationByReportCalculation = (
   availableCalculations: AvailableCalculation[],
   reportCalc: ReportCalculation
 ): AvailableCalculation | undefined => {
-  if (reportCalc.calculation_type === 'static') {
-    // For static fields, find by string ID directly (no more hashing)
-    return availableCalculations.find(calc => 
-      typeof calc.id === 'string' && 
-      calc.id === reportCalc.calculation_id
-    );
+  // With new format, we can find directly by string ID
+  return availableCalculations.find(calc => calc.id === reportCalc.calculation_id);
+};
+
+/**
+ * Parse calculation ID to extract type and identifier
+ * NEW utility function for the new format
+ */
+export const parseCalculationIdLocal = (calculationId: string): {
+  type: 'user' | 'system' | 'static';
+  identifier: string;
+} => {
+  if (calculationId.startsWith('user.')) {
+    return {
+      type: 'user',
+      identifier: calculationId.substring(5) // Remove "user."
+    };
+  } else if (calculationId.startsWith('system.')) {
+    return {
+      type: 'system', 
+      identifier: calculationId.substring(7) // Remove "system."
+    };
+  } else if (calculationId.startsWith('static_')) {
+    return {
+      type: 'static',
+      identifier: calculationId.substring(7) // Remove "static_"
+    };
   } else {
-    // For user/system calculations, find by numeric ID
-    return availableCalculations.find(calc => 
-      typeof calc.id === 'number' && 
-      calc.id === reportCalc.calculation_id
-    );
+    console.warn(`Unknown calculation ID format: ${calculationId}`);
+    return {
+      type: 'user', // fallback
+      identifier: calculationId
+    };
+  }
+};
+
+/**
+ * Format calculation ID for display
+ * NEW utility function
+ */
+export const formatCalculationIdForDisplay = (calculationId: string): string => {
+  const parsed = parseCalculationIdLocal(calculationId);
+  
+  switch (parsed.type) {
+    case 'user':
+      return `User: ${parsed.identifier}`;
+    case 'system':
+      return `System: ${parsed.identifier}`;
+    case 'static':
+      return `Static: ${parsed.identifier}`;
+    default:
+      return calculationId;
   }
 };
 
@@ -281,63 +301,21 @@ export const filterCalculationsByCompatibility = (
 };
 
 /**
- * Helper function to validate column preferences
+ * Update column preferences when calculations change
+ * NEW helper function for managing column preferences
  */
-export const validateColumnPreferences = (
-  preferences: ReportColumnPreferences
-): { isValid: boolean; errors: string[] } => {
-  const errors: string[] = [];
-
-  // Check for duplicate display names
-  const displayNames = preferences.columns.map(col => col.display_name.toLowerCase().trim());
-  const duplicates = displayNames.filter((name, index) => 
-    name && displayNames.indexOf(name) !== index
-  );
-  
-  if (duplicates.length > 0) {
-    errors.push('Column display names must be unique');
-  }
-
-  // Check for empty display names
-  const emptyNames = preferences.columns.filter(col => !col.display_name?.trim());
-  if (emptyNames.length > 0) {
-    errors.push('All columns must have display names');
-  }
-
-  // Check that at least one column is visible
-  const visibleColumns = preferences.columns.filter(col => col.is_visible);
-  if (visibleColumns.length === 0 && !preferences.include_default_columns) {
-    errors.push('At least one column must be visible in the output');
-  }
-
-  return {
-    isValid: errors.length === 0,
-    errors
-  };
-};
-
-/**
- * Helper function to merge column preferences when editing reports
- */
-export const mergeColumnPreferences = (
-  existingPreferences: ReportColumnPreferences | undefined,
-  newCalculations: any[],
-  reportScope: 'DEAL' | 'TRANCHE'
+export const updateColumnPreferencesWithNewCalculations = (
+  existingPreferences: ReportColumnPreferences,
+  newCalculations: ReportCalculation[]
 ): ReportColumnPreferences => {
-  if (!existingPreferences) {
-    // Create new preferences from scratch
-    const { getDefaultColumnPreferences } = require('@/types/reporting');
-    return getDefaultColumnPreferences(newCalculations, reportScope, true);
-  }
-
   // Get existing column IDs
   const existingColumnIds = new Set(existingPreferences.columns.map(col => col.column_id));
   
-  // Find new calculations that don't have column preferences yet
+  // Find new calculations that aren't already in preferences
   const newCalculationColumns = newCalculations
-    .filter(calc => !existingColumnIds.has(String(calc.calculation_id)))
+    .filter(calc => !existingColumnIds.has(calc.calculation_id))
     .map((calc, index) => ({
-      column_id: String(calc.calculation_id),
+      column_id: calc.calculation_id, // String ID directly
       display_name: calc.display_name || `Calculation ${calc.calculation_id}`,
       is_visible: true,
       display_order: existingPreferences.columns.length + index,
@@ -345,7 +323,7 @@ export const mergeColumnPreferences = (
     }));
 
   // Remove columns for calculations that no longer exist
-  const currentCalculationIds = new Set(newCalculations.map(calc => String(calc.calculation_id)));
+  const currentCalculationIds = new Set(newCalculations.map(calc => calc.calculation_id));
   const validExistingColumns = existingPreferences.columns.filter(col => 
     currentCalculationIds.has(col.column_id) || 
     ['deal_number', 'tranche_id', 'cycle_code'].includes(col.column_id) // Keep default columns
@@ -370,76 +348,54 @@ export const generateFormattedPreview = (
 
   return rawData.map(row => {
     const formattedRow: any = {};
-
-    // Apply column preferences
+    
     columnPreferences.columns
       .filter(col => col.is_visible)
       .sort((a, b) => a.display_order - b.display_order)
-      .forEach(colPref => {
-        const originalValue = row[colPref.column_id];
-        const displayName = colPref.display_name;
-        
-        // Apply formatting based on format type
-        let formattedValue = originalValue;
-        
-        if (originalValue !== null && originalValue !== undefined) {
-          switch (colPref.format_type) {
-            case ColumnFormat.CURRENCY:
-              if (typeof originalValue === 'number') {
-                formattedValue = `$${originalValue.toLocaleString('en-US', { 
-                  minimumFractionDigits: 2, 
-                  maximumFractionDigits: 2 
-                })}`;
-              }
-              break;
-              
-            case ColumnFormat.PERCENTAGE:
-              if (typeof originalValue === 'number') {
-                formattedValue = `${originalValue.toFixed(1)}%`;
-              }
-              break;
-              
-            case ColumnFormat.NUMBER:
-              if (typeof originalValue === 'number') {
-                formattedValue = originalValue.toLocaleString('en-US');
-              }
-              break;
-              
-            case ColumnFormat.DATE_MDY:
-              if (originalValue instanceof Date) {
-                formattedValue = originalValue.toLocaleDateString('en-US');
-              } else if (typeof originalValue === 'string') {
-                try {
-                  const date = new Date(originalValue);
-                  formattedValue = date.toLocaleDateString('en-US');
-                } catch {
-                  // Keep original value if parsing fails
-                }
-              }
-              break;
-              
-            case ColumnFormat.DATE_DMY:
-              if (originalValue instanceof Date) {
-                formattedValue = originalValue.toLocaleDateString('en-GB');
-              } else if (typeof originalValue === 'string') {
-                try {
-                  const date = new Date(originalValue);
-                  formattedValue = date.toLocaleDateString('en-GB');
-                } catch {
-                  // Keep original value if parsing fails
-                }
-              }
-              break;
-              
-            default:
-              // TEXT format - keep as is
-              break;
-          }
+      .forEach(col => {
+        const value = row[col.column_id];
+        if (value !== undefined && value !== null) {
+          formattedRow[col.display_name] = formatValueByType(value, col.format_type);
+        } else {
+          formattedRow[col.display_name] = '';
         }
-        
-        formattedRow[displayName] = formattedValue;
       });
-
+    
     return formattedRow;
   });
 };
+
+/**
+ * Format a value according to its column format type
+ */
+function formatValueByType(value: any, formatType: ColumnFormat): string {
+  if (value === null || value === undefined) return '';
+  
+  switch (formatType) {
+    case ColumnFormat.CURRENCY:
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD'
+      }).format(Number(value) || 0);
+      
+    case ColumnFormat.PERCENTAGE:
+      return new Intl.NumberFormat('en-US', {
+        style: 'percent',
+        minimumFractionDigits: 2
+      }).format((Number(value) || 0) / 100);
+      
+    case ColumnFormat.NUMBER:
+      return new Intl.NumberFormat('en-US').format(Number(value) || 0);
+      
+    case ColumnFormat.DATE_MDY:
+      const dateMDY = new Date(value);
+      return dateMDY.toLocaleDateString('en-US');
+      
+    case ColumnFormat.DATE_DMY:
+      const dateDMY = new Date(value);
+      return dateDMY.toLocaleDateString('en-GB');
+      
+    default:
+      return String(value);
+  }
+}

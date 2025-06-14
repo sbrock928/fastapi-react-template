@@ -129,6 +129,10 @@ class UserCalculationService:
         """Get user calculation by ID"""
         return self.user_calc_dao.get_by_id(calc_id)
 
+    def get_user_calculation_by_source_field(self, source_field: str) -> Optional[UserCalculation]:
+        """Get user calculation by source_field"""
+        return self.user_calc_dao.get_by_source_field(source_field)
+
     def create_user_calculation(self, request: UserCalculationCreate, created_by: str = "api_user") -> UserCalculation:
         """Create a new user calculation with automatic approval for development"""
         
@@ -139,6 +143,11 @@ class UserCalculationService:
             raise CalculationAlreadyExistsError(
                 f"User calculation with name '{request.name}' already exists at {request.group_level} level"
             )
+
+        # Check if source_field is already in use
+        existing_calc = self.get_user_calculation_by_source_field(request.source_field)
+        if existing_calc:
+            raise ValueError(f"Source field '{request.source_field}' is already in use by calculation '{existing_calc.name}'")
 
         # Validate weighted average has weight field
         if request.aggregation_function == AggregationFunction.WEIGHTED_AVG and not request.weight_field:
@@ -193,6 +202,12 @@ class UserCalculationService:
                     f"Another user calculation with name '{request.name}' already exists at that group level"
                 )
 
+        # If source_field is being updated, check for conflicts
+        if hasattr(request, 'source_field') and request.source_field and request.source_field != calculation.source_field:
+            conflicting_calc = self.get_user_calculation_by_source_field(request.source_field)
+            if conflicting_calc and conflicting_calc.id != calc_id:
+                raise ValueError(f"Source field '{request.source_field}' is already in use by calculation '{conflicting_calc.name}'")
+
         # Update fields that are provided
         if request.name is not None:
             calculation.name = request.name
@@ -228,31 +243,23 @@ class UserCalculationService:
         return {"message": f"User calculation '{calculation.name}' deleted successfully"}
 
     def get_user_calculation_usage(self, calc_id: int) -> Dict[str, Any]:
-        """Get usage information for a user calculation"""
+        """Get usage information for a user calculation with new format."""
         calculation = self.get_user_calculation_by_id(calc_id)
         if not calculation:
             raise CalculationNotFoundError(f"User calculation with ID {calc_id} not found")
         
-        # Import here to avoid circular imports
         from app.reporting.models import ReportCalculation, Report
         from sqlalchemy.orm import joinedload
         
-        # Find all reports that use this calculation
-        # For user calculations, calculation_id is stored as string representation of the integer
-        calc_id_str = str(calc_id)
+        # Find all reports that use this calculation using NEW FORMAT
+        new_calc_id = f"user.{calculation.source_field}"
         
-        # Check both with calculation_type = 'user' AND calculation_type = None (for existing data)
         report_usages = (
             self.user_calc_dao.db
             .query(ReportCalculation)
             .join(Report)
             .filter(
-                ReportCalculation.calculation_id == calc_id_str,
-                # Handle both new format ('user') and legacy format (None) 
-                (
-                    (ReportCalculation.calculation_type == 'user') |
-                    (ReportCalculation.calculation_type.is_(None))
-                ),
+                ReportCalculation.calculation_id == new_calc_id,
                 Report.is_active == True
             )
             .options(joinedload(ReportCalculation.report))
@@ -311,6 +318,10 @@ class SystemCalculationService:
         """Get system calculation by ID"""
         return self.system_calc_dao.get_by_id(calc_id)
 
+    def get_system_calculation_by_result_column(self, result_column_name: str) -> Optional[SystemCalculation]:
+        """Get system calculation by result_column_name"""
+        return self.system_calc_dao.get_by_result_column_name(result_column_name)
+
     def create_system_calculation(self, request: SystemCalculationCreate, 
                                 created_by: str = "admin") -> SystemCalculation:
         """Create a new system calculation"""
@@ -322,6 +333,11 @@ class SystemCalculationService:
             raise CalculationAlreadyExistsError(
                 f"System calculation with name '{request.name}' already exists at {request.group_level} level"
             )
+
+        # Check if result_column_name is already in use
+        existing_calc = self.get_system_calculation_by_result_column(request.result_column_name)
+        if existing_calc:
+            raise ValueError(f"Result column '{request.result_column_name}' is already in use by calculation '{existing_calc.name}'")
 
         # Basic SQL validation
         self._validate_system_sql(request.raw_sql, request.group_level, request.result_column_name)
@@ -361,27 +377,23 @@ class SystemCalculationService:
         return {"message": f"System calculation '{calculation.name}' deleted successfully"}
 
     def get_system_calculation_usage(self, calc_id: int) -> Dict[str, Any]:
-        """Get usage information for a system calculation"""
+        """Get usage information for a system calculation with new format."""
         calculation = self.get_system_calculation_by_id(calc_id)
         if not calculation:
             raise CalculationNotFoundError(f"System calculation with ID {calc_id} not found")
         
-        # Import here to avoid circular imports
         from app.reporting.models import ReportCalculation, Report
         from sqlalchemy.orm import joinedload
         
-        # Find all reports that use this calculation
-        # For system calculations, calculation_id is stored as string representation of the integer
-        calc_id_str = str(calc_id)
+        # Find all reports that use this calculation using NEW FORMAT
+        new_calc_id = f"system.{calculation.result_column_name}"
         
-        # Check for calculation_type = 'system'
         report_usages = (
             self.system_calc_dao.db
             .query(ReportCalculation)
             .join(Report)
             .filter(
-                ReportCalculation.calculation_id == calc_id_str,
-                ReportCalculation.calculation_type == 'system',
+                ReportCalculation.calculation_id == new_calc_id,
                 Report.is_active == True
             )
             .options(joinedload(ReportCalculation.report))

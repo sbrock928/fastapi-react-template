@@ -160,7 +160,7 @@ export interface SystemSqlValidationResponse {
 
 // Calculation usage information
 export interface CalculationUsage {
-  calculation_id: number;
+  calculation_id: number | string; // UPDATED: Now supports both numeric (legacy) and string (new format)
   calculation_name: string;
   is_in_use: boolean;
   report_count: number;
@@ -173,6 +173,22 @@ export interface CalculationUsage {
     created_date: string;
     display_name?: string;
   }[];
+}
+
+// NEW: Available calculation interface for reporting (with new ID format)
+export interface AvailableCalculation {
+  id: string; // NOW ALWAYS STRING: "user.{source_field}", "system.{result_column}", "static_{table}.{field}"
+  name: string;
+  description?: string;
+  aggregation_function?: string; // undefined for system calcs, 'RAW' for static fields
+  source_model?: string; // undefined for system calcs and static fields
+  source_field?: string; // field name for static fields, undefined for system calcs
+  group_level: string;
+  weight_field?: string;
+  scope: 'DEAL' | 'TRANCHE'; // FIXED: Use specific type instead of string
+  category: string;
+  is_default: boolean;
+  calculation_type: 'USER_DEFINED' | 'SYSTEM_SQL' | 'STATIC_FIELD';
 }
 
 // SQL Preview
@@ -267,3 +283,67 @@ export function getCalculationCategory(calc: Calculation): string {
   }
   return 'Other';
 }
+
+// Helper functions for type checking AvailableCalculation
+export function isUserDefinedAvailableCalculation(calc: AvailableCalculation): boolean {
+  return calc.calculation_type === 'USER_DEFINED' || calc.id.startsWith('user.');
+}
+
+export function isSystemSqlAvailableCalculation(calc: AvailableCalculation): boolean {
+  return calc.calculation_type === 'SYSTEM_SQL' || calc.id.startsWith('system.');
+}
+
+export function isStaticFieldAvailableCalculation(calc: AvailableCalculation): boolean {
+  return calc.calculation_type === 'STATIC_FIELD' || calc.id.startsWith('static_');
+}
+
+/**
+ * Parse calculation ID to extract type and identifier
+ * NEW utility function for the new format
+ */
+export const parseCalculationId = (calculationId: string): {
+  type: 'user' | 'system' | 'static';
+  identifier: string;
+} => {
+  if (calculationId.startsWith('user.')) {
+    return {
+      type: 'user',
+      identifier: calculationId.substring(5) // Remove "user."
+    };
+  } else if (calculationId.startsWith('system.')) {
+    return {
+      type: 'system', 
+      identifier: calculationId.substring(7) // Remove "system."
+    };
+  } else if (calculationId.startsWith('static_')) {
+    return {
+      type: 'static',
+      identifier: calculationId.substring(7) // Remove "static_"
+    };
+  } else {
+    console.warn(`Unknown calculation ID format: ${calculationId}`);
+    return {
+      type: 'user', // fallback
+      identifier: calculationId
+    };
+  }
+};
+
+/**
+ * Format calculation ID for display
+ * NEW utility function
+ */
+export const formatCalculationIdForDisplay = (calculationId: string): string => {
+  const parsed = parseCalculationId(calculationId);
+  
+  switch (parsed.type) {
+    case 'user':
+      return `User: ${parsed.identifier}`;
+    case 'system':
+      return `System: ${parsed.identifier}`;
+    case 'static':
+      return `Static: ${parsed.identifier}`;
+    default:
+      return calculationId;
+  }
+};

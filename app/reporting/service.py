@@ -127,57 +127,59 @@ class ReportService:
 
     # ===== CALCULATION MANAGEMENT =====
 
-    def get_available_calculations(self, scope: ReportScope) -> List[AvailableCalculation]:
-        """Get available calculations for report configuration based on scope."""
-        if not self.user_calc_service or not self.system_calc_service:
-            raise HTTPException(status_code=500, detail="Calculation services not available")
-
+    def get_available_calculations_for_scope(self, scope: ReportScope) -> List[AvailableCalculation]:
+        """Get all available calculations for a given report scope."""
         available_calcs = []
-        group_level = GroupLevel.DEAL if scope == ReportScope.DEAL else GroupLevel.TRANCHE
 
-        # Get user-defined calculations
-        user_calcs = self.user_calc_service.get_all_user_calculations(group_level.value)
-        for calc in user_calcs:
-            available_calcs.append(AvailableCalculation(
-                id=calc.id,
-                name=calc.name,
-                description=calc.description,
-                aggregation_function=calc.aggregation_function.value,
-                source_model=calc.source_model.value,
-                source_field=calc.source_field,
-                group_level=calc.group_level.value,
-                weight_field=calc.weight_field,
-                scope=scope,
-                category=self._categorize_user_calculation(calc),
-                is_default=calc.name in ["Total Ending Balance", "Average Pass Through Rate"],
-            ))
+        # Add user calculations with new format
+        if self.user_calc_service:
+            user_calcs = self.user_calc_service.get_all_user_calculations()
+            for calc in user_calcs:
+                if self._is_calculation_compatible_with_scope(calc.group_level.value, scope):
+                    available_calcs.append(AvailableCalculation(
+                        id=f"user.{calc.source_field}",  # NEW FORMAT
+                        name=calc.name,
+                        description=calc.description,
+                        aggregation_function=calc.aggregation_function.value,
+                        source_model=calc.source_model.value,
+                        source_field=calc.source_field,
+                        group_level=calc.group_level.value,
+                        weight_field=calc.weight_field,
+                        scope=scope,
+                        category=self._categorize_user_calculation(calc),
+                        is_default=False,
+                        calculation_type="USER_DEFINED"
+                    ))
 
-        # Get approved system calculations
-        system_calcs = self.system_calc_service.get_all_system_calculations(group_level.value)
-        for calc in system_calcs:
-            if calc.is_approved():
-                available_calcs.append(AvailableCalculation(
-                    id=calc.id,
-                    name=calc.name,
-                    description=calc.description,
-                    aggregation_function=None,
-                    source_model=None,
-                    source_field=None,
-                    group_level=calc.group_level.value,
-                    weight_field=None,
-                    scope=scope,
-                    category="Custom SQL Calculations",
-                    is_default=False,
-                ))
+        # Add system calculations with new format
+        if self.system_calc_service:
+            system_calcs = self.system_calc_service.get_all_system_calculations()
+            for calc in system_calcs:
+                if self._is_calculation_compatible_with_scope(calc.group_level.value, scope):
+                    available_calcs.append(AvailableCalculation(
+                        id=f"system.{calc.result_column_name}",  # NEW FORMAT
+                        name=calc.name,
+                        description=calc.description,
+                        aggregation_function=None,
+                        source_model=None,
+                        source_field=calc.result_column_name,
+                        group_level=calc.group_level.value,
+                        weight_field=None,
+                        scope=scope,
+                        category="System Calculations",
+                        is_default=False,
+                        calculation_type="SYSTEM_SQL"
+                    ))
 
-        # Get static fields
+        # Add static fields (keep existing format)
         static_fields = StaticFieldService.get_all_static_fields()
         for field in static_fields:
-            field_group_level = "tranche" if field.field_path.startswith(("tranche.", "tranchebal.")) else "deal"
+            field_group_level = "tranche" if any(field.field_path.startswith(prefix) 
+                                               for prefix in ("tranche.", "tranchebal.")) else "deal"
             if (scope == ReportScope.DEAL and field_group_level == "deal") or \
                (scope == ReportScope.TRANCHE and field_group_level in ["deal", "tranche"]):
                 available_calcs.append(AvailableCalculation(
-                    id=f"static_{field.field_path}",
+                    id=f"static_{field.field_path}",  # KEEP EXISTING FORMAT
                     name=field.name,
                     description=field.description,
                     aggregation_function=None,
@@ -188,9 +190,18 @@ class ReportService:
                     scope=scope,
                     category=self._categorize_static_field(field),
                     is_default=field.name in ["Deal Number", "Tranche ID"],
+                    calculation_type="STATIC_FIELD"
                 ))
 
         return available_calcs
+
+    def _is_calculation_compatible_with_scope(self, calc_group_level: str, scope: ReportScope) -> bool:
+        """Check if a calculation is compatible with the given report scope."""
+        if scope == ReportScope.DEAL:
+            return calc_group_level == "deal"
+        elif scope == ReportScope.TRANCHE:
+            return calc_group_level in ["deal", "tranche"]
+        return False
 
     def _categorize_user_calculation(self, calc) -> str:
         """Categorize user calculation for UI grouping."""
@@ -223,19 +234,36 @@ class ReportService:
         return "Other"
 
     def _get_calculation_display_name(self, calculation_id: str, calculation_type: str) -> str:
-        """Get the display name for a calculation based on its ID and type."""
+        """Get the display name for a calculation with new format."""
+        
+        # Handle new user calculation format
+        if calculation_id.startswith("user."):
+            source_field = calculation_id[5:]
+            if self.user_calc_service:
+                user_calc = self.user_calc_service.get_user_calculation_by_source_field(source_field)
+                if user_calc:
+                    return user_calc.name
+            return f"User Calc: {source_field}"
+        
+        # Handle new system calculation format
+        elif calculation_id.startswith("system."):
+            result_column = calculation_id[7:]
+            if self.system_calc_service:
+                system_calc = self.system_calc_service.get_system_calculation_by_result_column(result_column)
+                if system_calc:
+                    return system_calc.name
+            return f"System Calc: {result_column}"
+        
         # Handle static fields
-        if calculation_id.startswith("static_"):
+        elif calculation_id.startswith("static_"):
             field_path = calculation_id.replace("static_", "")
-            # Try to get the actual field name from static fields
             static_fields = StaticFieldService.get_all_static_fields()
             for field in static_fields:
                 if field.field_path == field_path:
                     return field.name
-            # Fallback to field path if not found
             return field_path
         
-        # Handle numeric calculation IDs
+        # Legacy numeric ID handling
         try:
             numeric_id = int(calculation_id)
             
@@ -265,7 +293,7 @@ class ReportService:
         except ValueError:
             pass
         
-        # Fallback to calculation_id if we can't resolve the name
+        # Fallback
         return calculation_id
 
     def _determine_calculation_type(self, calculation_id) -> str:
@@ -650,128 +678,182 @@ class ReportService:
         print(f"Debug: Successfully prepared {len(calculation_requests)} calculation requests")
         return deal_tranche_map, calculation_requests
 
-    # ===== OTHER REPORT OPERATIONS =====
-
-    async def preview_report_sql(self, report_id: int, cycle_code: int) -> Dict[str, Any]:
-        """Preview SQL for a report."""
-        if not self.report_execution_service:
-            raise HTTPException(status_code=500, detail="Report execution service not available")
-
-        report = await self._get_report_or_404(report_id)
-        deal_tranche_map, calculation_requests = self._prepare_execution(report)
-
-        result = self.report_execution_service.preview_report_sql(
-            calculation_requests, deal_tranche_map, cycle_code
-        )
-
-        return {
-            "template_name": report.name,
-            "sql_previews": result['sql_previews'],
-            "parameters": result['parameters'],
-            "summary": result['summary']
-        }
-
-    async def get_execution_logs(self, report_id: int, limit: int = 50) -> List[Dict[str, Any]]:
-        """Get execution logs for a report."""
-        await self._get_report_or_404(report_id)
+    def _prepare_calculations_for_report(self, report, cycle_code: int):
+        """Enhanced preparation with new calculation_id format."""
         
-        execution_logs = await self.report_dao.get_execution_logs(report_id, limit)
-        
-        return [
-            {
-                "id": log.id,
-                "report_id": log.report_id,
-                "cycle_code": log.cycle_code,
-                "executed_by": log.executed_by,
-                "execution_time_ms": log.execution_time_ms,
-                "row_count": log.row_count,
-                "success": log.success,
-                "error_message": log.error_message,
-                "executed_at": log.executed_at.isoformat() if log.executed_at else None
-            }
-            for log in execution_logs
-        ]
+        # Build deal-tranche mapping
+        deal_tranche_map = {}
+        for deal in report.selected_deals:
+            if deal.selected_tranches:
+                deal_tranche_map[deal.dl_nbr] = [rt.tr_id for rt in deal.selected_tranches]
+            else:
+                all_tranches = self.dw_dao.get_tranches_by_dl_nbr(deal.dl_nbr)
+                deal_tranche_map[deal.dl_nbr] = [t.tr_id for t in all_tranches]
 
-    async def _log_execution(self, report_id: int, cycle_code: int, executed_by: str,
-                            execution_time_ms: float, row_count: int, success: bool,
-                            error_message: str = None) -> None:
-        """Log report execution."""
-        execution_log = ReportExecutionLog(
-            report_id=report_id,
-            cycle_code=cycle_code,
-            executed_by=executed_by,
-            execution_time_ms=execution_time_ms,
-            row_count=row_count,
-            success=success,
-            error_message=error_message,
-            executed_at=datetime.now()
-        )
+        # Convert to calculation requests with new parsing logic
+        calculation_requests = []
         
-        await self.report_dao.create_execution_log(execution_log)
+        # Add default columns if requested
+        include_defaults = True
+        column_prefs = getattr(report, '_parsed_column_preferences', None)
+        if column_prefs:
+            include_defaults = column_prefs.include_default_columns
+        
+        if include_defaults:
+            default_fields = [
+                ("deal.dl_nbr", "deal_number"),
+                ("tranche.tr_id", "tranche_id") if report.scope == "TRANCHE" else None,
+                ("tranchebal.cycle_cde", "cycle_code")
+            ]
+            
+            for field_info in default_fields:
+                if field_info:
+                    field_path, alias = field_info
+                    calc_request = CalculationRequest(
+                        calc_type="static_field",
+                        field_path=field_path,
+                        alias=alias
+                    )
+                    calculation_requests.append(calc_request)
+
+        # Process user-selected calculations with NEW PARSING LOGIC
+        for report_calc in report.selected_calculations:
+            calc_id_str = report_calc.calculation_id
+            calc_type = getattr(report_calc, 'calculation_type', None)
+            
+            print(f"Debug: Processing calculation - ID: {calc_id_str}, Type: {calc_type}")
+            
+            calc_request = None
+            
+            # Parse new calculation_id formats
+            if calc_id_str.startswith("user."):
+                # User calculation: "user.{source_field}"
+                source_field = calc_id_str[5:]  # Remove "user." prefix
+                if self.user_calc_service:
+                    user_calc = self.user_calc_service.get_user_calculation_by_source_field(source_field)
+                    if user_calc:
+                        calc_request = CalculationRequest(
+                            calc_type="user_calculation",
+                            calc_id=user_calc.id,
+                            alias=user_calc.name
+                        )
+                        print(f"Debug: Found user calculation - {user_calc.name} for source_field: {source_field}")
+                    else:
+                        print(f"Warning: No user calculation found with source_field: {source_field}")
+            
+            elif calc_id_str.startswith("system."):
+                # System calculation: "system.{result_column_name}"
+                result_column = calc_id_str[7:]  # Remove "system." prefix
+                if self.system_calc_service:
+                    system_calc = self.system_calc_service.get_system_calculation_by_result_column(result_column)
+                    if system_calc:
+                        calc_request = CalculationRequest(
+                            calc_type="system_calculation",
+                            calc_id=system_calc.id,
+                            alias=system_calc.name
+                        )
+                        print(f"Debug: Found system calculation - {system_calc.name} for result_column: {result_column}")
+                    else:
+                        print(f"Warning: No system calculation found with result_column: {result_column}")
+            
+            elif calc_id_str.startswith("static_"):
+                # Static field: "static_{table}.{field_name}"
+                field_path = calc_id_str.replace("static_", "")
+                alias = calc_id_str.replace(".", "_")
+                
+                calc_request = CalculationRequest(
+                    calc_type="static_field",
+                    field_path=field_path,
+                    alias=alias
+                )
+                print(f"Debug: Added static field request - Field: {field_path}, Alias: {alias}")
+            
+            else:
+                # Legacy numeric ID handling
+                try:
+                    numeric_id = int(calc_id_str)
+                    
+                    if calc_type == "user_calculation" or calc_type == "user":
+                        if self.user_calc_service:
+                            user_calc = self.user_calc_service.get_user_calculation_by_id(numeric_id)
+                            if user_calc:
+                                calc_request = CalculationRequest(
+                                    calc_type="user_calculation",
+                                    calc_id=numeric_id,
+                                    alias=user_calc.name
+                                )
+                    elif calc_type == "system_calculation" or calc_type == "system":
+                        if self.system_calc_service:
+                            system_calc = self.system_calc_service.get_system_calculation_by_id(numeric_id)
+                            if system_calc:
+                                calc_request = CalculationRequest(
+                                    calc_type="system_calculation",
+                                    calc_id=numeric_id,
+                                    alias=system_calc.name
+                                )
+                    else:
+                        # Auto-detect for legacy data
+                        if self.user_calc_service:
+                            user_calc = self.user_calc_service.get_user_calculation_by_id(numeric_id)
+                            if user_calc:
+                                calc_request = CalculationRequest(
+                                    calc_type="user_calculation",
+                                    calc_id=numeric_id,
+                                    alias=user_calc.name
+                                )
+                        
+                        if not calc_request and self.system_calc_service:
+                            # Try system calculations
+                            system_calc = self.system_calc_service.get_system_calculation_by_id(numeric_id)
+                            if system_calc:
+                                calc_request = CalculationRequest(
+                                    calc_type="system_calculation",
+                                    calc_id=numeric_id,
+                                    alias=system_calc.name
+                                )
+                except ValueError:
+                    print(f"Warning: Unknown calculation_id format: {calc_id_str}")
+            
+            if calc_request:
+                calculation_requests.append(calc_request)
+
+        if not calculation_requests:
+            print("Debug: No valid calculations found for report")
+            raise HTTPException(status_code=400, detail="No valid calculations found for report")
+
+        print(f"Debug: Successfully prepared {len(calculation_requests)} calculation requests")
+        return deal_tranche_map, calculation_requests
+
+    # ===== DATA RETRIEVAL METHODS =====
+
+    def get_available_deals(self) -> List[Dict[str, Any]]:
+        """Get available deals from the data warehouse."""
+        return self.dw_dao.get_all_deals()
+
+    def get_available_tranches_for_deals(self, deal_ids: List[int], 
+                                       cycle_code: int = None) -> Dict[int, List[Dict[str, Any]]]:
+        """Get available tranches for specific deals."""
+        return self.dw_dao.get_available_tranches_for_deals(deal_ids, cycle_code)
+
+    def get_available_cycles(self) -> List[Dict[str, str]]:
+        """Get available cycles from the data warehouse."""
+        return self.dw_dao.get_available_cycles()
 
     async def _get_report_or_404(self, report_id: int) -> Report:
         """Get report or raise 404."""
-        report = await self.get_by_id(report_id)  # Use the enhanced get_by_id method
-        if not report:
+        raw_report = await self.report_dao.get_by_id(report_id)
+        if not raw_report:
             raise HTTPException(status_code=404, detail="Report not found")
         
-        # Get the raw report from DAO without modifying it
-        raw_report = await self.report_dao.get_by_id(report_id)
-        
-        # Create a copy of the report for internal use with parsed column preferences
-        # but don't modify the original database object
+        # Parse column preferences for internal use
         if raw_report.column_preferences and isinstance(raw_report.column_preferences, dict):
             try:
-                # Create a new Report object with parsed column preferences
-                # This avoids modifying the original database object
                 parsed_column_prefs = ReportColumnPreferences(**raw_report.column_preferences)
-                
-                # Create a new Report instance with the parsed preferences
-                # We'll use a simple approach - just attach the parsed preferences as an attribute
                 raw_report._parsed_column_preferences = parsed_column_prefs
             except Exception as e:
-                print(f"Warning: Could not parse column preferences: {e}")
+                print(f"Warning: Could not parse column preferences for report {report_id}: {e}")
                 raw_report._parsed_column_preferences = None
         else:
             raw_report._parsed_column_preferences = None
         
         return raw_report
-
-    # ===== DATA WAREHOUSE ENDPOINTS =====
-
-    def get_available_deals(self) -> List[Dict[str, Any]]:
-        """Get available deals."""
-        try:
-            deals = self.dw_dao.get_all_deals()
-            return [
-                {
-                    "dl_nbr": deal.dl_nbr,
-                    "issr_cde": deal.issr_cde,
-                    "cdi_file_nme": deal.cdi_file_nme,
-                    "CDB_cdi_file_nme": deal.CDB_cdi_file_nme,
-                }
-                for deal in deals
-            ]
-        except Exception as e:
-            print(f"Warning: Could not fetch deals: {e}")
-            return []
-
-    def get_available_tranches_for_deals(self, deal_ids: List[int], 
-                                        cycle_code: Optional[int] = None) -> Dict[int, List[Dict[str, Any]]]:
-        """Get available tranches for deals."""
-        try:
-            return {
-                deal_id: [{"tr_id": t.tr_id} for t in self.dw_dao.get_tranches_by_dl_nbr(deal_id)]
-                for deal_id in deal_ids
-            }
-        except Exception as e:
-            print(f"Warning: Could not fetch tranches: {e}")
-            return {}
-
-    def get_available_cycles(self) -> List[Dict[str, Any]]:
-        """Get available cycles."""
-        try:
-            return self.dw_dao.get_available_cycles()
-        except Exception as e:
-            print(f"Warning: Could not fetch cycles: {e}")
-            return []

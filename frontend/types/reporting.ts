@@ -53,7 +53,7 @@ export interface ReportColumnPreferences {
 
 // Updated calculation reference for reports
 export interface ReportCalculation {
-  calculation_id: number | string; // Support both numeric IDs (user/system) and string IDs (static fields)
+  calculation_id: string; // NOW ALWAYS STRING: "user.{source_field}", "system.{result_column}", "static_{table}.{field}"
   calculation_type?: 'user' | 'system' | 'static'; // Optional type hint
   display_order: number;
   display_name?: string; // Optional override for display name
@@ -88,7 +88,7 @@ export interface ReportConfig {
 
 // Available calculations for report building
 export interface AvailableCalculation {
-  id: number | string; // Number for user/system calcs, string for static fields
+  id: string; // NOW ALWAYS STRING: "user.{source_field}", "system.{result_column}", "static_{table}.{field}"
   name: string;
   description?: string;
   aggregation_function?: string; // undefined for system calcs, 'RAW' for static fields
@@ -182,38 +182,44 @@ export function createReportCalculation(
   displayOrder: number = 0,
   displayName?: string
 ): ReportCalculation {
-  let calculationId: number | string;
-  let calculationType: 'user' | 'system' | 'static';
-
-  if (typeof availableCalc.id === 'string' && availableCalc.id.startsWith('static_')) {
-    calculationId = availableCalc.id;
-    calculationType = 'static';
-  } else if (typeof availableCalc.id === 'number') {
-    calculationId = availableCalc.id;
-    calculationType = availableCalc.calculation_type === 'SYSTEM_SQL' ? 'system' : 'user';
-  } else {
-    throw new Error(`Invalid calculation ID: ${availableCalc.id}`);
-  }
-
+  // With new format, calculation ID is always a string
   return {
-    calculation_id: calculationId,
-    calculation_type: calculationType,
+    calculation_id: availableCalc.id, // Now always a string in new format
+    calculation_type: determineCalculationType(availableCalc),
     display_order: displayOrder,
     display_name: displayName || availableCalc.name
   };
 }
 
+/**
+ * Determine calculation type from available calculation
+ * Updated for new ID format
+ */
+function determineCalculationType(calc: AvailableCalculation): 'user' | 'system' | 'static' {
+  if (calc.calculation_type === 'STATIC_FIELD' || calc.id.startsWith('static_')) {
+    return 'static';
+  } else if (calc.calculation_type === 'SYSTEM_SQL' || calc.id.startsWith('system.')) {
+    return 'system';
+  } else if (calc.calculation_type === 'USER_DEFINED' || calc.id.startsWith('user.')) {
+    return 'user';
+  }
+  
+  // Fallback logic (shouldn't be needed with new format)
+  console.warn(`Unknown calculation type for calc: ${calc.id}`, calc);
+  return 'user';
+}
+
 // NEW: Helper functions for column management
 
 export function createColumnPreference(
-  calculationId: string | number,
+  calculationId: string, // Now always string
   displayName: string,
   displayOrder: number = 0,
   formatType: ColumnFormat = ColumnFormat.TEXT,
   isVisible: boolean = true
 ): ColumnPreference {
   return {
-    column_id: String(calculationId),
+    column_id: calculationId, // Direct string assignment
     display_name: displayName,
     is_visible: isVisible,
     display_order: displayOrder,
@@ -240,9 +246,9 @@ export function getDefaultColumnPreferences(
     columns.push(createColumnPreference('cycle_code', 'Cycle Code', order++, ColumnFormat.NUMBER));
   }
 
-  // Add calculation columns
+  // Add calculation columns - UPDATED for string IDs
   calculations.forEach(calc => {
-    const columnId = String(calc.calculation_id);
+    const columnId = calc.calculation_id; // Already a string
     const displayName = calc.display_name || `Calculation ${calc.calculation_id}`;
     
     // Try to guess format based on calculation type/name
@@ -291,15 +297,15 @@ export function getColumnFormatLabel(format: ColumnFormat): string {
 
 // NEW: Add missing helper functions for calculation compatibility
 export function isStaticFieldCalculation(calc: AvailableCalculation): boolean {
-  return typeof calc.id === 'string' && calc.id.startsWith('static_');
+  return calc.calculation_type === 'STATIC_FIELD' || calc.id.startsWith('static_');
 }
 
 export function isUserDefinedCalculation(calc: AvailableCalculation): boolean {
-  return typeof calc.id === 'number' && calc.calculation_type === 'USER_DEFINED';
+  return calc.calculation_type === 'USER_DEFINED' || calc.id.startsWith('user.');
 }
 
 export function isSystemSqlCalculation(calc: AvailableCalculation): boolean {
-  return typeof calc.id === 'number' && calc.calculation_type === 'SYSTEM_SQL';
+  return calc.calculation_type === 'SYSTEM_SQL' || calc.id.startsWith('system.');
 }
 
 export function getCalculationCompatibilityInfo(
