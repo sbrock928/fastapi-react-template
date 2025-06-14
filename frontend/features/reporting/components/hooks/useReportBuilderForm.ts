@@ -58,10 +58,9 @@ export const useReportBuilderForm = ({ editingReport, isEditMode }: UseReportBui
 
   // Update column preferences when calculations change
   useEffect(() => {
-    if (!isEditMode) {
-      updateColumnPreferencesFromCalculations(selectedCalculations, reportScope, true);
-    }
-  }, [selectedCalculations, reportScope, isEditMode, updateColumnPreferencesFromCalculations]);
+    // Always update column preferences when calculations change, regardless of edit mode
+    updateColumnPreferencesFromCalculations(selectedCalculations, reportScope, true);
+  }, [selectedCalculations, reportScope, updateColumnPreferencesFromCalculations]);
 
   // Initialize form when editing
   useEffect(() => {
