@@ -370,6 +370,42 @@ class ReportService:
             )
             raise
 
+    async def preview_report_sql(self, report_id: int, cycle_code: int) -> Dict[str, Any]:
+        """Preview SQL for a report."""
+        if not self.report_execution_service:
+            raise HTTPException(status_code=500, detail="Report execution service not available")
+
+        report = await self._get_report_or_404(report_id)
+        deal_tranche_map, calculation_requests = self._prepare_execution(report)
+
+        result = self.report_execution_service.preview_report_sql(
+            calculation_requests, deal_tranche_map, cycle_code
+        )
+
+        return {
+            "template_name": report.name,
+            "sql_previews": result['sql_previews'],
+            "parameters": result['parameters'],
+            "summary": result['summary']
+        }
+
+    async def _log_execution(self, report_id: int, cycle_code: int, executed_by: str,
+                            execution_time_ms: float, row_count: int, success: bool,
+                            error_message: str = None) -> None:
+        """Log report execution."""
+        execution_log = ReportExecutionLog(
+            report_id=report_id,
+            cycle_code=cycle_code,
+            executed_by=executed_by,
+            execution_time_ms=execution_time_ms,
+            row_count=row_count,
+            success=success,
+            error_message=error_message,
+            executed_at=datetime.now()
+        )
+        
+        await self.report_dao.create_execution_log(execution_log)
+
     def _apply_column_preferences(self, raw_data: List[Dict[str, Any]], 
                                   report: Report) -> List[Dict[str, Any]]:
         """Apply column preferences to format and filter output data."""
