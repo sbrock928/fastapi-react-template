@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { reportingApi } from '@/services/api';
+import { useApiRequest } from '@/hooks';
+import reportingApi from '@/services/reportingApi';
 import { useToast } from '@/context/ToastContext';
 import type { Deal, TrancheReportSummary } from '@/types/reporting';
 
@@ -40,7 +41,6 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
   const { showToast } = useToast();
 
   // State for deal search and filtering
-  const [issuerCodes, setIssuerCodes] = useState<string[]>([]);
   const [selectedIssuerCode, setSelectedIssuerCode] = useState<string>('');
   const [dealSearchTerm, setDealSearchTerm] = useState<string>('');
   const [dealSearchResults, setDealSearchResults] = useState<Deal[]>([]);
@@ -50,19 +50,27 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
   const [expandedDeals, setExpandedDeals] = useState<Set<number>>(new Set());
   const [trancheSearchTerms, setTrancheSearchTerms] = useState<Record<number, string>>({});
 
-  // Load issuer codes on mount
+  // Load issuer codes using our anti-spam hook
+  const {
+    data: issuerCodes,
+    error: issuerCodesError
+  } = useApiRequest<string[]>(
+    () => reportingApi.getIssuerCodes(),
+    [], // No dependencies - load once on mount
+    {
+      immediate: true,
+      throttleMs: 2000, // 2 second throttle between requests
+      maxRetries: 2,
+      retryDelayMs: 1000
+    }
+  );
+
+  // Show error toast if issuer codes fail to load
   useEffect(() => {
-    const loadIssuerCodes = async () => {
-      try {
-        const response = await reportingApi.getIssuerCodes();
-        setIssuerCodes(response.data);
-      } catch (error) {
-        console.error('Error loading issuer codes:', error);
-        showToast('Error loading issuer codes', 'error');
-      }
-    };
-    loadIssuerCodes();
-  }, [showToast]);
+    if (issuerCodesError) {
+      showToast(`Error loading issuer codes: ${issuerCodesError}`, 'error');
+    }
+  }, [issuerCodesError, showToast]);
 
   // Search for deals based on issuer and search term
   const searchDeals = useCallback(async () => {
@@ -76,7 +84,7 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
       const response = await reportingApi.getDeals(selectedIssuerCode);
       const searchLower = dealSearchTerm.toLowerCase();
       
-      const filtered = response.data.filter(deal => 
+      const filtered = response.data.filter((deal: Deal) => 
         deal.dl_nbr.toString().includes(searchLower) ||
         deal.cdi_file_nme.toLowerCase().includes(searchLower) ||
         deal.CDB_cdi_file_nme?.toLowerCase().includes(searchLower)
@@ -232,7 +240,7 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
                 onChange={(e) => setSelectedIssuerCode(e.target.value)}
               >
                 <option value="">Select an issuer...</option>
-                {issuerCodes.map(code => (
+                {issuerCodes && Array.isArray(issuerCodes) && issuerCodes.map((code: string) => (
                   <option key={code} value={code}>{code}</option>
                 ))}
               </select>

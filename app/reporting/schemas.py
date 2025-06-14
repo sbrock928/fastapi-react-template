@@ -209,7 +209,7 @@ class ReportUpdate(BaseModel):
 class AvailableCalculation(BaseModel):
     """Schema for available calculations that can be selected for reports."""
 
-    id: int
+    id: Union[int, str]  # Support both numeric IDs (legacy) and string IDs (new format)
     name: str
     description: Optional[str] = None
     aggregation_function: Optional[str] = None  # None for system SQL calculations
@@ -220,6 +220,7 @@ class AvailableCalculation(BaseModel):
     scope: ReportScope
     category: str
     is_default: bool = False
+    calculation_type: Optional[str] = None  # 'USER_DEFINED', 'SYSTEM_SQL', 'STATIC_FIELD'
 
 
 # ===== SUMMARY SCHEMAS =====

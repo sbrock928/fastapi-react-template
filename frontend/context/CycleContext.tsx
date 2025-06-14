@@ -36,13 +36,26 @@ export const CycleProvider: React.FC<CycleProviderProps> = ({ children }) => {
       if (initialized) return;
 
       setLoading(true);
-      setError(null);      try {
+      setError(null);
+      
+      try {
         const response = await reportingApi.getAvailableCycles();
+
+        // Handle both possible response formats:
+        // 1. Direct array: [{ label: string, value: number }]
+        // 2. Wrapped response: { data: [{ label: string, value: number }] }
+        const cycleData = Array.isArray(response.data) 
+          ? response.data 
+          : Array.isArray(response) 
+            ? response 
+            : response.data && Array.isArray(response.data) 
+              ? response.data 
+              : [];
 
         const options = [
           { value: 0, label: 'Select a Cycle' },
-          ...response.data.map((item: { label: string; value: string }) => ({
-            value: parseInt(item.value, 10),
+          ...cycleData.map((item: { label: string; value: string | number }) => ({
+            value: typeof item.value === 'string' ? parseInt(item.value, 10) : item.value,
             label: item.label
           }))
         ];

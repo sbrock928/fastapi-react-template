@@ -1,9 +1,9 @@
 // frontend/features/reporting/components/hooks/useReportBuilderData.ts
 // Updated to work with the new separated calculation system
 
-import { useState, useCallback } from 'react';
-import { calculationsApi } from '@/services/calculationsApi';
-import type { AvailableCalculation } from '@/types/calculations';
+import { useState, useCallback, useEffect } from 'react';
+import reportingApi from '@/services/reportingApi';
+import type { AvailableCalculation } from '@/types/reporting';
 import { useToast } from '@/context/ToastContext';
 
 interface UseReportBuilderDataProps {
@@ -19,7 +19,7 @@ export const useReportBuilderData = ({ reportScope }: UseReportBuilderDataProps)
   // Loading states
   const [calculationsLoading, setCalculationsLoading] = useState(false);
 
-  // Load available calculations - UPDATED for new string format
+  // Load available calculations - FIXED to use reportingApi instead of calculationsApi
   const loadAvailableCalculations = useCallback(async () => {
     if (!reportScope || (reportScope !== 'DEAL' && reportScope !== 'TRANCHE')) {
       setAvailableCalculations([]);
@@ -28,8 +28,8 @@ export const useReportBuilderData = ({ reportScope }: UseReportBuilderDataProps)
 
     setCalculationsLoading(true);
     try {
-      // The backend now returns calculations with the new string ID format
-      const response = await calculationsApi.getAvailableCalculations(reportScope);
+      // Use reportingApi.getAvailableCalculations instead of calculationsApi
+      const response = await reportingApi.getAvailableCalculations(reportScope);
       setAvailableCalculations(response.data);
     } catch (error) {
       console.error('Error loading available calculations:', error);
@@ -39,6 +39,11 @@ export const useReportBuilderData = ({ reportScope }: UseReportBuilderDataProps)
       setCalculationsLoading(false);
     }
   }, [reportScope, showToast]);
+
+  // Automatically load calculations when reportScope changes
+  useEffect(() => {
+    loadAvailableCalculations();
+  }, [loadAvailableCalculations]);
 
   return {
     // Data

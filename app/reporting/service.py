@@ -828,7 +828,17 @@ class ReportService:
 
     def get_available_deals(self) -> List[Dict[str, Any]]:
         """Get available deals from the data warehouse."""
-        return self.dw_dao.get_all_deals()
+        deals = self.dw_dao.get_all_deals()
+        # Convert SQLAlchemy model objects to dictionaries
+        return [
+            {
+                "dl_nbr": deal.dl_nbr,
+                "issr_cde": deal.issr_cde,
+                "cdi_file_nme": deal.cdi_file_nme,
+                "CDB_cdi_file_nme": deal.CDB_cdi_file_nme
+            }
+            for deal in deals
+        ]
 
     def get_available_tranches_for_deals(self, deal_ids: List[int], 
                                        cycle_code: int = None) -> Dict[int, List[Dict[str, Any]]]:

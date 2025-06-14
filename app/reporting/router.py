@@ -221,7 +221,8 @@ def get_available_issuer_codes(
     service: ReportService = Depends(get_report_service),
 ) -> List[str]:
     """Get unique issuer codes for deal filtering."""
-    deals = service.get_available_deals()  # This one stays sync
+    deals = service.get_available_deals()  # This now returns dictionaries
+    # Fix: Use dictionary access since service returns dictionaries
     issuer_codes = sorted(list(set(deal["issr_cde"] for deal in deals)))
     return issuer_codes
 
@@ -232,10 +233,11 @@ def get_available_deals(
     service: ReportService = Depends(get_report_service),
 ) -> List[Dict[str, Any]]:
     """Get available deals for report building, optionally filtered by issuer code."""
-    deals = service.get_available_deals()  # This one stays sync
+    deals = service.get_available_deals()  # This now returns dictionaries
 
     # Filter by issuer code if provided
     if issuer_code:
+        # Fix: Use dictionary access since service returns dictionaries
         deals = [deal for deal in deals if deal["issr_cde"] == issuer_code]
 
     return deals

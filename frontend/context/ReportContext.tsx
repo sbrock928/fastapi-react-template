@@ -1,15 +1,15 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { reportingApi } from '@/services/api';
-import type { ReportSummary, Deal } from '@/types'; // Added Deal import
+import type { ReportSummary, Deal } from '@/types';
 
 interface ReportContextType {
   savedReports: ReportSummary[];
-  deals: Deal[]; // Added deals to context
+  deals: Deal[];
   loading: boolean;
-  dealsLoading: boolean; // Added separate loading state for deals
+  dealsLoading: boolean;
   error: string | null;
-  refreshReports: (force?: boolean) => Promise<void>; // Updated to accept force parameter
-  loadDealsOnce: () => Promise<void>; // Added function to load deals once
+  refreshReports: (force?: boolean) => Promise<void>;
+  loadDealsOnce: () => Promise<void>;
 }
 
 const ReportContext = createContext<ReportContextType | undefined>(undefined);
@@ -20,17 +20,22 @@ interface ReportProviderProps {
 
 export const ReportProvider: React.FC<ReportProviderProps> = ({ children }) => {
   const [savedReports, setSavedReports] = useState<ReportSummary[]>([]);
-  const [deals, setDeals] = useState<Deal[]>([]); // Added deals state
+  const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
-  const [dealsLoading, setDealsLoading] = useState<boolean>(false); // Added deals loading state
+  const [dealsLoading, setDealsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [dealsLoaded, setDealsLoaded] = useState<boolean>(false); // Track if deals have been loaded
-  const [reportsLoaded, setReportsLoaded] = useState<boolean>(false); // Track if reports have been loaded
+  
+  // Use refs to track loading states to avoid circular dependencies
+  const reportsLoadedRef = useRef<boolean>(false);
+  const dealsLoadedRef = useRef<boolean>(false);
+  const isLoadingReportsRef = useRef<boolean>(false);
+  const isLoadingDealsRef = useRef<boolean>(false);
 
   const refreshReports = useCallback(async (force: boolean = false) => {
-    if (!force && (loading || reportsLoaded)) {
+    // Prevent multiple simultaneous requests
+    if (!force && (isLoadingReportsRef.current || reportsLoadedRef.current)) {
       console.log('Reports already loaded or loading, skipping API call');
-      return; // Prevent loading if already loaded or loading
+      return;
     }
     
     if (force) {
@@ -39,59 +44,63 @@ export const ReportProvider: React.FC<ReportProviderProps> = ({ children }) => {
       console.log('Loading reports for the first time...');
     }
     
+    isLoadingReportsRef.current = true;
     setLoading(true);
     setError(null);
     
     try {
       const response = await reportingApi.getReportsSummary();
       setSavedReports(response.data);
-      setReportsLoaded(true);
+      reportsLoadedRef.current = true;
       console.log(`✅ Loaded ${response.data.length} reports ${force ? '(force refresh)' : '(cached for session)'}`);
     } catch (err) {
       console.error('Error loading saved reports:', err);
       setError('Failed to load saved reports');
     } finally {
       setLoading(false);
+      isLoadingReportsRef.current = false;
     }
-  }, [loading, reportsLoaded]); // Memoize based on loading states
+  }, []); // Remove dependencies to avoid circular dependency
 
-  // Load deals only once per session
   const loadDealsOnce = useCallback(async () => {
-    if (dealsLoaded || dealsLoading) {
+    // Prevent multiple simultaneous requests
+    if (isLoadingDealsRef.current || dealsLoadedRef.current) {
       console.log('Deals already loaded or loading, skipping API call');
-      return; // Prevent loading if already loaded or loading
+      return;
     }
     
     console.log('Loading deals for the first time...');
+    isLoadingDealsRef.current = true;
     setDealsLoading(true);
     setError(null);
     
     try {
       const response = await reportingApi.getDeals();
       setDeals(response.data);
-      setDealsLoaded(true);
+      dealsLoadedRef.current = true;
       console.log(`✅ Loaded ${response.data.length} deals (cached for session)`);
     } catch (err) {
       console.error('Error loading deals:', err);
       setError('Failed to load deals');
     } finally {
       setDealsLoading(false);
+      isLoadingDealsRef.current = false;
     }
-  }, [dealsLoaded, dealsLoading]); // Memoize based on loading states
+  }, []); // Remove dependencies to avoid circular dependency
 
-  // Load reports on mount
+  // Load reports on mount - only run once
   useEffect(() => {
     refreshReports();
-  }, [refreshReports]);
+  }, []); // Empty dependency array - only run on mount
 
   const value: ReportContextType = {
     savedReports,
-    deals, // Added deals to context value
+    deals,
     loading,
-    dealsLoading, // Added deals loading to context value
+    dealsLoading,
     error,
     refreshReports,
-    loadDealsOnce // Added deals loading function to context value
+    loadDealsOnce
   };
 
   return (

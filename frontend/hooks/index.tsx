@@ -1,2 +1,3 @@
-export { default as useModal } from './useModal';
-export { default as usePagination } from './usePagination';
+export * from './useModal';
+export * from './usePagination';
+export * from './useApiRequest';

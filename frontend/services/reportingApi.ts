@@ -129,9 +129,7 @@ const reportingApi = {
 
   // Get available calculations for report building
   getAvailableCalculations: (scope: 'DEAL' | 'TRANCHE'): Promise<{ data: AvailableCalculation[] }> => {
-    return apiClient.get('/reports/calculations/available', {
-      params: { scope }
-    });
+    return apiClient.get(`/reports/calculations/available/${scope}`);
   },
 
   // ===== COLUMN MANAGEMENT UTILITIES =====
