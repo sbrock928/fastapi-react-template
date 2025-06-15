@@ -52,6 +52,18 @@ class UserCalculationDAO:
             .first()
         )
 
+    def get_by_source_field_and_group_level(self, source_field: str, group_level: GroupLevel) -> Optional[UserCalculation]:
+        """Get user calculation by source_field and group_level"""
+        return (
+            self.db.query(UserCalculation)
+            .filter(
+                UserCalculation.source_field == source_field,
+                UserCalculation.group_level == group_level,
+                UserCalculation.is_active == True
+            )
+            .first()
+        )
+
     def get_by_names(self, names: List[str]) -> List[UserCalculation]:
         """Get user calculations by list of names"""
         return (

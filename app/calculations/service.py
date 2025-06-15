@@ -145,9 +145,9 @@ class UserCalculationService:
             )
 
         # Check if source_field is already in use
-        existing_calc = self.get_user_calculation_by_source_field(request.source_field)
+        existing_calc = self.user_calc_dao.get_by_source_field_and_group_level(request.source_field, request.group_level)
         if existing_calc:
-            raise ValueError(f"Source field '{request.source_field}' is already in use by calculation '{existing_calc.name}'")
+            raise ValueError(f"Source field '{request.source_field}' is already in use by calculation '{existing_calc.name}' at the {request.group_level.value} level")
 
         # Validate weighted average has weight field
         if request.aggregation_function == AggregationFunction.WEIGHTED_AVG and not request.weight_field:
@@ -202,11 +202,12 @@ class UserCalculationService:
                     f"Another user calculation with name '{request.name}' already exists at that group level"
                 )
 
-        # If source_field is being updated, check for conflicts
+        # If source_field is being updated, check for conflicts at the same group level
         if hasattr(request, 'source_field') and request.source_field and request.source_field != calculation.source_field:
-            conflicting_calc = self.get_user_calculation_by_source_field(request.source_field)
+            group_level = request.group_level or calculation.group_level
+            conflicting_calc = self.user_calc_dao.get_by_source_field_and_group_level(request.source_field, group_level)
             if conflicting_calc and conflicting_calc.id != calc_id:
-                raise ValueError(f"Source field '{request.source_field}' is already in use by calculation '{conflicting_calc.name}'")
+                raise ValueError(f"Source field '{request.source_field}' is already in use by calculation '{conflicting_calc.name}' at the {group_level.value} level")
 
         # Update fields that are provided
         if request.name is not None:
