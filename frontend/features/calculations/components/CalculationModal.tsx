@@ -301,10 +301,17 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
 
     return (
       <>
-        <div className="alert alert-success">
-          <i className="bi bi-code-square me-2"></i>
+        <div className="alert alert-info">
+          <i className="bi bi-info-circle me-2"></i>
           <strong>System SQL Calculation:</strong> Advanced custom calculation using validated SQL queries.
-          Must include proper join fields and return exactly one new column.
+          <div className="mt-2">
+            <strong>Important:</strong> 
+            <ul className="mb-0 mt-1">
+              <li><strong>WHERE clauses are automatically injected</strong> - Don't include deal/tranche filters or cycle filters</li>
+              <li><strong>GROUP BY clauses are required</strong> - You must include appropriate grouping for your calculation level</li>
+              <li>Must include proper join fields and return exactly one new column</li>
+            </ul>
+          </div>
         </div>
 
         <div className="row g-3">
@@ -363,6 +370,19 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
 
           <div className="col-12">
             <label className="form-label">SQL Query *</label>
+            <div className="alert alert-warning mb-2">
+              <i className="bi bi-exclamation-triangle me-2"></i>
+              <strong>Filter Injection Notice:</strong> 
+              <div className="mt-1">
+                The system will automatically add WHERE clauses for:
+                <ul className="mb-0 mt-1">
+                  <li><code>deal.dl_nbr IN (selected_deals)</code></li>
+                  <li><code>tranche.tr_id IN (selected_tranches)</code> (if applicable)</li>
+                  <li><code>tranchebal.cycle_cde = selected_cycle</code> (if tranchebal table is used)</li>
+                </ul>
+                <strong>Don't include these filters in your SQL - they'll be added automatically!</strong>
+              </div>
+            </div>
             <SqlEditor
               value={calculation.source_field || ''} // Using source_field to store SQL
               onChange={(sql) => {
@@ -374,17 +394,60 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
               }}
               groupLevel={calculation.level}
               disabled={isSaving}
-              placeholder={`-- Example for ${calculation.level} level:
+              placeholder={calculation.level === 'deal' 
+                ? `-- Deal-level example (GROUP BY required for aggregations):
 SELECT 
-    deal.dl_nbr${calculation.level === 'tranche' ? ',\n    tranche.tr_id' : ''},
+    deal.dl_nbr,
     CASE 
         WHEN deal.issr_cde LIKE '%FHLMC%' THEN 'GSE'
         WHEN deal.issr_cde LIKE '%GNMA%' THEN 'Government'
         ELSE 'Private'
     END AS ${calculation.weight_field || 'result_column'}
-FROM deal${calculation.level === 'tranche' ? '\nJOIN tranche ON deal.dl_nbr = tranche.dl_nbr' : ''}`}
+FROM deal
+-- WHERE clauses will be injected automatically
+
+-- For aggregations, include GROUP BY:
+-- GROUP BY deal.dl_nbr`
+                : `-- Tranche-level example (GROUP BY required for aggregations):
+SELECT 
+    deal.dl_nbr,
+    tranche.tr_id,
+    CASE 
+        WHEN tranchebal.tr_end_bal_amt >= 25000000 THEN 'Large'
+        WHEN tranchebal.tr_end_bal_amt >= 10000000 THEN 'Medium'
+        ELSE 'Small'
+    END AS ${calculation.weight_field || 'result_column'}
+FROM deal
+JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
+JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
+    AND tranche.tr_id = tranchebal.tr_id
+-- WHERE clauses will be injected automatically
+
+-- For aggregations, include GROUP BY:
+-- GROUP BY deal.dl_nbr, tranche.tr_id`}
             />
           </div>
+
+          {/* Preview of what the final SQL will look like */}
+          {calculation.source_field && calculation.source_field.trim() && (
+            <div className="col-12">
+              <label className="form-label">Final SQL Preview (with injected filters)</label>
+              <div className="alert alert-secondary">
+                <small className="text-muted">
+                  This shows how your SQL will look after the system automatically injects WHERE clauses:
+                </small>
+                <pre className="bg-dark text-light p-3 mt-2 rounded" style={{ fontSize: '0.8rem', whiteSpace: 'pre-wrap' }}>
+{calculation.source_field.trim()}
+{/* Show where the WHERE clause would be injected */}
+{!calculation.source_field.toLowerCase().includes('where') && !calculation.source_field.toLowerCase().includes('group by') 
+  ? '\nWHERE [filters will be injected here]'
+  : calculation.source_field.toLowerCase().includes('group by') && !calculation.source_field.toLowerCase().includes('where')
+  ? '\nWHERE [filters will be injected before GROUP BY]'
+  : '\nAND [additional filters will be injected]'}
+                </pre>
+              </div>
+            </div>
+          )}
 
           {/* Client-side SQL validation feedback */}
           {clientValidation && !clientValidation.isValid && (
@@ -448,20 +511,43 @@ FROM deal${calculation.level === 'tranche' ? '\nJOIN tranche ON deal.dl_nbr = tr
             </div>
           )}
 
-          {/* Requirements */}
+          {/* Updated Requirements */}
           <div className="col-12">
-            <div className="card bg-light">
+            <div className="card bg-light border-primary">
               <div className="card-body">
-                <h6 className="card-title">SQL Requirements for {calculation.level} Level:</h6>
-                <ul className="mb-0">
-                  <li>Must include <code>deal.dl_nbr</code> in SELECT</li>
-                  {calculation.level === 'tranche' && (
-                    <li>Must include <code>tranche.tr_id</code> in SELECT</li>
-                  )}
-                  <li>Must return exactly one additional column: <code>{calculation.weight_field || 'result_column'}</code></li>
-                  <li>Must use proper JOIN statements for related tables</li>
-                  <li>No dangerous operations (DROP, DELETE, UPDATE, etc.)</li>
-                </ul>
+                <h6 className="card-title text-primary">
+                  <i className="bi bi-list-check me-2"></i>
+                  SQL Requirements for {calculation.level} Level:
+                </h6>
+                <div className="row">
+                  <div className="col-md-6">
+                    <h6 className="text-success">✅ Required (You Must Include):</h6>
+                    <ul className="mb-2">
+                      <li>SELECT <code>deal.dl_nbr</code></li>
+                      {calculation.level === 'tranche' && (
+                        <li>SELECT <code>tranche.tr_id</code></li>
+                      )}
+                      <li>Return exactly one result column: <code>{calculation.weight_field || 'result_column'}</code></li>
+                      <li>Proper FROM and JOIN statements</li>
+                      <li><strong>GROUP BY clause</strong> (for aggregations)</li>
+                    </ul>
+                  </div>
+                  <div className="col-md-6">
+                    <h6 className="text-danger">❌ Forbidden (System Handles):</h6>
+                    <ul className="mb-2">
+                      <li>WHERE <code>deal.dl_nbr = ...</code></li>
+                      <li>WHERE <code>tranche.tr_id IN ...</code></li>
+                      <li>WHERE <code>tranchebal.cycle_cde = ...</code></li>
+                      <li>Dangerous operations (DROP, DELETE, etc.)</li>
+                    </ul>
+                  </div>
+                </div>
+                <div className="alert alert-info mb-0 mt-2">
+                  <small>
+                    <strong>💡 Tip:</strong> Focus on your business logic and grouping. The system will automatically add filters 
+                    for the selected deals, tranches, and cycle when the calculation runs.
+                  </small>
+                </div>
               </div>
             </div>
           </div>
