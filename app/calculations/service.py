@@ -323,9 +323,9 @@ class UserCalculationService:
                 "display_name": usage.display_name
             })
         
-        # If scope was specified, include scope info in the response
+        # Return the NEW FORMAT calculation_id instead of the database ID
         result = {
-            "calculation_id": calc_id,
+            "calculation_id": new_calc_id,  # FIXED: Use new format instead of calc_id
             "calculation_name": calculation.name,
             "is_in_use": len(reports) > 0,
             "report_count": len(reports),
@@ -514,9 +514,9 @@ class SystemCalculationService:
                 "display_name": usage.display_name
             })
         
-        # If scope was specified, include scope info in the response
+        # Return the NEW FORMAT calculation_id instead of the database ID
         result = {
-            "calculation_id": calc_id,
+            "calculation_id": new_calc_id,  # FIXED: Use new format instead of calc_id
             "calculation_name": calculation.name,
             "is_in_use": len(reports) > 0,
             "report_count": len(reports),

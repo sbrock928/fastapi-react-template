@@ -115,11 +115,75 @@ class ReportService:
         column_prefs_json = None
         if report_data.column_preferences:
             column_prefs_json = report_data.column_preferences.model_dump()
+        
+        # If calculations are being updated but column preferences aren't provided,
+        # we need to synchronize the column preferences with the new calculations
+        if (hasattr(report_data, 'selected_calculations') and 
+            report_data.selected_calculations is not None and 
+            column_prefs_json is None):
+            
+            # Get the existing report to check its current column preferences
+            existing_report = await self.report_dao.get_by_id(report_id)
+            if existing_report and existing_report.column_preferences:
+                try:
+                    existing_prefs = ReportColumnPreferences(**existing_report.column_preferences)
+                    # Synchronize column preferences with new calculations
+                    column_prefs_json = self._synchronize_column_preferences_with_calculations(
+                        existing_prefs, report_data.selected_calculations, report_data.scope or existing_report.scope
+                    ).model_dump()
+                except Exception as e:
+                    print(f"Warning: Could not synchronize column preferences: {e}")
 
         report = await self.report_dao.update(report_id, report_data, column_prefs_json)
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
         return ReportRead.model_validate(report)
+
+    def _synchronize_column_preferences_with_calculations(self, 
+                                                         existing_prefs: ReportColumnPreferences,
+                                                         new_calculations: List,
+                                                         report_scope: str) -> ReportColumnPreferences:
+        """Synchronize column preferences to match new selected calculations."""
+        # Get current calculation IDs from new calculations
+        new_calc_ids = set(calc.calculation_id for calc in new_calculations)
+        
+        # Define default columns based on scope
+        default_column_ids = {'deal_number', 'cycle_code'}
+        if report_scope == 'TRANCHE':
+            default_column_ids.add('tranche_id')
+        
+        # Filter existing column preferences to only keep:
+        # 1. Default columns (always kept)
+        # 2. Columns for calculations that are still selected
+        updated_columns = []
+        for col_pref in existing_prefs.columns:
+            if (col_pref.column_id in default_column_ids or 
+                col_pref.column_id in new_calc_ids):
+                updated_columns.append(col_pref)
+        
+        # Add column preferences for any new calculations that don't have preferences yet
+        existing_column_ids = set(col.column_id for col in updated_columns)
+        next_display_order = max([col.display_order for col in updated_columns], default=0) + 1
+        
+        for calc in new_calculations:
+            if calc.calculation_id not in existing_column_ids:
+                # Create new column preference for this calculation
+                display_name = calc.display_name or self._get_calculation_display_name(
+                    calc.calculation_id, calc.calculation_type, report_scope
+                )
+                updated_columns.append(ColumnPreference(
+                    column_id=calc.calculation_id,
+                    display_name=display_name,
+                    is_visible=True,
+                    display_order=next_display_order,
+                    format_type=ColumnFormat.TEXT  # Default format
+                ))
+                next_display_order += 1
+        
+        return ReportColumnPreferences(
+            include_default_columns=existing_prefs.include_default_columns,
+            columns=updated_columns
+        )
 
     async def delete(self, report_id: int) -> bool:
         """Delete a report."""

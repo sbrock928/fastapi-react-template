@@ -63,7 +63,7 @@ class DatawarehouseDAO:
             stmt = (
                 select(TrancheBal)
                 .where(TrancheBal.dl_nbr == dl_nbr, TrancheBal.tr_id == tr_id)
-                .order_by(TrancheBal.cycle_date.desc())
+                .order_by(TrancheBal.cycle_cde.desc())
                 .limit(1)
             )
 
@@ -110,3 +110,31 @@ class DatawarehouseDAO:
             print(f"Error fetching cycles from database: {e}")
             # Return empty list instead of dummy data
             return []
+
+    def get_available_tranches_for_deals(self, deal_ids: List[int], cycle_code: int = None) -> Dict[int, List[Dict[str, Any]]]:
+        """Get available tranches for specific deals."""
+        result = {}
+        
+        for deal_id in deal_ids:
+            # Get tranches for this deal
+            tranches = self.get_tranches_by_dl_nbr(deal_id)
+            
+            tranche_list = []
+            for tranche in tranches:
+                # Get balance data for this tranche
+                if cycle_code:
+                    balance = self.get_tranchebal_by_keys(deal_id, tranche.tr_id, cycle_code)
+                else:
+                    balance = self.get_tranchebal_by_keys(deal_id, tranche.tr_id)
+                
+                if balance:  # Only include tranches that have balance data
+                    tranche_list.append({
+                        "tr_id": tranche.tr_id,
+                        "dl_nbr": tranche.dl_nbr,
+                        "cycle_cde": balance.cycle_cde if balance else None,
+                        "balance": float(balance.tr_end_bal_amt) if balance and balance.tr_end_bal_amt else 0.0
+                    })
+            
+            result[deal_id] = tranche_list
+        
+        return result

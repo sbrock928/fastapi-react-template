@@ -35,6 +35,19 @@ class ReportDAO:
                 selectinload(Report.selected_deals).selectinload(ReportDeal.selected_tranches),
                 selectinload(Report.selected_calculations),
             )
+            .where(Report.id == report_id, Report.is_active == True)
+        )
+        result = self.db.execute(stmt)
+        return result.scalars().first()
+
+    async def _get_by_id_internal(self, report_id: int) -> Optional[Report]:
+        """Get a report by ID regardless of active status (for internal operations)."""
+        stmt = (
+            select(Report)
+            .options(
+                selectinload(Report.selected_deals).selectinload(ReportDeal.selected_tranches),
+                selectinload(Report.selected_calculations),
+            )
             .where(Report.id == report_id)
         )
         result = self.db.execute(stmt)
@@ -157,7 +170,7 @@ class ReportDAO:
 
     async def delete(self, report_id: int) -> bool:
         """Soft delete a report by ID."""
-        report = await self.get_by_id(report_id)
+        report = await self._get_by_id_internal(report_id)
         if report:
             report.is_active = False
             self.db.commit()
@@ -166,7 +179,7 @@ class ReportDAO:
 
     async def hard_delete(self, report_id: int) -> bool:
         """Hard delete a report by ID (for testing/cleanup)."""
-        report = await self.get_by_id(report_id)
+        report = await self._get_by_id_internal(report_id)
         if report:
             self.db.delete(report)
             self.db.commit()

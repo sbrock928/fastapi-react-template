@@ -1,6 +1,6 @@
 """FastAPI application entry point for the Vibez application."""
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,20 +40,24 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Import and include routers
+    # Import and include routers FIRST (before catch-all route)
     register_routes(app)
 
     # Mount the built React assets from the new static directory
     app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
 
-    # Serve the static files from the React build in the new static directory
+    # Serve the static files from the React build - MUST be last
     @app.get("/{full_path:path}")
-    async def serve_react_app(full_path: str) -> Any:
-        # If it's an API request, let it pass through to the API endpoints
-        if full_path.startswith("api/"):
-            return RedirectResponse(url=f"/api/{full_path[4:]}")
-
-        # For all other routes, serve the React app's index.html from the new static directory
+    async def serve_react_app(request: Request, full_path: str) -> Any:
+        # Don't serve React app for API routes - let them return 404 naturally
+        if full_path.startswith("api/") or full_path.startswith("api"):
+            raise HTTPException(status_code=404, detail="API endpoint not found")
+        
+        # Don't serve React app for assets
+        if full_path.startswith("assets/"):
+            raise HTTPException(status_code=404, detail="Asset not found")
+            
+        # For all other routes, serve the React app's index.html
         with open("static/index.html", "r", encoding="utf-8") as f:
             html_content = f.read()
 

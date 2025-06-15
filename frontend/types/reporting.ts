@@ -237,7 +237,7 @@ export function getDefaultColumnPreferences(
 
   // Define default column mappings
   const defaultColumns = [
-    { id: 'deal_number', name: 'Deal Number', format: ColumnFormat.NUMBER },
+    { id: 'deal_number', name: 'Deal Number', format: ColumnFormat.TEXT },
     ...(scope === 'TRANCHE' ? [{ id: 'tranche_id', name: 'Tranche ID', format: ColumnFormat.TEXT }] : []),
     { id: 'cycle_code', name: 'Cycle Code', format: ColumnFormat.NUMBER }
   ];
