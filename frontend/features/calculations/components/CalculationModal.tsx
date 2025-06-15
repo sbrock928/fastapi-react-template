@@ -409,27 +409,40 @@ FROM deal${calculation.level === 'tranche' ? '\nJOIN tranche ON deal.dl_nbr = tr
           {/* Server validation results */}
           {sqlValidationResult && (
             <div className="col-12">
-              <div className={`alert ${sqlValidationResult.is_valid ? 'alert-success' : 'alert-danger'}`}>
-                <h6 className="alert-heading">
+              <div className={`alert ${sqlValidationResult.is_valid ? 'alert-success' : 'alert-danger'} mt-3`}>
+                <div className="d-flex align-items-center mb-2">
                   <i className={`bi ${sqlValidationResult.is_valid ? 'bi-check-circle' : 'bi-exclamation-triangle'} me-2`}></i>
-                  Server SQL Validation {sqlValidationResult.is_valid ? 'Passed' : 'Failed'}
-                </h6>
-                {!sqlValidationResult.is_valid && sqlValidationResult.errors && (
-                  <ul className="mb-0">
-                    {sqlValidationResult.errors.map((error: string, index: number) => (
-                      <li key={index}>{error}</li>
-                    ))}
-                  </ul>
-                )}
-                {sqlValidationResult.warnings && sqlValidationResult.warnings.length > 0 && (
-                  <div className="mt-2">
-                    <strong>Warnings:</strong>
-                    <ul className="mb-0">
-                      {sqlValidationResult.warnings.map((warning: string, index: number) => (
-                        <li key={index}>{warning}</li>
+                  <strong>
+                    {sqlValidationResult.is_valid ? 'SQL Validation Passed' : 'SQL Validation Failed'}
+                  </strong>
+                </div>
+                
+                {sqlValidationResult.errors && sqlValidationResult.errors.length > 0 && (
+                  <div className="mb-2">
+                    <strong className="text-danger">Errors:</strong>
+                    <ul className="mb-0 mt-1">
+                      {sqlValidationResult.errors.map((error: string, index: number) => (
+                        <li key={index} className="text-danger">{error}</li>
                       ))}
                     </ul>
                   </div>
+                )}
+                
+                {sqlValidationResult.warnings && sqlValidationResult.warnings.length > 0 && (
+                  <div>
+                    <strong className="text-warning">Warnings:</strong>
+                    <ul className="mb-0 mt-1">
+                      {sqlValidationResult.warnings.map((warning: string, index: number) => (
+                        <li key={index} className="text-warning">{warning}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                {sqlValidationResult.is_valid && (
+                  <small className="text-muted d-block mt-2">
+                    Your SQL passed all validation checks and is ready to save.
+                  </small>
                 )}
               </div>
             </div>

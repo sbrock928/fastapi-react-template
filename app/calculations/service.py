@@ -24,6 +24,7 @@ from .schemas import (
     UserCalculationCreate,
     UserCalculationUpdate,
     SystemCalculationCreate,
+    SystemCalculationUpdate,
     StaticFieldInfo
 )
 
@@ -282,8 +283,8 @@ class UserCalculationService:
         self.user_calc_dao.soft_delete(calculation)
         return {"message": f"User calculation '{calculation.name}' deleted successfully"}
 
-    def get_user_calculation_usage(self, calc_id: int) -> Dict[str, Any]:
-        """Get usage information for a user calculation with new format."""
+    def get_user_calculation_usage(self, calc_id: int, report_scope: Optional[str] = None) -> Dict[str, Any]:
+        """Get usage information for a user calculation with scope awareness."""
         calculation = self.get_user_calculation_by_id(calc_id)
         if not calculation:
             raise CalculationNotFoundError(f"User calculation with ID {calc_id} not found")
@@ -294,7 +295,8 @@ class UserCalculationService:
         # Find all reports that use this calculation using NEW FORMAT
         new_calc_id = f"user.{calculation.source_field}"
         
-        report_usages = (
+        # Base query - filter by calculation ID and active reports
+        query = (
             self.user_calc_dao.db
             .query(ReportCalculation)
             .join(Report)
@@ -303,8 +305,13 @@ class UserCalculationService:
                 Report.is_active == True
             )
             .options(joinedload(ReportCalculation.report))
-            .all()
         )
+        
+        # Apply scope filter if provided
+        if report_scope:
+            query = query.filter(Report.scope == report_scope.upper())
+        
+        report_usages = query.all()
         
         reports = []
         for usage in report_usages:
@@ -316,13 +323,20 @@ class UserCalculationService:
                 "display_name": usage.display_name
             })
         
-        return {
+        # If scope was specified, include scope info in the response
+        result = {
             "calculation_id": calc_id,
             "calculation_name": calculation.name,
             "is_in_use": len(reports) > 0,
             "report_count": len(reports),
             "reports": reports,
         }
+        
+        if report_scope:
+            result["scope_filter"] = report_scope.upper()
+            result["scope_specific_usage"] = True
+        
+        return result
 
 
 class SystemCalculationService:
@@ -395,6 +409,50 @@ class SystemCalculationService:
 
         return self.system_calc_dao.create(calculation)
 
+    def update_system_calculation(self, calc_id: int, request: SystemCalculationUpdate) -> SystemCalculation:
+        """Update an existing system calculation"""
+        calculation = self.get_system_calculation_by_id(calc_id)
+        if not calculation:
+            raise CalculationNotFoundError(f"System calculation with ID {calc_id} not found")
+
+        # Check if another calculation with the same name exists at this group level (excluding current one)
+        if request.name:
+            group_level = request.group_level or calculation.group_level
+            existing = self.system_calc_dao.get_by_name_and_group_level(request.name, group_level)
+            
+            if existing and existing.id != calc_id:
+                raise CalculationAlreadyExistsError(
+                    f"Another system calculation with name '{request.name}' already exists at that group level"
+                )
+
+        # If result_column_name is being updated, check for conflicts
+        if request.result_column_name and request.result_column_name != calculation.result_column_name:
+            existing_calc = self.get_system_calculation_by_result_column(request.result_column_name)
+            if existing_calc and existing_calc.id != calc_id:
+                raise ValueError(f"Result column '{request.result_column_name}' is already in use by calculation '{existing_calc.name}'")
+
+        # Validate SQL if being updated
+        if request.raw_sql:
+            group_level = request.group_level or calculation.group_level
+            result_column = request.result_column_name or calculation.result_column_name
+            self._validate_system_sql(request.raw_sql, group_level, result_column)
+
+        # Update fields that are provided
+        if request.name is not None:
+            calculation.name = request.name
+        if request.description is not None:
+            calculation.description = request.description
+        if request.raw_sql is not None:
+            calculation.raw_sql = request.raw_sql
+        if request.result_column_name is not None:
+            calculation.result_column_name = request.result_column_name
+        if request.group_level is not None:
+            calculation.group_level = request.group_level
+        if request.metadata_config is not None:
+            calculation.metadata_config = request.metadata_config
+
+        return self.system_calc_dao.update(calculation)
+
     def approve_system_calculation(self, calc_id: int, approved_by: str) -> SystemCalculation:
         """Approve a system calculation"""
         calculation = self.get_system_calculation_by_id(calc_id)
@@ -416,8 +474,8 @@ class SystemCalculationService:
         self.system_calc_dao.soft_delete(calculation)
         return {"message": f"System calculation '{calculation.name}' deleted successfully"}
 
-    def get_system_calculation_usage(self, calc_id: int) -> Dict[str, Any]:
-        """Get usage information for a system calculation with new format."""
+    def get_system_calculation_usage(self, calc_id: int, report_scope: Optional[str] = None) -> Dict[str, Any]:
+        """Get usage information for a system calculation with scope awareness."""
         calculation = self.get_system_calculation_by_id(calc_id)
         if not calculation:
             raise CalculationNotFoundError(f"System calculation with ID {calc_id} not found")
@@ -428,7 +486,8 @@ class SystemCalculationService:
         # Find all reports that use this calculation using NEW FORMAT
         new_calc_id = f"system.{calculation.result_column_name}"
         
-        report_usages = (
+        # Base query - filter by calculation ID and active reports
+        query = (
             self.system_calc_dao.db
             .query(ReportCalculation)
             .join(Report)
@@ -437,8 +496,13 @@ class SystemCalculationService:
                 Report.is_active == True
             )
             .options(joinedload(ReportCalculation.report))
-            .all()
         )
+        
+        # Apply scope filter if provided
+        if report_scope:
+            query = query.filter(Report.scope == report_scope.upper())
+        
+        report_usages = query.all()
         
         reports = []
         for usage in report_usages:
@@ -450,13 +514,20 @@ class SystemCalculationService:
                 "display_name": usage.display_name
             })
         
-        return {
+        # If scope was specified, include scope info in the response
+        result = {
             "calculation_id": calc_id,
             "calculation_name": calculation.name,
             "is_in_use": len(reports) > 0,
             "report_count": len(reports),
             "reports": reports,
         }
+        
+        if report_scope:
+            result["scope_filter"] = report_scope.upper()
+            result["scope_specific_usage"] = True
+        
+        return result
 
     def _validate_system_sql(self, sql: str, group_level: GroupLevel, result_column_name: str):
         """Basic validation for system SQL"""

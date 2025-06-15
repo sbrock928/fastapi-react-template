@@ -11,6 +11,7 @@ import type {
   UserCalculationCreateRequest,
   UserCalculationUpdateRequest,
   SystemCalculationCreateRequest,
+  SystemCalculationUpdateRequest,
   SystemSqlValidationRequest,
   SystemSqlValidationResponse,
   CalculationUsage,
@@ -42,8 +43,9 @@ export const calculationsApi = {
     return apiClient.delete(`/calculations/user/${id}`);
   },
 
-  async getUserCalculationUsage(id: number): Promise<AxiosResponse<CalculationUsage>> {
-    return apiClient.get(`/calculations/user/${id}/usage`);
+  async getUserCalculationUsage(id: number, reportScope?: string): Promise<AxiosResponse<CalculationUsage>> {
+    const params = reportScope ? { report_scope: reportScope } : {};
+    return apiClient.get(`/calculations/user/${id}/usage`, { params });
   },
 
   // ===== UNIFIED CALCULATION USAGE ENDPOINT =====
@@ -62,12 +64,21 @@ export const calculationsApi = {
     return apiClient.post('/calculations/system', data);
   },
 
+  async updateSystemCalculation(id: number, data: SystemCalculationUpdateRequest): Promise<AxiosResponse<SystemCalculation>> {
+    return apiClient.patch(`/calculations/system/${id}`, data);
+  },
+
   async approveSystemCalculation(id: number, approvedBy: string): Promise<AxiosResponse<SystemCalculation>> {
     return apiClient.post(`/calculations/system/${id}/approve`, { approved_by: approvedBy });
   },
 
   async deleteSystemCalculation(id: number): Promise<AxiosResponse<{ message: string }>> {
     return apiClient.delete(`/calculations/system/${id}`);
+  },
+
+  async getSystemCalculationUsage(id: number, reportScope?: string): Promise<AxiosResponse<CalculationUsage>> {
+    const params = reportScope ? { report_scope: reportScope } : {};
+    return apiClient.get(`/calculations/system/${id}/usage`, { params });
   },
 
   async validateSystemSql(data: SystemSqlValidationRequest): Promise<AxiosResponse<SystemSqlValidationResponse>> {
@@ -371,7 +382,10 @@ export const safeCalculationsApi = {
   deleteCalculation: withErrorHandling(calculationsApi.deleteCalculation),
   getCalculationUsage: withErrorHandling(calculationsApi.getCalculationUsage),
   getCalculationUsageByType: withErrorHandling(calculationsApi.getCalculationUsageByType),
+  getUserCalculationUsage: withErrorHandling(calculationsApi.getUserCalculationUsage),
+  getSystemCalculationUsage: withErrorHandling(calculationsApi.getSystemCalculationUsage),
   createSystemSqlCalculation: withErrorHandling(calculationsApi.createSystemSqlCalculation),
+  updateSystemCalculation: withErrorHandling(calculationsApi.updateSystemCalculation),
   validateSystemSql: withErrorHandling(calculationsApi.validateSystemSql),
   getStaticFields: withErrorHandling(calculationsApi.getStaticFields),
   previewSQL: withErrorHandling(calculationsApi.previewSQL),

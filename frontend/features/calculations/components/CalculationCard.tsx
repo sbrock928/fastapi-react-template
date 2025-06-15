@@ -13,6 +13,7 @@ import {
 interface CalculationCardProps {
   calculation: Calculation;
   usage?: any; // Make usage optional since it's now embedded in calculations
+  usageScope?: 'DEAL' | 'TRANCHE' | 'ALL'; // Add scope prop
   onEdit: (calc: Calculation) => void;
   onDelete: (id: number, name: string) => void;
   onPreviewSQL: (id: number) => void;
@@ -22,6 +23,7 @@ interface CalculationCardProps {
 const CalculationCard: React.FC<CalculationCardProps> = ({
   calculation,
   usage: legacyUsage, // Rename to avoid confusion
+  usageScope = 'ALL',
   onEdit,
   onDelete,
   onPreviewSQL,
@@ -33,7 +35,43 @@ const CalculationCard: React.FC<CalculationCardProps> = ({
   const category = getCalculationCategory(calculation);
 
   // Use embedded usage_info if available, otherwise fall back to legacy usage prop
-  const usage = (calculation as any).usage_info || legacyUsage;
+  const globalUsage = (calculation as any).usage_info || legacyUsage;
+  
+  // Filter usage data based on scope compatibility
+  const getScopeFilteredUsage = () => {
+    if (!globalUsage || usageScope === 'ALL') {
+      return globalUsage;
+    }
+    
+    // Strict compatibility: calculation group level must match selected scope
+    const calcGroupLevel = calculation.group_level;
+    const scopeToGroupLevel = usageScope === 'DEAL' ? 'deal' : 'tranche';
+    const isCompatible = calcGroupLevel === scopeToGroupLevel;
+    
+    if (!isCompatible) {
+      // This calculation is not compatible with the selected scope
+      return {
+        ...globalUsage,
+        reports: [],
+        report_count: 0,
+        is_in_use: false
+      };
+    }
+    
+    // Filter reports by the selected scope
+    const filteredReports = globalUsage.reports?.filter((report: any) => 
+      report.scope === usageScope
+    ) || [];
+    
+    return {
+      ...globalUsage,
+      reports: filteredReports,
+      report_count: filteredReports.length,
+      is_in_use: filteredReports.length > 0
+    };
+  };
+  
+  const usage = getScopeFilteredUsage();
 
   const getCalculationTypeIcon = () => {
     if (isUserDefinedCalculation(calculation)) {
@@ -175,34 +213,19 @@ const CalculationCard: React.FC<CalculationCardProps> = ({
             
             <button
               onClick={() => onEdit(calculation)}
-              className={`btn btn-sm ${
-                isSystem
-                  ? 'btn-outline-secondary' 
-                  : usage?.is_in_use 
-                    ? 'btn-outline-secondary' 
-                    : 'btn-outline-warning'
-              }`}
-              title={
-                isSystem
-                  ? 'System calculations cannot be edited'
-                  : usage?.is_in_use 
-                    ? 'Cannot edit - calculation is in use'
-                    : 'Edit calculation'
-              }
-              disabled={isSystem || usage?.is_in_use}
+              className="btn btn-outline-warning btn-sm"
+              title="Edit calculation"
             >
               <i className="bi bi-pencil"></i> 
-              {isSystem ? 'Protected' : 'Edit'}
+              Edit
             </button>
             
             <button
               onClick={() => onDelete(calculation.id, calculation.name)}
               className={`btn btn-sm ${
-                isSystem
+                isSystem || usage?.is_in_use 
                   ? 'btn-outline-secondary' 
-                  : usage?.is_in_use 
-                    ? 'btn-outline-secondary' 
-                    : 'btn-outline-danger'
+                  : 'btn-outline-danger'
               }`}
               title={
                 isSystem
@@ -214,7 +237,7 @@ const CalculationCard: React.FC<CalculationCardProps> = ({
               disabled={isSystem || usage?.is_in_use}
             >
               <i className="bi bi-trash"></i> 
-              {isSystem ? 'Protected' : 'Delete'}
+              {isSystem ? 'Protected' : usage?.is_in_use ? 'In Use' : 'Delete'}
             </button>
             
             <button

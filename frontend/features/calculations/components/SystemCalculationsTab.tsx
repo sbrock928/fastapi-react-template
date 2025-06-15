@@ -10,7 +10,9 @@ interface SystemCalculationsTabProps {
   setSelectedFilter: (filter: string) => void;
   loading: boolean;
   usage: Record<number, any>; // Keep for compatibility but will use embedded usage_info
+  usageScope?: 'DEAL' | 'TRANCHE' | 'ALL'; // Add scope prop
   onCreateSystemSql: () => void;
+  onEditSystemSql: (calculation: Calculation) => void;
   onPreviewSQL: (id: number) => void;
   onShowUsage: (id: number, name: string) => void;
 }
@@ -21,7 +23,9 @@ const SystemCalculationsTab: React.FC<SystemCalculationsTabProps> = ({
   setSelectedFilter,
   loading,
   usage,
+  usageScope = 'ALL',
   onCreateSystemSql,
+  onEditSystemSql,
   onPreviewSQL,
   onShowUsage
 }) => {
@@ -99,7 +103,8 @@ const SystemCalculationsTab: React.FC<SystemCalculationsTabProps> = ({
                       <CalculationCard
                         calculation={calc}
                         usage={usage[calc.id]}
-                        onEdit={() => {}} // System calculations cannot be edited
+                        usageScope={usageScope}
+                        onEdit={() => onEditSystemSql(calc)} // Allow editing system SQL calculations
                         onDelete={handleDeleteAttempt}
                         onPreviewSQL={onPreviewSQL}
                         onShowUsage={onShowUsage}

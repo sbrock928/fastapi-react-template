@@ -196,11 +196,12 @@ def delete_user_calculation(
 @router.get("/user/{calc_id}/usage", response_model=CalculationUsageResponse)
 def get_user_calculation_usage(
     calc_id: int,
+    report_scope: Optional[str] = Query(None, description="Filter usage by report scope (DEAL/TRANCHE)"),
     service: UserCalculationService = Depends(get_user_calculation_service)
 ):
     """Get usage information for a user calculation"""
     try:
-        return service.get_user_calculation_usage(calc_id)
+        return service.get_user_calculation_usage(calc_id, report_scope)
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -259,11 +260,12 @@ def get_system_calculation_by_id(
 @router.get("/system/{calc_id}/usage", response_model=CalculationUsageResponse)
 def get_system_calculation_usage(
     calc_id: int,
+    report_scope: Optional[str] = Query(None, description="Filter usage by report scope (DEAL/TRANCHE)"),
     service: SystemCalculationService = Depends(get_system_calculation_service)
 ):
     """Get usage information for a system calculation"""
     try:
-        return service.get_system_calculation_usage(calc_id)
+        return service.get_system_calculation_usage(calc_id, report_scope)
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -282,6 +284,19 @@ def create_system_calculation(
         approved_calc = service.approve_system_calculation(created_calc.id, "system_auto_approval")
         
         return approved_calc
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch("/system/{calc_id}", response_model=SystemCalculationResponse)
+def update_system_calculation(
+    calc_id: int,
+    request: SystemCalculationUpdate,
+    service: SystemCalculationService = Depends(get_system_calculation_service)
+):
+    """Update an existing system calculation (partial update)"""
+    try:
+        return service.update_system_calculation(calc_id, request)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -321,7 +336,7 @@ def validate_system_sql(request: Dict[str, Any]):
                 }
             }
         
-        # Basic SQL validation
+        # Enhanced SQL validation
         sql_lower = sql_text.lower().strip()
         errors = []
         warnings = []
@@ -339,6 +354,67 @@ def validate_system_sql(request: Dict[str, Any]):
             if keyword in sql_lower:
                 errors.append(f"Dangerous operation '{keyword.upper()}' not allowed")
         
+        # NEW: Check SQL clause ordering
+        if 'where' in sql_lower and 'group by' in sql_lower:
+            where_pos = sql_lower.find('where')
+            group_by_pos = sql_lower.find('group by')
+            if where_pos > group_by_pos:
+                errors.append("WHERE clause must come before GROUP BY clause")
+        
+        # NEW: Check for GROUP BY without aggregate functions
+        if 'group by' in sql_lower:
+            has_aggregate = any(func in sql_lower for func in ['sum(', 'avg(', 'count(', 'min(', 'max(', 'string_agg('])
+            if not has_aggregate:
+                warnings.append("GROUP BY found without aggregate functions - this may cause unexpected results")
+        
+        # NEW: Check for fields in GROUP BY that aren't in SELECT
+        if 'group by' in sql_lower and 'select' in sql_lower:
+            try:
+                # Extract GROUP BY fields (simple parsing)
+                group_by_start = sql_lower.find('group by') + 8
+                group_by_end = len(sql_lower)
+                for clause in ['having', 'order by', 'limit']:
+                    pos = sql_lower.find(clause, group_by_start)
+                    if pos != -1:
+                        group_by_end = min(group_by_end, pos)
+                
+                group_by_clause = sql_lower[group_by_start:group_by_end].strip()
+                group_by_fields = [field.strip() for field in group_by_clause.split(',')]
+                
+                # Extract SELECT fields (basic parsing)
+                select_start = sql_lower.find('select') + 6
+                from_pos = sql_lower.find('from')
+                select_clause = sql_lower[select_start:from_pos].strip()
+                
+                # Check if GROUP BY fields are selected or if they're aggregate grouping fields
+                for field in group_by_fields:
+                    if field and '.' in field:  # Skip empty and simple fields
+                        field_name = field.split('.')[-1]  # Get column name after table alias
+                        if field_name not in select_clause and field not in select_clause:
+                            warnings.append(f"Field '{field}' in GROUP BY but not selected - consider if this is intended")
+            except:
+                # If parsing fails, just skip this check
+                pass
+        
+        # NEW: Check for missing JOIN conditions
+        join_count = sql_lower.count(' join ')
+        on_count = sql_lower.count(' on ')
+        if join_count > on_count:
+            errors.append("Missing JOIN conditions - each JOIN should have an ON clause")
+        
+        # NEW: Validate table references
+        required_tables = set()
+        if group_level == "deal":
+            required_tables.add("deal")
+        elif group_level == "tranche":
+            required_tables.add("deal")
+            required_tables.add("tranche")
+        
+        # Check if required tables are referenced
+        for table in required_tables:
+            if table not in sql_lower:
+                errors.append(f"Missing required table '{table}' for {group_level}-level calculations")
+        
         # Check for required fields based on group level
         if group_level == "deal":
             if 'deal.dl_nbr' not in sql_lower and 'dl_nbr' not in sql_lower:
@@ -353,18 +429,34 @@ def validate_system_sql(request: Dict[str, Any]):
             if not has_tranche_id:
                 errors.append("Tranche-level SQL must include tranche.tr_id for proper grouping")
         
+        # NEW: Check for potential data type issues
+        if 'cycle_cde' in sql_lower and '=' in sql_lower:
+            # Look for cycle_cde comparisons to detect potential type mismatches
+            import re
+            cycle_patterns = re.findall(r'cycle_cde\s*=\s*[\'"]([^\'"]+)[\'"]', sql_lower)
+            for pattern in cycle_patterns:
+                if pattern.isdigit():
+                    warnings.append("cycle_cde compared to string - ensure data types match your schema")
+        
         # Check result column name format
         import re
         if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', result_column_name):
             errors.append("Result column name must be a valid SQL identifier (letters, numbers, underscores, starting with letter)")
         
-        # Check if result column appears in SQL
-        if result_column_name.lower() not in sql_lower:
-            warnings.append(f"Result column '{result_column_name}' should appear in your SQL SELECT clause")
+        # Check if result column appears in SQL (allow for aliases)
+        result_col_lower = result_column_name.lower()
+        if result_col_lower not in sql_lower and f'as {result_col_lower}' not in sql_lower and f'as "{result_col_lower}"' not in sql_lower:
+            warnings.append(f"Result column '{result_column_name}' should appear in your SQL SELECT clause or AS alias")
         
         # Additional warnings
         if 'order by' in sql_lower:
             warnings.append("ORDER BY clauses may impact performance in aggregated reports")
+        
+        # NEW: Check for common SQL injection patterns (basic)
+        injection_patterns = ['--', '/*', '*/', 'union', 'exec', 'execute']
+        for pattern in injection_patterns:
+            if pattern in sql_lower:
+                errors.append(f"Potentially dangerous SQL pattern detected: '{pattern}'")
         
         return {
             "validation_result": {

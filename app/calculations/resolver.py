@@ -422,19 +422,23 @@ GROUP BY {', '.join(group_columns)}"""
             
         full_filter = ' AND '.join(filter_parts)
 
-        # Inject into SQL
+        # FIXED: Proper WHERE clause injection with correct clause ordering
         if " WHERE " in sql_upper:
+            # Already has WHERE clause, append with AND
             modified_sql = raw_sql + f" AND {full_filter}"
         else:
-            # Find good insertion point
-            insert_keywords = [" GROUP BY ", " ORDER BY ", " HAVING ", " LIMIT "]
+            # Find the correct insertion point using case-insensitive regex
+            # WHERE must come before GROUP BY, HAVING, ORDER BY, LIMIT
+            insert_keywords = [r'\bGROUP\s+BY\b', r'\bHAVING\b', r'\bORDER\s+BY\b', r'\bLIMIT\b']
             insert_position = len(raw_sql)
 
-            for keyword in insert_keywords:
-                pos = sql_upper.find(keyword)
-                if pos != -1 and pos < insert_position:
-                    insert_position = pos
+            # Find the earliest clause that should come after WHERE
+            for pattern in insert_keywords:
+                match = re.search(pattern, raw_sql, re.IGNORECASE)
+                if match and match.start() < insert_position:
+                    insert_position = match.start()
 
+            # Insert WHERE clause at the correct position
             where_clause = f" WHERE {full_filter}"
             modified_sql = raw_sql[:insert_position] + where_clause + raw_sql[insert_position:]
 

@@ -142,6 +142,15 @@ export interface SystemCalculationCreateRequest {
   metadata_config?: Record<string, any>;
 }
 
+export interface SystemCalculationUpdateRequest {
+  name?: string;
+  description?: string;
+  raw_sql?: string;
+  result_column_name?: string;
+  group_level?: 'deal' | 'tranche';
+  metadata_config?: Record<string, any>;
+}
+
 export interface SystemSqlValidationRequest {
   sql_text: string;
   group_level: 'deal' | 'tranche';
@@ -185,7 +194,7 @@ export interface AvailableCalculation {
   source_field?: string; // field name for static fields, undefined for system calcs
   group_level: string;
   weight_field?: string;
-  scope: 'DEAL' | 'TRANCHE'; // FIXED: Use specific type instead of string
+  scope: 'DEAL' | 'TRANCE'; // FIXED: Use specific type instead of string
   category: string;
   is_default: boolean;
   calculation_type: 'USER_DEFINED' | 'SYSTEM_SQL' | 'STATIC_FIELD';
