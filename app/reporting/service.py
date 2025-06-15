@@ -476,12 +476,35 @@ class ReportService:
             if col_pref.is_visible:
                 column_id = col_pref.column_id
                 
-                # Handle different types of columns
-                if column_id.startswith("static_") or column_id.replace(".", "_") in ["deal_number", "tranche_id", "cycle_code"]:
-                    # Static fields - convert dots to underscores for raw data lookup
+                # FIXED: Handle different types of columns with proper static field mapping
+                if column_id.startswith("static_"):
+                    # For static fields, the raw data key is now the display name (alias)
+                    # Find the corresponding calculation to get its display name
+                    static_calc = None
+                    for report_calc in report.selected_calculations:
+                        if report_calc.calculation_id == column_id:
+                            static_calc = report_calc
+                            break
+                    
+                    if static_calc and static_calc.display_name:
+                        # Use the display name from the report calculation
+                        raw_data_key = static_calc.display_name
+                    else:
+                        # Fallback: try to get the display name from static field registry
+                        field_path = column_id.replace("static_", "")
+                        static_fields = StaticFieldService.get_all_static_fields()
+                        for field in static_fields:
+                            if field.field_path == field_path:
+                                raw_data_key = field.name
+                                break
+                        else:
+                            # Last resort: use the column ID with dots converted to underscores
+                            raw_data_key = column_id.replace(".", "_")
+                elif column_id.replace(".", "_") in ["deal_number", "tranche_id", "cycle_code"]:
+                    # Default columns - convert dots to underscores for raw data lookup
                     raw_data_key = column_id.replace(".", "_")
                 elif column_id in calc_id_to_alias:
-                    # FIXED: User/system calculations - use the actual alias from the SQL
+                    # User/system calculations - use the actual alias from the SQL
                     raw_data_key = calc_id_to_alias[column_id]
                 else:
                     # Default case - use column_id as is
@@ -730,13 +753,13 @@ class ReportService:
                 
                 if not field_found:
                     # Fallback for unknown static fields
-                    display_name = report_calc.display_name or alias
+                    display_name = report_calc.display_name or field_path
                     calc_request = CalculationRequest(
                         calc_type="static_field",
                         field_path=field_path,
                         alias=display_name
                     )
-                    print(f"Debug: Added static field request - Field: {field_path}, Alias: {display_name}")
+                    print(f"Debug: Added fallback static field request - Field: {field_path}, Alias: {display_name}")
             
             # Handle legacy numeric calculation IDs
             else:
@@ -895,14 +918,31 @@ class ReportService:
             elif calc_id_str.startswith("static_"):
                 # Static field: "static_{table}.{field_name}"
                 field_path = calc_id_str.replace("static_", "")
-                alias = calc_id_str.replace(".", "_")
                 
-                calc_request = CalculationRequest(
-                    calc_type="static_field",
-                    field_path=field_path,
-                    alias=alias
-                )
-                print(f"Debug: Added static field request - Field: {field_path}, Alias: {alias}")
+                # FIXED: Use display_name from report_calc like other calculation types
+                static_fields = StaticFieldService.get_all_static_fields()
+                field_found = False
+                for field in static_fields:
+                    if field.field_path == field_path:
+                        display_name = report_calc.display_name or field.name
+                        calc_request = CalculationRequest(
+                            calc_type="static_field",
+                            field_path=field_path,
+                            alias=display_name  # Use the display name from the report
+                        )
+                        print(f"Debug: Found static field - {field.name} using alias: '{display_name}'")
+                        field_found = True
+                        break
+                
+                if not field_found:
+                    # Fallback for unknown static fields
+                    display_name = report_calc.display_name or field_path
+                    calc_request = CalculationRequest(
+                        calc_type="static_field",
+                        field_path=field_path,
+                        alias=display_name
+                    )
+                    print(f"Debug: Added fallback static field request - Field: {field_path}, Alias: {display_name}")
             
             else:
                 # Legacy numeric ID handling

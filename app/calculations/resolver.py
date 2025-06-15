@@ -56,19 +56,24 @@ class SimpleCalculationResolver:
 
         # 1. Resolve each calculation to individual SQL queries
         individual_results = {}
+        # Store calculation requests for later reference
+        calc_request_lookup = {req.alias: req for req in calc_requests}
+        
         for request in calc_requests:
             try:
                 query_result = self.resolve_single_calculation(request, filters)
                 individual_results[request.alias] = {
                     'query_result': query_result,
-                    'data': self._execute_sql(query_result.sql)
+                    'data': self._execute_sql(query_result.sql),
+                    'original_request': request  # Store original request for field_path access
                 }
             except Exception as e:
                 # Store error but continue processing other calculations
                 individual_results[request.alias] = {
                     'query_result': QueryResult(f"-- ERROR: {str(e)}", [], "error"),
                     'data': [],
-                    'error': str(e)
+                    'error': str(e),
+                    'original_request': request
                 }
 
         # 2. Merge results in memory based on common keys
@@ -112,13 +117,21 @@ class SimpleCalculationResolver:
         if "TrancheBal" in required_models:
             base_columns.append("tranchebal.cycle_cde AS cycle_code")
 
-        # FIXED: Only include tranche_id if the REPORT SCOPE is TRANCHE, not just if field requires tranche data
-        # This prevents tranche_id from appearing in deal-level reports even when querying tranchebal fields
-        if filters.report_scope == "TRANCHE":
+        # FIXED: Only include tranche_id if BOTH report scope is TRANCHE AND we need tranche data
+        # This prevents tranche_id from appearing in deal-only static field queries
+        if filters.report_scope == "TRANCHE" and ("Tranche" in required_models or "TrancheBal" in required_models):
             base_columns.append("tranche.tr_id AS tranche_id")
 
-        # Add the requested field
-        base_columns.append(f"{request.field_path} AS {request.alias}")
+        # Add the requested field - handle special cases for quoted column names
+        field_path = request.field_path
+        # Quote the alias if it contains spaces or special characters
+        quoted_alias = f'"{request.alias}"' if ' ' in request.alias or any(c in request.alias for c in ['-', '.', '/', '\\']) else request.alias
+        
+        if field_path == "deal.CDB_cdi_file_nme":
+            # Special handling for the quoted column name
+            base_columns.append(f'deal."CDB_cdi_file_nme" AS {quoted_alias}')
+        else:
+            base_columns.append(f"{field_path} AS {quoted_alias}")
 
         # Build FROM/JOIN clause based on required models
         from_clause = self._build_from_clause(required_models)
@@ -152,7 +165,7 @@ class SimpleCalculationResolver:
         columns = ["deal_number"]
         if "TrancheBal" in required_models:
             columns.append("cycle_code")
-        if filters.report_scope == "TRANCHE":
+        if filters.report_scope == "TRANCHE" and ("Tranche" in required_models or "TrancheBal" in required_models):
             columns.append("tranche_id")
         columns.append(request.alias)
 
@@ -298,8 +311,58 @@ GROUP BY {', '.join(group_columns)}"""
                     tranche_level_data[key][alias] = result_value
 
                 else:  # Static fields - could be either level
-                    # Determine level based on presence of tranche_id
-                    if 'tranche_id' in row and row.get('tranche_id') is not None:
+                    # FIXED: For static fields, we need to properly extract the field value
+                    # Use the original request to get the field_path
+                    original_request = result_info.get('original_request')
+                    
+                    # DEBUG: Enhanced logging for static field value extraction
+                    print(f"DEBUG: Processing static field - Alias: '{alias}'")
+                    print(f"  Available row keys: {list(row.keys())}")
+                    print(f"  Row data: {row}")
+                    
+                    # Try to get the field value using the alias first
+                    field_value = row.get(alias)
+                    print(f"  Initial field_value for alias '{alias}': {field_value}")
+                    
+                    # If not found by alias, try other methods
+                    if field_value is None and original_request and original_request.field_path:
+                        field_path = original_request.field_path
+                        print(f"  Trying field_path: {field_path}")
+                        
+                        # Try the field path directly (e.g., 'deal.cdi_file_nme')
+                        field_value = row.get(field_path)
+                        print(f"  Field value by field_path: {field_value}")
+                        
+                        if field_value is None:
+                            # Try just the field name (e.g., 'cdi_file_nme')
+                            field_name = field_path.split('.')[-1] if '.' in field_path else field_path
+                            field_value = row.get(field_name)
+                            print(f"  Field value by field_name '{field_name}': {field_value}")
+                            
+                        # Try looking for any key that contains the field name
+                        if field_value is None:
+                            field_name = field_path.split('.')[-1] if '.' in field_path else field_path
+                            for row_key in row.keys():
+                                if field_name.lower() in row_key.lower():
+                                    field_value = row.get(row_key)
+                                    print(f"  Found field value by partial match '{row_key}': {field_value}")
+                                    break
+                    
+                    print(f"  Final field_value: {field_value}")
+                    
+                    # FIXED: Determine level based on the field_path, not just presence of tranche_id in row
+                    field_path = original_request.field_path if original_request else ""
+                    is_deal_level_field = field_path.startswith("deal.") or field_path in ["deal.dl_nbr", "deal.issr_cde", "deal.cdi_file_nme", "deal.CDB_cdi_file_nme"]
+                    
+                    if is_deal_level_field:
+                        # This is a deal-level static field - store in deal_level_data
+                        key = (row.get('deal_number'), filters.cycle_code)
+                        if key not in deal_level_data:
+                            deal_level_data[key] = {'deal_number': row.get('deal_number'), 'cycle_code': filters.cycle_code}
+                        deal_level_data[key][alias] = field_value
+                        print(f"  Added deal-level static field to deal_level_data[{key}][{alias}] = {field_value}")
+                    elif 'tranche_id' in row and row.get('tranche_id') is not None:
+                        # This is a tranche-level static field or default field with tranche_id
                         key = (row.get('deal_number'), row.get('tranche_id'), filters.cycle_code)
                         if key not in tranche_level_data:
                             tranche_level_data[key] = {
@@ -307,12 +370,15 @@ GROUP BY {', '.join(group_columns)}"""
                                 'tranche_id': row.get('tranche_id'),
                                 'cycle_code': filters.cycle_code
                             }
-                        tranche_level_data[key][alias] = row.get(alias)
+                        tranche_level_data[key][alias] = field_value
+                        print(f"  Added tranche-level static field to tranche_level_data[{key}][{alias}] = {field_value}")
                     else:
+                        # Default static field without tranche info - treat as deal-level
                         key = (row.get('deal_number'), filters.cycle_code)
                         if key not in deal_level_data:
                             deal_level_data[key] = {'deal_number': row.get('deal_number'), 'cycle_code': filters.cycle_code}
-                        deal_level_data[key][alias] = row.get(alias)
+                        deal_level_data[key][alias] = field_value
+                        print(f"  Added default static field to deal_level_data[{key}][{alias}] = {field_value}")
 
         # Merge deal-level data into tranche-level data where appropriate
         final_data = []
@@ -449,7 +515,16 @@ GROUP BY {', '.join(group_columns)}"""
         try:
             result = self.dw_db.execute(text(sql))
             columns = result.keys()
-            return [dict(zip(columns, row)) for row in result.fetchall()]
+            data = [dict(zip(columns, row)) for row in result.fetchall()]
+            
+            # DEBUG: Log SQL execution for static fields - fixed the condition check
+            sql_lower = sql.lower()
+            if ('deal.' in sql_lower or 'cdi_file' in sql_lower or 'issr_cde' in sql_lower):
+                print(f"DEBUG SQL: {sql}")
+                print(f"DEBUG Result columns: {list(columns)}")
+                print(f"DEBUG Result data: {data}")
+            
+            return data
         except Exception as e:
             # Return empty result set on error, but log it
             print(f"SQL Execution Error: {e}")
