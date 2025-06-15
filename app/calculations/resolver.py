@@ -111,8 +111,12 @@ class SimpleCalculationResolver:
         if "TrancheBal" in required_models:
             base_columns.append("tranchebal.cycle_cde AS cycle_code")
 
-        # Add tranche info if needed
-        if self._requires_tranche_data(request.field_path):
+        # Add tranche info ONLY if the field itself requires tranche data AND we have specific tranche selections
+        # This prevents tranche_id from appearing in deal-level reports
+        field_requires_tranche = self._requires_tranche_data(request.field_path)
+        has_specific_tranches = any(tranche_ids for tranche_ids in filters.deal_tranche_map.values())
+        
+        if field_requires_tranche and has_specific_tranches:
             base_columns.append("tranche.tr_id AS tranche_id")
 
         # Add the requested field
@@ -150,7 +154,7 @@ class SimpleCalculationResolver:
         columns = ["deal_number"]
         if "TrancheBal" in required_models:
             columns.append("cycle_code")
-        if self._requires_tranche_data(request.field_path):
+        if field_requires_tranche and has_specific_tranches:
             columns.append("tranche_id")
         columns.append(request.alias)
 
@@ -256,20 +260,44 @@ GROUP BY {', '.join(group_columns)}"""
 
             for row in data:
                 if query_result.group_level == "deal":
-                    key = (row.get('deal_number'), filters.cycle_code)
+                    # Handle system calculations that may have different column names
+                    deal_number = row.get('deal_number') or row.get('dl_nbr')
+                    key = (deal_number, filters.cycle_code)
                     if key not in deal_level_data:
-                        deal_level_data[key] = {'deal_number': row.get('deal_number'), 'cycle_code': filters.cycle_code}
-                    deal_level_data[key][alias] = row.get(alias)
+                        deal_level_data[key] = {'deal_number': deal_number, 'cycle_code': filters.cycle_code}
+                    
+                    # Store the result using the alias name, but get the actual value from the result column
+                    result_value = row.get(alias)
+                    if result_value is None and query_result.calc_type == "system_calculation":
+                        # For system calculations, try to get the value using the result column name
+                        # Fallback: try common result column patterns
+                        for possible_col in row.keys():
+                            if possible_col not in ['dl_nbr', 'deal_number', 'tr_id', 'tranche_id', 'cycle_code', 'cycle_cde']:
+                                result_value = row.get(possible_col)
+                                break
+                    deal_level_data[key][alias] = result_value
 
                 elif query_result.group_level == "tranche":
-                    key = (row.get('deal_number'), row.get('tranche_id'), filters.cycle_code)
+                    # Handle system calculations that may have different column names
+                    deal_number = row.get('deal_number') or row.get('dl_nbr')
+                    tranche_id = row.get('tranche_id') or row.get('tr_id')
+                    key = (deal_number, tranche_id, filters.cycle_code)
                     if key not in tranche_level_data:
                         tranche_level_data[key] = {
-                            'deal_number': row.get('deal_number'),
-                            'tranche_id': row.get('tranche_id'),
+                            'deal_number': deal_number,
+                            'tranche_id': tranche_id,
                             'cycle_code': filters.cycle_code
                         }
-                    tranche_level_data[key][alias] = row.get(alias)
+                    
+                    # Store the result using the alias name
+                    result_value = row.get(alias)
+                    if result_value is None and query_result.calc_type == "system_calculation":
+                        # For system calculations, try to find the actual result column
+                        for possible_col in row.keys():
+                            if possible_col not in ['dl_nbr', 'deal_number', 'tr_id', 'tranche_id', 'cycle_code', 'cycle_cde']:
+                                result_value = row.get(possible_col)
+                                break
+                    tranche_level_data[key][alias] = result_value
 
                 else:  # Static fields - could be either level
                     # Determine level based on presence of tranche_id
@@ -356,29 +384,51 @@ GROUP BY {', '.join(group_columns)}"""
         return ' AND '.join(conditions)
 
     def _inject_filters_into_raw_sql(self, raw_sql: str, filters: QueryFilters) -> str:
-        """Inject standard filters into system calculation SQL"""
-        filter_parts = [f"tranchebal.cycle_cde = {filters.cycle_code}"]
-
-        # Build deal-tranche filter
+        """Inject standard filters into system calculation SQL - only for tables that exist"""
+        sql_upper = raw_sql.upper()
+        
+        # More precise table detection - check for table references in FROM/JOIN clauses
+        import re
+        
+        # Find all table references in FROM and JOIN clauses
+        from_join_pattern = r'(?:FROM|JOIN)\s+(\w+)'
+        table_matches = re.findall(from_join_pattern, sql_upper)
+        
+        # Convert to set for easier checking
+        available_tables = set(table_matches)
+        
+        # Build appropriate filters based on available tables
+        filter_parts = []
+        
+        # Only add cycle filter if tranchebal table exists
+        if 'TRANCHEBAL' in available_tables:
+            filter_parts.append(f"tranchebal.cycle_cde = {filters.cycle_code}")
+        
+        # Build deal-tranche conditions based on available tables
         deal_conditions = []
         for deal_id, tranche_ids in filters.deal_tranche_map.items():
-            if tranche_ids:
+            if 'TRANCHE' in available_tables and 'TRANCHEBAL' in available_tables and tranche_ids:
+                # We have both tranche and tranchebal tables with specific tranches
                 tranche_list = "', '".join(tranche_ids)
                 deal_conditions.append(f"(deal.dl_nbr = {deal_id} AND tranche.tr_id IN ('{tranche_list}'))")
-            else:
+            elif 'DEAL' in available_tables:
+                # We only have deal table or want all tranches for this deal
                 deal_conditions.append(f"deal.dl_nbr = {deal_id}")
 
         if deal_conditions:
             filter_parts.append(f"({' OR '.join(deal_conditions)})")
-
+        
+        # If no valid filters can be applied, return original SQL
+        if not filter_parts:
+            return raw_sql
+            
         full_filter = ' AND '.join(filter_parts)
 
         # Inject into SQL
-        if " WHERE " in raw_sql.upper():
+        if " WHERE " in sql_upper:
             modified_sql = raw_sql + f" AND {full_filter}"
         else:
             # Find good insertion point
-            sql_upper = raw_sql.upper()
             insert_keywords = [" GROUP BY ", " ORDER BY ", " HAVING ", " LIMIT "]
             insert_position = len(raw_sql)
 
