@@ -37,7 +37,6 @@ class ColumnPreference(BaseModel):
 class ReportColumnPreferences(BaseModel):
     """Complete column preferences for a report."""
     columns: List[ColumnPreference] = []
-    include_default_columns: bool = True  # Whether to include Deal Number, TR ID, Cycle Code
     
     model_config = ConfigDict(from_attributes=True)
 

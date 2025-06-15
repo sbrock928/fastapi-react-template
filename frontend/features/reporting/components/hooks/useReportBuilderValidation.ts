@@ -41,7 +41,7 @@ export const useReportBuilderValidation = ({ formState, currentStep }: UseReport
       case 4:
         // Validate column preferences
         if (formState.columnPreferences) {
-          const { columns, include_default_columns } = formState.columnPreferences;
+          const { columns } = formState.columnPreferences;
           
           // Check for duplicate display names
           const displayNames = columns.map((col: ColumnPreference) => col.display_name.toLowerCase().trim());
@@ -65,9 +65,9 @@ export const useReportBuilderValidation = ({ formState, currentStep }: UseReport
             });
           }
           
-          // Check that at least one column is visible
+          // Check that at least one column is visible (default columns are always included)
           const visibleColumns = columns.filter((col: ColumnPreference) => col.is_visible);
-          if (visibleColumns.length === 0 && !include_default_columns) {
+          if (visibleColumns.length === 0) {
             errors.push({
               field: 'columnPreferences',
               message: 'At least one column must be visible in the output'

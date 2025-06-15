@@ -506,14 +506,14 @@ class ReportService:
                     hidden_columns.add(col_pref.column_id.replace(".", "_"))
                 else:
                     hidden_columns.add(col_pref.column_id)
-            
-        if column_prefs.include_default_columns:
-            for col in default_columns:
-                # Only add default columns if they're not explicitly hidden and not already visible
-                if col not in visible_columns and col not in hidden_columns and col in raw_data[0]:
-                    visible_columns.add(col)
-                    if col not in column_mapping:
-                        column_mapping[col] = col.replace('_', ' ').title()
+        
+        # Default columns are always included (we removed the include_default_columns toggle)
+        for col in default_columns:
+            # Only add default columns if they're not explicitly hidden and not already visible
+            if col not in visible_columns and col not in hidden_columns and col in raw_data[0]:
+                visible_columns.add(col)
+                if col not in column_mapping:
+                    column_mapping[col] = col.replace('_', ' ').title()
 
         # Process each row
         formatted_data = []
@@ -627,11 +627,10 @@ class ReportService:
         # Convert to calculation requests with improved logic
         calculation_requests = []
         
-        # Add default columns if requested (NEW LOGIC)
+        # Add default columns if requested (always include since we removed the toggle)
         include_defaults = True
         column_prefs = getattr(report, '_parsed_column_preferences', None)
-        if column_prefs:
-            include_defaults = column_prefs.include_default_columns
+        # Default columns are now always included since we removed include_default_columns
         
         if include_defaults:
             # Add the automatic backend columns
@@ -826,8 +825,7 @@ class ReportService:
         # Add default columns if requested
         include_defaults = True
         column_prefs = getattr(report, '_parsed_column_preferences', None)
-        if column_prefs:
-            include_defaults = column_prefs.include_default_columns
+        # Default columns are now always included since we removed include_default_columns
         
         if include_defaults:
             default_fields = [

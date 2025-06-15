@@ -116,9 +116,9 @@ export const validationRules = {
         });
       }
       
-      // Check that at least one column is visible
+      // Check that at least one column is visible (default columns are always included)
       const visibleColumns = columns.filter(col => col.is_visible);
-      if (visibleColumns.length === 0 && !formState.columnPreferences.include_default_columns) {
+      if (visibleColumns.length === 0) {
         errors.push({
           field: 'columnPreferences',
           message: 'At least one column must be visible in the output'

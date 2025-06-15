@@ -48,7 +48,6 @@ export interface ColumnPreference {
 // NEW: Complete column preferences for a report
 export interface ReportColumnPreferences {
   columns: ColumnPreference[];
-  include_default_columns: boolean; // Whether to include Deal Number, TR ID, Cycle Code
 }
 
 // Updated calculation reference for reports
@@ -233,22 +232,40 @@ export function getDefaultColumnPreferences(
   includeDefaults: boolean = true
 ): ReportColumnPreferences {
   const columns: ColumnPreference[] = [];
+  const addedColumnIds = new Set<string>(); // Track added columns to prevent duplicates
   let order = 0;
+
+  // Define default column mappings
+  const defaultColumns = [
+    { id: 'deal_number', name: 'Deal Number', format: ColumnFormat.NUMBER },
+    ...(scope === 'TRANCHE' ? [{ id: 'tranche_id', name: 'Tranche ID', format: ColumnFormat.TEXT }] : []),
+    { id: 'cycle_code', name: 'Cycle Code', format: ColumnFormat.NUMBER }
+  ];
 
   // Add default columns if requested
   if (includeDefaults) {
-    columns.push(createColumnPreference('deal_number', 'Deal Number', order++, ColumnFormat.NUMBER));
-    
-    if (scope === 'TRANCHE') {
-      columns.push(createColumnPreference('tranche_id', 'Tranche ID', order++, ColumnFormat.TEXT));
-    }
-    
-    columns.push(createColumnPreference('cycle_code', 'Cycle Code', order++, ColumnFormat.NUMBER));
+    defaultColumns.forEach(defaultCol => {
+      columns.push(createColumnPreference(defaultCol.id, defaultCol.name, order++, defaultCol.format));
+      addedColumnIds.add(defaultCol.id);
+    });
   }
 
-  // Add calculation columns - UPDATED for string IDs
+  // Add calculation columns, but skip if they duplicate default columns
   calculations.forEach(calc => {
-    const columnId = calc.calculation_id; // Already a string
+    const columnId = calc.calculation_id;
+    
+    // Skip if this column would duplicate a default column
+    const isDuplicateDefault = (
+      (columnId === 'static_deal.dl_nbr' && addedColumnIds.has('deal_number')) ||
+      (columnId === 'static_tranche.tr_id' && addedColumnIds.has('tranche_id')) ||
+      (columnId === 'static_tranchebal.cycle_cde' && addedColumnIds.has('cycle_code'))
+    );
+    
+    // Skip if we've already added this exact column ID
+    if (addedColumnIds.has(columnId) || isDuplicateDefault) {
+      return;
+    }
+    
     const displayName = calc.display_name || `Calculation ${calc.calculation_id}`;
     
     // Try to guess format based on calculation type/name
@@ -268,11 +285,11 @@ export function getDefaultColumnPreferences(
     }
 
     columns.push(createColumnPreference(columnId, displayName, order++, formatType));
+    addedColumnIds.add(columnId);
   });
 
   return {
     columns,
-    include_default_columns: includeDefaults
   };
 }
 

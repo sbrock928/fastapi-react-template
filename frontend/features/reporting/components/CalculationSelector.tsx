@@ -89,6 +89,20 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
       );
     }
 
+    // Filter out static fields that duplicate default columns
+    calculations = calculations.filter(calc => {
+      if (isStaticFieldCalculation(calc)) {
+        // These static fields duplicate the default columns, so exclude them
+        const duplicateStaticFields = [
+          'static_deal.dl_nbr',      // Duplicates "Deal Number" default column
+          'static_tranche.tr_id',    // Duplicates "Tranche ID" default column  
+          'static_tranchebal.cycle_cde' // Duplicates "Cycle Code" default column
+        ];
+        return !duplicateStaticFields.includes(calc.id);
+      }
+      return true;
+    });
+
     // Separate compatible and incompatible
     const compatible = calculations.filter(calc => {
       const { isCompatible } = getCalculationCompatibilityInfo(calc, scope);
