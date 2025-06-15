@@ -32,6 +32,7 @@ class QueryFilters:
     """Standard filters applied to all calculations"""
     deal_tranche_map: Dict[int, List[str]]  # deal_id -> [tranche_ids] or [] for all
     cycle_code: int
+    report_scope: Optional[str] = None  # "DEAL" or "TRANCHE" - determines output grouping
 
 
 @dataclass
@@ -111,12 +112,9 @@ class SimpleCalculationResolver:
         if "TrancheBal" in required_models:
             base_columns.append("tranchebal.cycle_cde AS cycle_code")
 
-        # Add tranche info ONLY if the field itself requires tranche data AND we have specific tranche selections
-        # This prevents tranche_id from appearing in deal-level reports
-        field_requires_tranche = self._requires_tranche_data(request.field_path)
-        has_specific_tranches = any(tranche_ids for tranche_ids in filters.deal_tranche_map.values())
-        
-        if field_requires_tranche and has_specific_tranches:
+        # FIXED: Only include tranche_id if the REPORT SCOPE is TRANCHE, not just if field requires tranche data
+        # This prevents tranche_id from appearing in deal-level reports even when querying tranchebal fields
+        if filters.report_scope == "TRANCHE":
             base_columns.append("tranche.tr_id AS tranche_id")
 
         # Add the requested field
@@ -154,7 +152,7 @@ class SimpleCalculationResolver:
         columns = ["deal_number"]
         if "TrancheBal" in required_models:
             columns.append("cycle_code")
-        if field_requires_tranche and has_specific_tranches:
+        if filters.report_scope == "TRANCHE":
             columns.append("tranche_id")
         columns.append(request.alias)
 

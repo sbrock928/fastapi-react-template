@@ -146,6 +146,21 @@ class UserCalculationDAO:
         )
         return {source_model.value: count for source_model, count in results}
 
+    def get_all_by_source_field(self, source_field: str) -> List[UserCalculation]:
+        """Get all active user calculations by source_field (not just the first one)"""
+        return (
+            self.db.query(UserCalculation)
+            .filter(
+                UserCalculation.source_field == source_field,
+                UserCalculation.is_active == True
+            )
+            .order_by(
+                # Prefer tranche-level calculations first, then deal-level
+                UserCalculation.group_level.desc(),  # 'tranche' comes after 'deal' alphabetically
+                UserCalculation.created_at.desc()
+            )
+            .all()
+        )
 
 class SystemCalculationDAO:
     """DAO for system-defined calculations"""

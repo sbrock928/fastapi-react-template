@@ -37,10 +37,11 @@ class ReportExecutionService:
         self.resolver = SimpleCalculationResolver(dw_db, config_db)
 
     def execute_report(self, calculation_requests: List[CalculationRequest], 
-                      deal_tranche_map: Dict[int, List[str]], cycle_code: int) -> Dict[str, Any]:
+                      deal_tranche_map: Dict[int, List[str]], cycle_code: int, 
+                      report_scope: str = None) -> Dict[str, Any]:
         """Execute a report with mixed calculation types"""
 
-        filters = QueryFilters(deal_tranche_map, cycle_code)
+        filters = QueryFilters(deal_tranche_map, cycle_code, report_scope)
         result = self.resolver.resolve_report(calculation_requests, filters)
 
         return {
@@ -57,10 +58,11 @@ class ReportExecutionService:
         }
 
     def preview_report_sql(self, calculation_requests: List[CalculationRequest],
-                          deal_tranche_map: Dict[int, List[str]], cycle_code: int) -> Dict[str, Any]:
+                          deal_tranche_map: Dict[int, List[str]], cycle_code: int, 
+                          report_scope: str = None) -> Dict[str, Any]:
         """Preview SQL queries without executing them"""
 
-        filters = QueryFilters(deal_tranche_map, cycle_code)
+        filters = QueryFilters(deal_tranche_map, cycle_code, report_scope)
         
         # Generate SQL for each calculation
         sql_previews = {}
@@ -85,7 +87,8 @@ class ReportExecutionService:
             'sql_previews': sql_previews,
             'parameters': {
                 'deal_tranche_map': deal_tranche_map,
-                'cycle_code': cycle_code
+                'cycle_code': cycle_code,
+                'report_scope': report_scope
             },
             'summary': {
                 'total_calculations': len(calculation_requests),
@@ -132,6 +135,42 @@ class UserCalculationService:
     def get_user_calculation_by_source_field(self, source_field: str) -> Optional[UserCalculation]:
         """Get user calculation by source_field"""
         return self.user_calc_dao.get_by_source_field(source_field)
+
+    def get_user_calculation_by_source_field_and_scope(
+        self, 
+        source_field: str, 
+        report_scope: str
+    ) -> Optional[UserCalculation]:
+        """
+        Get user calculation by source_field with scope preference.
+        
+        For TRANCHE reports: Prefer tranche-level calculations, fall back to deal-level
+        For DEAL reports: Only return deal-level calculations
+        """
+        # Get all active calculations for this source field
+        calculations = self.user_calc_dao.get_all_by_source_field(source_field)
+        
+        if not calculations:
+            return None
+        
+        # Filter by scope preference
+        if report_scope == "TRANCHE":
+            # For tranche reports, prefer tranche-level calculations
+            tranche_calcs = [c for c in calculations if c.group_level.value == "tranche"]
+            if tranche_calcs:
+                return tranche_calcs[0]  # Return first tranche-level match
+            
+            # Fall back to deal-level if no tranche-level exists
+            deal_calcs = [c for c in calculations if c.group_level.value == "deal"]
+            return deal_calcs[0] if deal_calcs else None
+        
+        elif report_scope == "DEAL":
+            # For deal reports, only return deal-level calculations
+            deal_calcs = [c for c in calculations if c.group_level.value == "deal"]
+            return deal_calcs[0] if deal_calcs else None
+        
+        # Fallback to original behavior
+        return calculations[0] if calculations else None
 
     def create_user_calculation(self, request: UserCalculationCreate, created_by: str = "api_user") -> UserCalculation:
         """Create a new user calculation with automatic approval for development"""

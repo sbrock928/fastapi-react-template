@@ -233,14 +233,20 @@ class ReportService:
             return "Balance & Performance Data"
         return "Other"
 
-    def _get_calculation_display_name(self, calculation_id: str, calculation_type: str) -> str:
+    def _get_calculation_display_name(self, calculation_id: str, calculation_type: str, report_scope: str = None) -> str:
         """Get the display name for a calculation with new format."""
         
         # Handle new user calculation format
         if calculation_id.startswith("user."):
             source_field = calculation_id[5:]
             if self.user_calc_service:
-                user_calc = self.user_calc_service.get_user_calculation_by_source_field(source_field)
+                # Use scope-aware lookup if report_scope is available
+                if report_scope:
+                    user_calc = self.user_calc_service.get_user_calculation_by_source_field_and_scope(
+                        source_field, report_scope
+                    )
+                else:
+                    user_calc = self.user_calc_service.get_user_calculation_by_source_field(source_field)
                 if user_calc:
                     return user_calc.name
             return f"User Calc: {source_field}"
@@ -341,17 +347,46 @@ class ReportService:
             # Convert report to calculation requests
             deal_tranche_map, calculation_requests = self._prepare_execution(report)
 
+            # DEBUG: Log the calculation requests being sent
+            print("=== DEBUG: Calculation Requests ===")
+            for req in calculation_requests:
+                print(f"  - Type: {req.calc_type}, ID: {req.calc_id}, Alias: {req.alias}")
+
             # Execute via new system
             result = self.report_execution_service.execute_report(
                 calculation_requests,
                 deal_tranche_map,
-                cycle_code
+                cycle_code,
+                report.scope  # Pass the report scope to fix tranche_id appearing in deal reports
             )
+
+            # DEBUG: Log the raw data keys
+            print("=== DEBUG: Raw Data Keys ===")
+            if result['data']:
+                print(f"Raw data keys: {list(result['data'][0].keys())}")
+                print(f"First row sample: {result['data'][0]}")
+            else:
+                print("No raw data returned!")
+
+            # DEBUG: Log column preferences mapping
+            print("=== DEBUG: Column Preferences ===")
+            column_prefs = getattr(report, '_parsed_column_preferences', None)
+            if column_prefs:
+                for col_pref in column_prefs.columns:
+                    if col_pref.is_visible:
+                        print(f"  - Column ID: {col_pref.column_id}, Display Name: {col_pref.display_name}")
 
             print(f"Debug: Raw data before column preferences: {result['data'][:1] if result['data'] else 'No data'}")
 
             # Apply column preferences to the result
             formatted_data = self._apply_column_preferences(result['data'], report)
+
+            # DEBUG: Log formatted data keys
+            print("=== DEBUG: Formatted Data Keys ===")
+            if formatted_data:
+                print(f"Formatted data keys: {list(formatted_data[0].keys())}")
+            else:
+                print("No formatted data!")
 
             # Log execution
             await self._log_execution(
@@ -379,7 +414,7 @@ class ReportService:
         deal_tranche_map, calculation_requests = self._prepare_execution(report)
 
         result = self.report_execution_service.preview_report_sql(
-            calculation_requests, deal_tranche_map, cycle_code
+            calculation_requests, deal_tranche_map, cycle_code, report.scope
         )
 
         return {
@@ -426,11 +461,16 @@ class ReportService:
         
         # Create a mapping from calculation IDs to display names for user/system calculations
         calc_id_to_display_name = {}
+        calc_id_to_alias = {}  # NEW: Track the actual alias used in SQL
         for report_calc in report.selected_calculations:
             calc_id = report_calc.calculation_id
             calc_type = getattr(report_calc, 'calculation_type', None)
             display_name = self._get_calculation_display_name(calc_id, calc_type)
             calc_id_to_display_name[calc_id] = display_name
+            
+            # NEW: Track the actual alias that will be used in the SQL (the display_name from report_calc)
+            actual_alias = report_calc.display_name or display_name
+            calc_id_to_alias[calc_id] = actual_alias
         
         for col_pref in column_prefs.columns:
             if col_pref.is_visible:
@@ -440,9 +480,9 @@ class ReportService:
                 if column_id.startswith("static_") or column_id.replace(".", "_") in ["deal_number", "tranche_id", "cycle_code"]:
                     # Static fields - convert dots to underscores for raw data lookup
                     raw_data_key = column_id.replace(".", "_")
-                elif column_id in calc_id_to_display_name:
-                    # User/system calculations - use the display name as the key
-                    raw_data_key = calc_id_to_display_name[column_id]
+                elif column_id in calc_id_to_alias:
+                    # FIXED: User/system calculations - use the actual alias from the SQL
+                    raw_data_key = calc_id_to_alias[column_id]
                 else:
                     # Default case - use column_id as is
                     raw_data_key = column_id
@@ -625,16 +665,22 @@ class ReportService:
                 # User calculation: "user.{source_field}"
                 source_field = calc_id_str[5:]  # Remove "user." prefix
                 if self.user_calc_service:
-                    user_calc = self.user_calc_service.get_user_calculation_by_source_field(source_field)
+                    # FIXED: Use scope-aware lookup to get the right calculation
+                    user_calc = self.user_calc_service.get_user_calculation_by_source_field_and_scope(
+                        source_field, 
+                        report.scope  # Pass the report scope (DEAL or TRANCHE)
+                    )
                     if user_calc:
+                        # FIXED: Use report_calc.display_name as alias to match column preferences
+                        display_name = report_calc.display_name or user_calc.name
                         calc_request = CalculationRequest(
                             calc_type="user_calculation",
                             calc_id=user_calc.id,
-                            alias=user_calc.name
+                            alias=display_name  # Use the display name from the report
                         )
-                        print(f"Debug: Found user calculation - {user_calc.name} for source_field: {source_field}")
+                        print(f"Debug: Found user calculation - {user_calc.name} (level: {user_calc.group_level.value}) using alias: '{display_name}'")
                     else:
-                        print(f"Warning: No user calculation found with source_field: {source_field}")
+                        print(f"Warning: No compatible user calculation found with source_field: {source_field} for {report.scope} report")
             
             elif calc_id_str.startswith("system."):
                 # System calculation: "system.{result_column_name}"
@@ -642,12 +688,14 @@ class ReportService:
                 if self.system_calc_service:
                     system_calc = self.system_calc_service.get_system_calculation_by_result_column(result_column)
                     if system_calc:
+                        # FIXED: Use report_calc.display_name as alias
+                        display_name = report_calc.display_name or system_calc.name
                         calc_request = CalculationRequest(
                             calc_type="system_calculation",
                             calc_id=system_calc.id,
-                            alias=system_calc.name
+                            alias=display_name  # Use the display name from the report
                         )
-                        print(f"Debug: Found system calculation - {system_calc.name} for result_column: {result_column}")
+                        print(f"Debug: Found system calculation - {system_calc.name} using alias: '{display_name}'")
                     else:
                         print(f"Warning: No system calculation found with result_column: {result_column}")
             
@@ -665,13 +713,31 @@ class ReportService:
                     # The calc_id_str has "static_" prefix, remove it
                     field_path = calc_id_str.replace("static_", "")
                     alias = calc_id_str.replace(".", "_")
-                    
-                calc_request = CalculationRequest(
-                    calc_type="static_field",
-                    field_path=field_path,
-                    alias=alias
-                )
-                print(f"Debug: Added static field request - Field: {field_path}, Alias: {alias}")
+                
+                # FIXED: Use report_calc.display_name as alias for static fields too
+                static_fields = StaticFieldService.get_all_static_fields()
+                field_found = False
+                for field in static_fields:
+                    if field.field_path == field_path:
+                        display_name = report_calc.display_name or field.name
+                        calc_request = CalculationRequest(
+                            calc_type="static_field",
+                            field_path=field_path,
+                            alias=display_name  # Use the display name from the report
+                        )
+                        print(f"Debug: Found static field - {field.name} using alias: '{display_name}'")
+                        field_found = True
+                        break
+                
+                if not field_found:
+                    # Fallback for unknown static fields
+                    display_name = report_calc.display_name or alias
+                    calc_request = CalculationRequest(
+                        calc_type="static_field",
+                        field_path=field_path,
+                        alias=display_name
+                    )
+                    print(f"Debug: Added static field request - Field: {field_path}, Alias: {display_name}")
             
             # Handle legacy numeric calculation IDs
             else:
@@ -794,16 +860,22 @@ class ReportService:
                 # User calculation: "user.{source_field}"
                 source_field = calc_id_str[5:]  # Remove "user." prefix
                 if self.user_calc_service:
-                    user_calc = self.user_calc_service.get_user_calculation_by_source_field(source_field)
+                    # FIXED: Use scope-aware lookup to get the right calculation
+                    user_calc = self.user_calc_service.get_user_calculation_by_source_field_and_scope(
+                        source_field, 
+                        report.scope  # Pass the report scope (DEAL or TRANCHE)
+                    )
                     if user_calc:
+                        # FIXED: Use report_calc.display_name as alias to match column preferences
+                        display_name = report_calc.display_name or user_calc.name
                         calc_request = CalculationRequest(
                             calc_type="user_calculation",
                             calc_id=user_calc.id,
-                            alias=user_calc.name
+                            alias=display_name  # Use the display name from the report
                         )
-                        print(f"Debug: Found user calculation - {user_calc.name} for source_field: {source_field}")
+                        print(f"Debug: Found user calculation - {user_calc.name} (level: {user_calc.group_level.value}) using alias: '{display_name}'")
                     else:
-                        print(f"Warning: No user calculation found with source_field: {source_field}")
+                        print(f"Warning: No compatible user calculation found with source_field: {source_field} for {report.scope} report")
             
             elif calc_id_str.startswith("system."):
                 # System calculation: "system.{result_column_name}"
@@ -811,12 +883,14 @@ class ReportService:
                 if self.system_calc_service:
                     system_calc = self.system_calc_service.get_system_calculation_by_result_column(result_column)
                     if system_calc:
+                        # FIXED: Use report_calc.display_name as alias
+                        display_name = report_calc.display_name or system_calc.name
                         calc_request = CalculationRequest(
                             calc_type="system_calculation",
                             calc_id=system_calc.id,
-                            alias=system_calc.name
+                            alias=display_name  # Use the display name from the report
                         )
-                        print(f"Debug: Found system calculation - {system_calc.name} for result_column: {result_column}")
+                        print(f"Debug: Found system calculation - {system_calc.name} using alias: '{display_name}'")
                     else:
                         print(f"Warning: No system calculation found with result_column: {result_column}")
             
