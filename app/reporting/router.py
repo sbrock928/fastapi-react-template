@@ -307,6 +307,19 @@ def get_available_tranches(
     return {int(deal_id): tranches for deal_id, tranches in tranches_by_deal.items()}
 
 
+@router.get("/data/deals/{dl_nbr}/tranches", response_model=List[Dict[str, Any]])
+def get_deal_tranches(
+    dl_nbr: int, 
+    cycle_code: Optional[int] = None,
+    service: ReportService = Depends(get_report_service)
+) -> List[Dict[str, Any]]:
+    """Get available tranches for a specific deal."""
+    tranches_by_deal = service.get_available_tranches_for_deals(
+        [dl_nbr], cycle_code
+    )
+    return tranches_by_deal.get(dl_nbr, [])
+
+
 @router.get("/data/cycles", response_model=List[Dict[str, Any]])
 def get_available_cycles(
     service: ReportService = Depends(get_report_service),

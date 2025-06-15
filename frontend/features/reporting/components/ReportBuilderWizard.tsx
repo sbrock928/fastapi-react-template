@@ -15,7 +15,7 @@ import {
 } from './wizardSteps';
 import WizardNavigation from './WizardNavigation';
 import { transformFormDataForApi } from './utils/reportBusinessLogic';
-import type { ReportConfig } from '@/types/reporting';
+import type { ReportConfig, TrancheReportSummary } from '@/types/reporting';
 
 interface ReportBuilderWizardProps {
   onReportSaved: () => void;
@@ -34,6 +34,10 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
   // Component state
   const [loading, setLoading] = useState<boolean>(false);
   
+  // NEW: Add tranche loading state
+  const [tranches, setTranches] = useState<Record<number, TrancheReportSummary[]>>({});
+  const [tranchesLoading, setTranchesLoading] = useState<boolean>(false);
+  
   // Form state management
   const {
     reportName,
@@ -42,14 +46,14 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     selectedDeals,
     selectedTranches,
     selectedCalculations,
-    columnPreferences, // NEW: Add column preferences
+    columnPreferences,
     setReportName,
     setReportDescription,
     setReportScope,
     setSelectedDeals,
     setSelectedTranches,
     setSelectedCalculations,
-    setColumnPreferences, // NEW: Add setter
+    setColumnPreferences,
     resetForm
   } = useReportBuilderForm({ editingReport, isEditMode });
 
@@ -58,6 +62,34 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     availableCalculations,
     calculationsLoading
   } = useReportBuilderData({ reportScope });
+
+  // NEW: Function to load tranches for a deal
+  const loadTranchesForDeal = async (dlNbr: number) => {
+    try {
+      setTranchesLoading(true);
+      const response = await reportingApi.getDealTranches(dlNbr);
+      const dealTranches = response.data;
+      
+      // Update tranches state
+      setTranches(prev => ({
+        ...prev,
+        [dlNbr]: dealTranches
+      }));
+      
+      // Auto-select all tranches by default
+      const allTrancheIds = dealTranches.map(t => t.tr_id);
+      setSelectedTranches(prev => ({
+        ...prev,
+        [dlNbr]: allTrancheIds
+      }));
+      
+    } catch (error: any) {
+      console.error('Error loading tranches for deal:', dlNbr, error);
+      showToast(`Failed to load tranches for deal ${dlNbr}`, 'error');
+    } finally {
+      setTranchesLoading(false);
+    }
+  };
 
   // Validation and navigation
   const formState = {
@@ -72,7 +104,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
 
   const { canProceed, hasFieldError, getFieldErrorMessage, validateSpecificStep } = useReportBuilderValidation({ 
     formState, 
-    currentStep: 1 // Initialize with step 1
+    currentStep: 1
   });
 
   const { currentStep, displayStep, totalSteps, nextStep, prevStep, resetToFirstStep } = useWizardNavigation({
@@ -80,31 +112,55 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     onValidationError: (message: string) => showToast(message, 'error')
   });
 
-  // Handle deal addition (new method for combined component)
-  const handleDealAdd = (dlNbr: number) => {
-    setSelectedDeals((prev: number[]) => {
-      if (!prev.includes(dlNbr)) {
-        return [...prev, dlNbr];
-      }
-      return prev;
-    });
+  // Handle deal addition - now loads tranches automatically
+  const handleDealAdd = async (dlNbr: number) => {
+    // Check if deal is already selected
+    if (selectedDeals.includes(dlNbr)) {
+      return;
+    }
+
+    // Add the deal to selected deals
+    setSelectedDeals((prev: number[]) => [...prev, dlNbr]);
+    
+    // Load tranches for the new deal
+    await loadTranchesForDeal(dlNbr);
   };
 
-  // Handle deal removal (new method for combined component)  
+  // Handle deal removal
   const handleDealRemove = (dlNbr: number) => {
     setSelectedDeals((prev: number[]) => {
       const newSelected = prev.filter((id: number) => id !== dlNbr);
-      // Also remove tranches for this deal
+      
+      // Remove tranches for this deal
       setSelectedTranches((prevTranches: Record<number, string[]>) => {
         const newTranches = { ...prevTranches };
         delete newTranches[dlNbr];
         return newTranches;
       });
+      
+      // Remove tranche data for this deal
+      setTranches((prevTranches: Record<number, TrancheReportSummary[]>) => {
+        const newTranches = { ...prevTranches };
+        delete newTranches[dlNbr];
+        return newTranches;
+      });
+      
       return newSelected;
     });
   };
 
-  // Handle deselect all tranches for a deal (new method)
+  // Handle select all tranches for a deal
+  const handleSelectAllTranches = (dlNbr: number) => {
+    const dealTranches = tranches[dlNbr] || [];
+    const allTrancheIds = dealTranches.map(t => t.tr_id);
+    
+    setSelectedTranches((prev: Record<number, string[]>) => ({
+      ...prev,
+      [dlNbr]: allTrancheIds
+    }));
+  };
+
+  // Handle deselect all tranches for a deal
   const handleDeselectAllTranches = (dlNbr: number) => {
     setSelectedTranches((prev: Record<number, string[]>) => ({
       ...prev,
@@ -112,7 +168,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     }));
   };
 
-  // Handle tranche selection
+  // Handle tranche selection toggle
   const handleTrancheToggle = (dlNbr: number, trId: string) => {
     setSelectedTranches((prev: Record<number, string[]>) => {
       const dealTranches = prev[dlNbr] || [];
@@ -125,13 +181,6 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
         [dlNbr]: newDealTranches
       };
     });
-  };
-
-  // Handle select all tranches for a deal
-  const handleSelectAllTranches = () => {
-    // TODO: This would need to be implemented when tranche data is available
-    // For now, just keep the existing selections
-    console.warn('Select all tranches not implemented yet - need tranche data');
   };
 
   // Save or update report configuration
@@ -227,13 +276,13 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
             reportScope={reportScope}
             selectedDeals={selectedDeals}
             selectedTranches={selectedTranches}
-            tranches={{}} // TODO: Provide actual tranche data when available
+            tranches={tranches}
             onDealAdd={handleDealAdd}
             onDealRemove={handleDealRemove}
             onTrancheToggle={handleTrancheToggle}
             onSelectAllTranches={handleSelectAllTranches}
             onDeselectAllTranches={handleDeselectAllTranches}
-            loading={false} // TODO: Use actual loading state when deal/tranche loading is implemented
+            loading={tranchesLoading}
           />
         );
   
