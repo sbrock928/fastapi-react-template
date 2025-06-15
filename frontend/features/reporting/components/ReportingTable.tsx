@@ -40,6 +40,53 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
     setFilterText('');
   }, [reportData]);
   
+  // Generate smart placeholder text based on column information
+  const generatePlaceholderValue = (column: any, rowIndex: number): string => {
+    const formatType = useBackendFormatting && 'format_type' in column 
+      ? column.format_type 
+      : (column as any).type;
+    
+    const fieldName = column.field.toLowerCase();
+    
+    // Generate contextual placeholder data
+    if (formatType === 'number') {
+      if (fieldName.includes('deal')) {
+        return (1001 + rowIndex).toString();
+      } else if (fieldName.includes('cycle')) {
+        return (202400 + rowIndex).toString();
+      }
+      return (12345 + rowIndex * 100).toString();
+    } else if (formatType === 'currency') {
+      const baseAmount = 100000 + (rowIndex * 15000);
+      return `$${baseAmount.toLocaleString()}.00`;
+    } else if (formatType === 'percentage') {
+      const percentage = (15.5 + (rowIndex * 2.5)).toFixed(1);
+      return `${percentage}%`;
+    } else if (formatType === 'date' || formatType === 'date_mdy' || formatType === 'date_dmy') {
+      const date = new Date(2025, 0, 15 + rowIndex);
+      return formatType === 'date_dmy' 
+        ? date.toLocaleDateString('en-GB')
+        : date.toLocaleDateString('en-US');
+    } else {
+      // Text fields with smart defaults
+      if (fieldName.includes('deal')) {
+        return `DEAL-${1001 + rowIndex}`;
+      } else if (fieldName.includes('tranche')) {
+        return `TR-${String.fromCharCode(65 + (rowIndex % 26))}`;
+      } else if (fieldName.includes('issuer') || fieldName.includes('sponsor')) {
+        const issuers = ['Goldman Sachs', 'JP Morgan', 'Wells Fargo', 'Bank of America', 'Citibank'];
+        return issuers[rowIndex % issuers.length];
+      } else if (fieldName.includes('rating')) {
+        const ratings = ['AAA', 'AA+', 'AA', 'AA-', 'A+'];
+        return ratings[rowIndex % ratings.length];
+      } else if (fieldName.includes('type') || fieldName.includes('category')) {
+        const types = ['Fixed Rate', 'Floating Rate', 'Interest Only', 'Principal Only'];
+        return types[rowIndex % types.length];
+      }
+      return `${column.header} ${rowIndex + 1}`;
+    }
+  };
+  
   // Export to CSV
   const exportToCsv = () => {
     if (reportData.length === 0) {
@@ -394,21 +441,7 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
                     className += ' skeleton-shimmer';
                     
                     // For skeleton mode, replace actual values with reasonable placeholders
-                    const formatType = useBackendFormatting && 'format_type' in column 
-                      ? column.format_type 
-                      : (column as any).type;
-                      
-                    if (formatType === 'number') {
-                      cellValue = '10000';
-                    } else if (formatType === 'percentage') {
-                      cellValue = '100%';
-                    } else if (formatType === 'date' || formatType === 'date_mdy' || formatType === 'date_dmy') {
-                      cellValue = '2025-01-01';
-                    } else if (formatType === 'currency') {
-                      cellValue = '$10,000.00';
-                    } else {
-                      cellValue = 'Example data';
-                    }
+                    cellValue = generatePlaceholderValue(column, idx);
                   }
                   
                   return (

@@ -32,27 +32,59 @@ export const useReportBuilderForm = ({ editingReport, isEditMode }: UseReportBui
         const defaultPrefs = getDefaultColumnPreferences(calculations, scope as ReportScope, true);
         setColumnPreferences(defaultPrefs);
       } else {
-        // Update existing preferences to include new calculations - UPDATED for string IDs
-        const existingColumnIds = columnPreferences.columns.map(col => col.column_id);
-        const newCalculations = calculations.filter(calc => 
-          !existingColumnIds.includes(calc.calculation_id) // Now using string comparison directly
+        // Get current calculation IDs
+        const currentCalculationIds = new Set(calculations.map(calc => calc.calculation_id));
+        
+        // Filter existing columns to only keep:
+        // 1. Default columns (deal_number, tranche_id, cycle_code)
+        // 2. Columns for calculations that are still selected
+        const defaultColumnIds = ['deal_number', 'tranche_id', 'cycle_code'];
+        const validExistingColumns = columnPreferences.columns.filter(col => 
+          defaultColumnIds.includes(col.column_id) || currentCalculationIds.has(col.column_id)
         );
         
-        if (newCalculations.length > 0) {
-          const newColumns = newCalculations.map((calc, index) => ({
-            column_id: calc.calculation_id, // Already a string in new format
-            display_name: calc.display_name || `Calculation ${calc.calculation_id}`,
-            is_visible: true,
-            display_order: columnPreferences.columns.length + index,
-            format_type: ColumnFormat.TEXT
-          }));
-          
-          setColumnPreferences({
-            ...columnPreferences,
-            columns: [...columnPreferences.columns, ...newColumns]
-          });
-        }
+        // Find new calculations that need columns added
+        const existingColumnIds = new Set(validExistingColumns.map(col => col.column_id));
+        const newCalculations = calculations.filter(calc => 
+          !existingColumnIds.has(calc.calculation_id)
+        );
+        
+        // Add columns for new calculations
+        const newColumns = newCalculations.map((calc, index) => ({
+          column_id: calc.calculation_id,
+          display_name: calc.display_name || `Calculation ${calc.calculation_id}`,
+          is_visible: true,
+          display_order: validExistingColumns.length + index,
+          format_type: ColumnFormat.TEXT
+        }));
+        
+        // Update display orders to be sequential
+        const allColumns = [...validExistingColumns, ...newColumns];
+        allColumns.forEach((col, index) => {
+          col.display_order = index;
+        });
+        
+        setColumnPreferences({
+          ...columnPreferences,
+          columns: allColumns
+        });
       }
+    } else if (calculations.length === 0 && scope && columnPreferences) {
+      // If no calculations selected, only keep default columns
+      const defaultColumnIds = ['deal_number', 'tranche_id', 'cycle_code'];
+      const defaultColumns = columnPreferences.columns.filter(col => 
+        defaultColumnIds.includes(col.column_id)
+      );
+      
+      // Update display orders
+      defaultColumns.forEach((col, index) => {
+        col.display_order = index;
+      });
+      
+      setColumnPreferences({
+        ...columnPreferences,
+        columns: defaultColumns
+      });
     }
   }, [columnPreferences, setColumnPreferences]);
 

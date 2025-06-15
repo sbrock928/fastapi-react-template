@@ -96,6 +96,26 @@ const reportingApi = {
     return apiClient.post(`/reports/run/${reportId}`, { cycle_code: cycleCode });
   },
 
+  // Get report structure for skeleton mode
+  getReportStructure: (reportId: number): Promise<{ 
+    data: {
+      report_id: number;
+      name: string;
+      description?: string;
+      scope: string;
+      columns: Array<{
+        field: string;
+        header: string;
+        format_type: string;
+        display_order: number;
+      }>;
+      deal_count: number;
+      calculation_count: number;
+    }
+  }> => {
+    return apiClient.get(`/reports/${reportId}/structure`);
+  },
+
   // Preview SQL for a report
   previewReportSQL: (reportId: number, cycleCode: number): Promise<{ data: any }> => {
     return apiClient.get(`/reports/${reportId}/preview-sql`, { 

@@ -29,6 +29,13 @@ const ReportingContent = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [showResults, setShowResults] = useState<boolean>(false);
   const [isSkeletonMode, setIsSkeletonMode] = useState<boolean>(false);
+  // New state for skeleton data
+  const [skeletonColumns, setSkeletonColumns] = useState<Array<{
+    field: string;
+    header: string;
+    format_type: string;
+    display_order: number;
+  }> | null>(null);
 
   // ===== REPORT BUILDER STATE =====
   const [reportBuilderMode, setReportBuilderMode] = useState<boolean>(false);
@@ -64,10 +71,108 @@ const ReportingContent = () => {
     setSelectedSavedReport('');
   };
 
-  const handleSavedReportSelect = (reportId: string) => {
+  const handleSavedReportSelect = async (reportId: string) => {
     setSelectedSavedReport(reportId);
     setShowResults(false);
     setReportData([]);
+    setBackendColumns(null);
+    
+    // If a report is selected, show skeleton mode with report structure
+    if (reportId) {
+      await showReportStructure(reportId);
+    } else {
+      // Clear skeleton mode if no report selected
+      setIsSkeletonMode(false);
+      setSkeletonColumns(null);
+    }
+  };
+
+  // New function to fetch and display report structure
+  const showReportStructure = async (reportId: string) => {
+    try {
+      setIsSkeletonMode(true);
+      setShowResults(true);
+      
+      // Fetch report structure from the API
+      const response = await reportingApi.getReportStructure(parseInt(reportId));
+      const reportStructure = response.data;
+      
+      if (reportStructure.columns && reportStructure.columns.length > 0) {
+        // Use API response to build skeleton structure
+        const columns = reportStructure.columns.map(col => ({
+          field: col.field,
+          header: col.header,
+          format_type: col.format_type,
+          display_order: col.display_order
+        }));
+        
+        setSkeletonColumns(columns);
+        // Generate skeleton data (5 rows for preview)
+        const skeletonData = generateSkeletonData(columns, 5);
+        setReportData(skeletonData);
+      } else {
+        // Fallback: create basic structure if no columns from API
+        const basicColumns = [
+          { field: 'deal_number', header: 'Deal Number', format_type: 'number', display_order: 0 },
+          { field: 'cycle_code', header: 'Cycle Code', format_type: 'number', display_order: 1 },
+          { field: 'calculation_result', header: 'Calculation Result', format_type: 'currency', display_order: 2 }
+        ];
+        
+        setSkeletonColumns(basicColumns);
+        const skeletonData = generateSkeletonData(basicColumns, 5);
+        setReportData(skeletonData);
+      }
+    } catch (error) {
+      console.error('Error loading report structure:', error);
+      // Don't show error toast for skeleton mode, just disable it
+      setIsSkeletonMode(false);
+      setSkeletonColumns(null);
+      setShowResults(false);
+    }
+  };
+
+  // Helper function to generate skeleton data
+  const generateSkeletonData = (columns: Array<{field: string, header: string, format_type: string, display_order: number}>, rowCount: number): ReportRow[] => {
+    const skeletonRows: ReportRow[] = [];
+    
+    for (let i = 0; i < rowCount; i++) {
+      const row: ReportRow = {};
+      
+      columns.forEach(col => {
+        // Generate appropriate placeholder data based on format type
+        switch (col.format_type) {
+          case 'number':
+            row[col.field] = 12345 + i;
+            break;
+          case 'currency':
+            row[col.field] = `$${(100000 + i * 1000).toLocaleString()}.00`;
+            break;
+          case 'percentage':
+            row[col.field] = `${(25 + i * 5)}%`;
+            break;
+          case 'date_mdy':
+            row[col.field] = new Date(2025, 0, 15 + i).toLocaleDateString('en-US');
+            break;
+          case 'date_dmy':
+            row[col.field] = new Date(2025, 0, 15 + i).toLocaleDateString('en-GB');
+            break;
+          default: // text
+            if (col.field.includes('deal')) {
+              row[col.field] = `DEAL-${1001 + i}`;
+            } else if (col.field.includes('tranche')) {
+              row[col.field] = `TR-${String.fromCharCode(65 + i)}`;
+            } else if (col.field.includes('cycle')) {
+              row[col.field] = 202400 + i;
+            } else {
+              row[col.field] = `Sample ${col.header} ${i + 1}`;
+            }
+        }
+      });
+      
+      skeletonRows.push(row);
+    }
+    
+    return skeletonRows;
   };
 
   // ===== REPORT EXECUTION =====
@@ -92,8 +197,11 @@ const ReportingContent = () => {
       const { data, columns } = response.data;
       setReportData(data);
       setBackendColumns(columns);
+      setSkeletonColumns(null); // Clear skeleton columns when real data loads
       setIsSkeletonMode(false);
       setShowResults(true);
+      
+      showToast(`Report executed successfully! ${data.length} rows returned.`, 'success');
       
     } catch (error: any) {
       console.error('Error running saved report:', error);
@@ -105,25 +213,19 @@ const ReportingContent = () => {
         const detail = error.response.data.detail;
         
         if (detail.errors && Array.isArray(detail.errors)) {
-          // Handle the backend's errors array format
           const errorMessages = detail.errors.join(', ');
           errorMessage = `${errorMessage}: ${errorMessages}`;
         } else if (typeof detail === 'string') {
-          // Handle simple string error messages
           errorMessage = `${errorMessage}: ${detail}`;
         } else if (typeof detail === 'object' && detail.message) {
-          // Handle other object formats with a message property
           errorMessage = `${errorMessage}: ${detail.message}`;
         }
       } else if (error.response?.data?.message) {
-        // Handle other API error formats
         errorMessage = `${errorMessage}: ${error.response.data.message}`;
       } else if (error.message) {
-        // Handle network or other errors
         errorMessage = `${errorMessage}: ${error.message}`;
       }
       
-      // Use toast instead of alert for better UX
       showToast(errorMessage, 'error');
     } finally {
       setLoading(false);
@@ -132,6 +234,21 @@ const ReportingContent = () => {
 
   // ===== RENDER HELPERS =====
   const getCurrentReportConfig = (): DynamicReportConfig | null => {
+    // Use skeleton columns when in skeleton mode, otherwise use actual data structure
+    if (isSkeletonMode && skeletonColumns) {
+      const selectedReport = savedReports.find(r => r.id.toString() === selectedSavedReport);
+      
+      return {
+        apiEndpoint: `/reports/run/${selectedSavedReport}`,
+        title: selectedReport?.name || 'Report Preview',
+        columns: skeletonColumns.map(col => ({
+          field: col.field,
+          header: col.header,
+          type: col.format_type as 'string' | 'number' | 'currency' | 'percentage' | 'date'
+        }))
+      };
+    }
+    
     if (selectedSavedReport && reportData.length > 0) {
       const firstRow = reportData[0];
       const columns = Object.keys(firstRow).map(key => ({
@@ -188,8 +305,8 @@ const ReportingContent = () => {
           loading={loading}
           reportConfig={getCurrentReportConfig()!}
           isSkeletonMode={isSkeletonMode}
-          backendColumns={backendColumns || undefined}
-          useBackendFormatting={backendColumns !== null}
+          backendColumns={isSkeletonMode ? skeletonColumns || undefined : backendColumns || undefined}
+          useBackendFormatting={!isSkeletonMode && backendColumns !== null}
         />
       )}
 

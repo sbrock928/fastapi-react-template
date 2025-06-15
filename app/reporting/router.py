@@ -175,6 +175,56 @@ async def run_report_by_id(
 # ===== PREVIEW AND EXECUTION LOG ENDPOINTS =====
 
 
+@router.get("/{report_id}/structure")
+async def get_report_structure(
+    report_id: int, service: ReportService = Depends(get_report_service)
+) -> Dict[str, Any]:
+    """Get report structure information for skeleton mode display."""
+    report = await service.get_by_id(report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    
+    # Extract column structure from column preferences
+    columns = []
+    if report.column_preferences and report.column_preferences.columns:
+        visible_columns = [col for col in report.column_preferences.columns if col.is_visible]
+        visible_columns.sort(key=lambda x: x.display_order)
+        
+        for col_pref in visible_columns:
+            columns.append({
+                "field": col_pref.display_name.lower().replace(' ', '_'),
+                "header": col_pref.display_name,
+                "format_type": col_pref.format_type,
+                "display_order": col_pref.display_order
+            })
+    else:
+        # Fallback structure if no column preferences
+        default_columns = [
+            {"field": "deal_number", "header": "Deal Number", "format_type": "number", "display_order": 0},
+            {"field": "cycle_code", "header": "Cycle Code", "format_type": "number", "display_order": 1}
+        ]
+        
+        if report.scope == "TRANCHE":
+            default_columns.insert(1, {
+                "field": "tranche_id", "header": "Tranche ID", "format_type": "text", "display_order": 1
+            })
+            # Adjust other display orders
+            for i, col in enumerate(default_columns[2:], 2):
+                col["display_order"] = i
+        
+        columns = default_columns
+    
+    return {
+        "report_id": report_id,
+        "name": report.name,
+        "description": report.description,
+        "scope": report.scope,
+        "columns": columns,
+        "deal_count": len(report.selected_deals) if report.selected_deals else 0,
+        "calculation_count": len(report.selected_calculations) if report.selected_calculations else 0
+    }
+
+
 @router.get("/{report_id}/preview-sql")
 async def preview_report_sql(
     report_id: int, cycle_code: int = 202404, service: ReportService = Depends(get_report_service)
