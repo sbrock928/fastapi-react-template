@@ -1,5 +1,5 @@
 # app/calculations/service.py
-"""Simplified calculation service using the new separated model architecture"""
+"""Simplified calculation service using the unified resolver architecture"""
 
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
@@ -19,7 +19,7 @@ from .models import (
     get_static_field_info
 )
 from .dao import UserCalculationDAO, SystemCalculationDAO
-from .resolver import SimpleCalculationResolver, UnifiedCalculationResolver, CalculationRequest, QueryFilters
+from .resolver import UnifiedCalculationResolver, CalculationRequest, QueryFilters
 from .schemas import (
     UserCalculationCreate,
     UserCalculationUpdate,
@@ -27,119 +27,268 @@ from .schemas import (
     SystemCalculationUpdate,
     StaticFieldInfo
 )
+# Add this conditional import to avoid circular imports
+from typing import TYPE_CHECKING
 
+# Add this conditional import to avoid circular imports
+if TYPE_CHECKING:
+    from .cdi_service import CDIVariableCalculationService
 
 class ReportExecutionService:
-    """Service for executing reports with mixed calculation types"""
+    """Service for executing reports with mixed calculation types using unified resolver"""
 
-    def __init__(self, dw_db: Session, config_db: Session):
+    def __init__(self, dw_db: Session, config_db: Session, cdi_service: Optional['CDIVariableCalculationService'] = None):
         self.dw_db = dw_db
         self.config_db = config_db
-        # Use the unified resolver for cleaner, more readable SQL
+        # Use only the unified resolver for cleaner, more readable SQL
         self.resolver = UnifiedCalculationResolver(dw_db, config_db)
-        # Keep the old resolver available for compatibility
-        self.simple_resolver = SimpleCalculationResolver(dw_db, config_db)
+        self.cdi_service = cdi_service
+
+    def set_cdi_service(self, cdi_service: 'CDIVariableCalculationService'):
+        """Set the CDI service for integration (dependency injection)"""
+        self.cdi_service = cdi_service
 
     def execute_report(self, calculation_requests: List[CalculationRequest], 
                       deal_tranche_map: Dict[int, List[str]], cycle_code: int, 
-                      report_scope: str = None, use_unified: bool = True) -> Dict[str, Any]:
-        """Execute a report with mixed calculation types"""
-
-        filters = QueryFilters(deal_tranche_map, cycle_code, report_scope)
+                      report_scope: str = None) -> Dict[str, Any]:
+        """Execute a report with mixed calculation types including CDI variables"""
         
-        if use_unified:
-            # Use the new unified approach with single SQL query and CTEs
-            result = self.resolver.resolve_report(calculation_requests, filters)
+        # Separate calculation requests by type
+        regular_requests = []
+        cdi_requests = []
+        
+        for request in calculation_requests:
+            if request.calc_type == "system_calculation" and request.calc_id:
+                # Check if this system calculation is a CDI variable
+                system_calc = self.config_db.query(SystemCalculation).filter_by(
+                    id=request.calc_id, is_active=True
+                ).first()
+                
+                if (system_calc and 
+                    system_calc.metadata_config and 
+                    system_calc.metadata_config.get("calculation_type") == "cdi_variable"):
+                    cdi_requests.append(request)
+                else:
+                    regular_requests.append(request)
+            else:
+                regular_requests.append(request)
+        
+        results = {}
+        
+        # Execute regular calculations using unified approach
+        if regular_requests:
+            filters = QueryFilters(deal_tranche_map, cycle_code, report_scope)
+            regular_result = self.resolver.resolve_report(regular_requests, filters)
             
-            return {
-                'data': result['merged_data'],
+            results = {
+                'data': regular_result['merged_data'],
                 'metadata': {
-                    'total_rows': len(result['merged_data']),
-                    'calculations_executed': len(calculation_requests),
-                    'debug_info': result['debug_info'],
-                    'unified_sql': result.get('unified_sql'),
+                    'total_rows': len(regular_result['merged_data']),
+                    'calculations_executed': len(regular_requests),
+                    'debug_info': regular_result['debug_info'],
+                    'unified_sql': regular_result.get('unified_sql'),
                     'query_approach': 'unified'
                 }
             }
-        else:
-            # Use the old individual query approach
-            result = self.simple_resolver.resolve_report(calculation_requests, filters)
+        
+        # Execute CDI variable calculations
+        if cdi_requests and self.cdi_service:
+            cdi_results = self._execute_cdi_calculations(cdi_requests, deal_tranche_map, cycle_code)
             
-            return {
-                'data': result['merged_data'],
-                'metadata': {
-                    'total_rows': len(result['merged_data']),
-                    'calculations_executed': len(calculation_requests),
-                    'debug_info': result['debug_info'],
-                    'individual_sql_queries': {
-                        alias: query_result.sql 
-                        for alias, query_result in result['individual_queries'].items()
-                    },
-                    'query_approach': 'individual'
-                }
+            # Merge CDI results with regular results
+            if 'data' in results and 'data' in cdi_results:
+                results['data'] = self._merge_calculation_results(results['data'], cdi_results['data'])
+            elif 'data' in cdi_results:
+                results['data'] = cdi_results['data']
+            
+            # Update metadata
+            if 'metadata' not in results:
+                results['metadata'] = {}
+            
+            results['metadata']['cdi_calculations'] = len(cdi_requests)
+            results['metadata']['total_calculations'] = len(calculation_requests)
+            results['metadata']['cdi_records'] = cdi_results.get('total_cdi_records', 0)
+        
+        return results
+
+    def _execute_cdi_calculations(self, cdi_requests: List[CalculationRequest], 
+                                deal_tranche_map: Dict[int, List[str]], 
+                                cycle_code: int) -> Dict[str, Any]:
+        """Execute CDI variable calculations"""
+        
+        # Extract deal numbers from deal_tranche_map
+        deal_numbers = list(deal_tranche_map.keys())
+        
+        # Group CDI results by (dl_nbr, tr_id, cycle_cde) and then by alias
+        cdi_data_by_key = {}
+        
+        for request in cdi_requests:
+            try:
+                # Extract calc_id from the request
+                if hasattr(request, 'calc_id') and request.calc_id:
+                    calc_id = request.calc_id
+                elif hasattr(request, 'calculation_id'):
+                    # Handle string format like "system.123"
+                    calc_id_str = str(request.calculation_id)
+                    if calc_id_str.startswith('system.'):
+                        calc_id = int(calc_id_str.split('.')[-1])
+                    else:
+                        calc_id = int(calc_id_str)
+                else:
+                    print(f"Warning: Could not extract calc_id from CDI request: {request}")
+                    continue
+                
+                result_df = self.cdi_service.execute_cdi_variable_calculation(
+                    calc_id, cycle_code, deal_numbers
+                )
+                
+                # Convert DataFrame to list of dicts and organize by key
+                result_data = result_df.to_dict('records')
+                
+                # Use the request alias as the field name in the merged data
+                field_alias = getattr(request, 'alias', f'cdi_calc_{calc_id}')
+                
+                for record in result_data:
+                    key = (record.get('dl_nbr'), record.get('tr_id'), record.get('cycle_cde'))
+                    if key not in cdi_data_by_key:
+                        cdi_data_by_key[key] = {}
+                    
+                    # Map the CDI value to the alias name used in the report
+                    # The CDI service returns the value under different field names depending on calculation type
+                    cdi_value = None
+                    for field_name, field_value in record.items():
+                        if field_name not in ['dl_nbr', 'tr_id', 'cycle_cde', 'variable_name', 'tranche_type']:
+                            cdi_value = field_value
+                            break
+                    
+                    if cdi_value is not None:
+                        cdi_data_by_key[key][field_alias] = cdi_value
+                
+                print(f"CDI calculation {calc_id} ({field_alias}) processed: {len(result_data)} records")
+                
+            except Exception as e:
+                # Log error but continue with other calculations
+                print(f"Error executing CDI calculation {getattr(request, 'calc_id', 'unknown')}: {str(e)}")
+                continue
+        
+        # Convert to the expected format for merging
+        cdi_results = []
+        for key, fields in cdi_data_by_key.items():
+            dl_nbr, tr_id, cycle_cde = key
+            record = {
+                'dl_nbr': dl_nbr,
+                'tr_id': tr_id,
+                'cycle_cde': cycle_cde,
+                **fields  # Add all CDI field values
             }
+            cdi_results.append(record)
+        
+        return {
+            'data': cdi_results,
+            'cdi_calculation_count': len(cdi_requests),
+            'total_cdi_records': len(cdi_results)
+        }
+    
+    def _merge_calculation_results(self, regular_data: List[Dict], cdi_data: List[Dict]) -> List[Dict]:
+        """Merge regular calculation results with CDI variable results"""
+        
+        # Debug: Print what we're trying to merge
+        print("=== CDI MERGE DEBUG ===")
+        print(f"Regular data sample: {regular_data[0] if regular_data else 'None'}")
+        print(f"CDI data sample: {cdi_data[0] if cdi_data else 'None'}")
+        
+        # Create a lookup for CDI data by (dl_nbr, tr_id, cycle_cde)
+        cdi_lookup = {}
+        for record in cdi_data:
+            key = (record.get('dl_nbr'), record.get('tr_id'), record.get('cycle_cde'))
+            if key not in cdi_lookup:
+                cdi_lookup[key] = {}
+            
+            # FIXED: Use the calculation alias as the key, not the CDI field names
+            for field_name, field_value in record.items():
+                if field_name not in ['dl_nbr', 'tr_id', 'cycle_cde', 'variable_name', 'tranche_type']:
+                    # Map CDI fields to their proper display names
+                    # The CDI service returns fields like 'investment_income', but we need the alias
+                    cdi_lookup[key][field_name] = field_value
+        
+        print(f"CDI lookup keys: {list(cdi_lookup.keys())}")
+        print(f"CDI lookup sample content: {list(cdi_lookup.values())[0] if cdi_lookup else 'None'}")
+        
+        # Merge CDI data into regular data
+        merged_count = 0
+        for record in regular_data:
+            key = (record.get('dl_nbr'), record.get('tr_id'), record.get('cycle_cde'))
+            if key in cdi_lookup:
+                # Merge CDI fields into the regular record
+                cdi_fields = cdi_lookup[key]
+                for field_name, field_value in cdi_fields.items():
+                    record[field_name] = field_value
+                    merged_count += 1
+        
+        print(f"Successfully merged {merged_count} CDI field values")
+        print(f"Final merged record sample: {regular_data[0] if regular_data else 'None'}")
+        
+        return regular_data
 
     def preview_report_sql(self, calculation_requests: List[CalculationRequest],
                           deal_tranche_map: Dict[int, List[str]], cycle_code: int, 
-                          report_scope: str = None, use_unified: bool = True) -> Dict[str, Any]:
-        """Preview SQL queries without executing them"""
+                          report_scope: str = None) -> Dict[str, Any]:
+        """Preview SQL queries without executing them using unified approach"""
+
+        # Separate regular and CDI calculations using same logic as execute_report
+        regular_requests = []
+        cdi_requests = []
+        
+        for request in calculation_requests:
+            if request.calc_type == "system_calculation" and request.calc_id:
+                # Check if this system calculation is a CDI variable
+                system_calc = self.config_db.query(SystemCalculation).filter_by(
+                    id=request.calc_id, is_active=True
+                ).first()
+                
+                if (system_calc and 
+                    system_calc.metadata_config and 
+                    system_calc.metadata_config.get("calculation_type") == "cdi_variable"):
+                    cdi_requests.append(request)
+                else:
+                    regular_requests.append(request)
+            else:
+                regular_requests.append(request)
 
         filters = QueryFilters(deal_tranche_map, cycle_code, report_scope)
         
-        if use_unified:
-            # Generate the unified SQL
-            unified_sql = self.resolver._build_unified_query(calculation_requests, filters)
-            
-            return {
-                'unified_sql': unified_sql,
-                'parameters': {
-                    'deal_tranche_map': deal_tranche_map,
-                    'cycle_code': cycle_code,
-                    'report_scope': report_scope
-                },
-                'summary': {
-                    'total_calculations': len(calculation_requests),
-                    'static_fields': len([r for r in calculation_requests if r.calc_type == 'static_field']),
-                    'user_calculations': len([r for r in calculation_requests if r.calc_type == 'user_calculation']),
-                    'system_calculations': len([r for r in calculation_requests if r.calc_type == 'system_calculation']),
-                    'query_approach': 'unified'
-                }
+        # Generate the unified SQL for regular calculations
+        unified_sql = self.resolver._build_unified_query(regular_requests, filters) if regular_requests else None
+        
+        result = {
+            'unified_sql': unified_sql,
+            'parameters': {
+                'deal_tranche_map': deal_tranche_map,
+                'cycle_code': cycle_code,
+                'report_scope': report_scope
+            },
+            'summary': {
+                'total_calculations': len(calculation_requests),
+                'static_fields': len([r for r in regular_requests if r.calc_type == 'static_field']),
+                'user_calculations': len([r for r in regular_requests if r.calc_type == 'user_calculation']),
+                'system_calculations': len([r for r in regular_requests if r.calc_type == 'system_calculation']),
+                'cdi_calculations': len(cdi_requests),
+                'query_approach': 'unified'
             }
-        else:
-            # Use the old individual query preview
-            sql_previews = {}
-            for request in calculation_requests:
-                try:
-                    query_result = self.simple_resolver.resolve_single_calculation(request, filters)
-                    sql_previews[request.alias] = {
-                        'sql': query_result.sql,
-                        'columns': query_result.columns,
-                        'calculation_type': query_result.calc_type,
-                        'group_level': query_result.group_level
-                    }
-                except Exception as e:
-                    sql_previews[request.alias] = {
-                        'sql': f"-- ERROR: {str(e)}",
-                        'columns': [],
-                        'calculation_type': 'error',
-                        'error': str(e)
-                    }
-
-            return {
-                'sql_previews': sql_previews,
-                'parameters': {
-                    'deal_tranche_map': deal_tranche_map,
-                    'cycle_code': cycle_code,
-                    'report_scope': report_scope
-                },
-                'summary': {
-                    'total_calculations': len(calculation_requests),
-                    'static_fields': len([r for r in calculation_requests if r.calc_type == 'static_field']),
-                    'user_calculations': len([r for r in calculation_requests if r.calc_type == 'user_calculation']),
-                    'system_calculations': len([r for r in calculation_requests if r.calc_type == 'system_calculation']),
-                    'query_approach': 'individual'
+        }
+        
+        # Add CDI calculation info if present
+        if cdi_requests:
+            result['cdi_calculations'] = [
+                {
+                    'calc_id': getattr(req, 'calc_id', 'unknown'),
+                    'alias': getattr(req, 'alias', 'unknown'),
+                    'note': 'CDI calculations are executed separately via CDI service'
                 }
-            }
+                for req in cdi_requests
+            ]
+        
+        return result
     
 class UserCalculationService:
     """Service for managing user-defined calculations"""
@@ -385,7 +534,8 @@ class SystemCalculationService:
 
     def __init__(self, system_calc_dao: SystemCalculationDAO):
         self.system_calc_dao = system_calc_dao
-
+        self._cdi_service: Optional['CDIVariableCalculationService'] = None
+        
     def get_all_system_calculations(self, group_level: Optional[str] = None) -> List[SystemCalculation]:
         """Get all active system calculations with usage information"""
         group_level_enum = GroupLevel(group_level) if group_level else None
@@ -569,6 +719,88 @@ class SystemCalculationService:
             result["scope_specific_usage"] = True
         
         return result
+
+    def set_cdi_service(self, cdi_service: 'CDIVariableCalculationService'):
+        """Set the CDI service for integration (dependency injection)"""
+        self._cdi_service = cdi_service
+    
+    def is_cdi_variable_calculation(self, calc_id: int) -> bool:
+        """Check if a calculation is a CDI variable calculation"""
+        if not self._cdi_service:
+            return False
+        
+        calculation = self.get_system_calculation_by_id(calc_id)
+        if not calculation:
+            return False
+            
+        return (
+            calculation.metadata_config and 
+            calculation.metadata_config.get("calculation_type") == "cdi_variable"
+        )
+    
+    def get_calculation_type(self, calc_id: int) -> str:
+        """Get the type of calculation (regular, cdi_variable, etc.)"""
+        calculation = self.get_system_calculation_by_id(calc_id)
+        if not calculation:
+            return "unknown"
+        
+        if calculation.metadata_config:
+            return calculation.metadata_config.get("calculation_type", "regular")
+        
+        return "regular"
+    
+    def execute_calculation_by_type(self, calc_id: int, **execution_params) -> Any:
+        """Execute a calculation based on its type"""
+        calc_type = self.get_calculation_type(calc_id)
+        
+        if calc_type == "cdi_variable" and self._cdi_service:
+            # Extract parameters for CDI execution
+            cycle_code = execution_params.get("cycle_code")
+            deal_numbers = execution_params.get("deal_numbers", [])
+            
+            if not cycle_code or not deal_numbers:
+                raise InvalidCalculationError(
+                    "CDI variable calculations require 'cycle_code' and 'deal_numbers' parameters"
+                )
+            
+            return self._cdi_service.execute_cdi_variable_calculation(
+                calc_id, cycle_code, deal_numbers
+            )
+        
+        elif calc_type == "regular":
+            # Execute regular system calculation (your existing logic)
+            return self._execute_regular_calculation(calc_id, **execution_params)
+        
+        else:
+            raise InvalidCalculationError(f"Unknown calculation type: {calc_type}")
+    
+    def _execute_regular_calculation(self, calc_id: int, **execution_params) -> Any:
+        """Execute a regular system calculation (implement your existing logic here)"""
+        # This is where you'd put your existing system calculation execution logic
+        # For now, just return a placeholder
+        calculation = self.get_system_calculation_by_id(calc_id)
+        if not calculation:
+            raise CalculationNotFoundError(f"Calculation {calc_id} not found")
+        
+        # TODO: Implement your regular calculation execution logic
+        raise NotImplementedError("Regular calculation execution not implemented yet")
+    
+    def get_calculations_by_type(self, calc_type: str, group_level: Optional[str] = None) -> List[SystemCalculation]:
+        """Get calculations filtered by type"""
+        all_calcs = self.get_all_system_calculations(group_level)
+        
+        if calc_type == "cdi_variable":
+            return [
+                calc for calc in all_calcs 
+                if calc.metadata_config and calc.metadata_config.get("calculation_type") == "cdi_variable"
+            ]
+        elif calc_type == "regular":
+            return [
+                calc for calc in all_calcs 
+                if not calc.metadata_config or calc.metadata_config.get("calculation_type") != "cdi_variable"
+            ]
+        else:
+            return all_calcs
 
     def _validate_system_sql(self, sql: str, group_level: GroupLevel, result_column_name: str):
         """Enhanced validation for system SQL with CTE support"""

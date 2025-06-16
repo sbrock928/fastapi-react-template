@@ -86,7 +86,7 @@ def drop_all_tables():
     # Import models to ensure they're registered with Base classes
     from app.reporting.models import Report  # noqa: F401
     from app.calculations.models import UserCalculation, SystemCalculation  # noqa: F401
-    from app.datawarehouse.models import Deal, Tranche, TrancheBal  # noqa: F401
+    from app.datawarehouse.models import Deal, Tranche, TrancheBal, DealCdiVarRpt  # noqa: F401 - ADDED DealCdiVarRpt
 
     print("Dropping config database tables...")
     Base.metadata.drop_all(bind=engine)
@@ -101,7 +101,7 @@ def drop_all_tables():
 
 
 def create_standard_calculations():
-    """Create standard calculation system with separated User and System calculations."""
+    """Create standard calculation system with separated User and System calculations - FIXED VERSION."""
     # Import only when needed to avoid circular imports
     from app.calculations.models import (
         UserCalculation,
@@ -111,6 +111,7 @@ def create_standard_calculations():
         GroupLevel,
     )
     from app.calculations.service import UserCalculationService, SystemCalculationService
+    from app.calculations.dao import UserCalculationDAO, SystemCalculationDAO  # CRITICAL: Import DAOs
     from app.calculations.schemas import UserCalculationCreate, SystemCalculationCreate
 
     # Create config database session
@@ -126,93 +127,89 @@ def create_standard_calculations():
 
         print("Creating separated calculation system...")
 
-        # Initialize calculation services
-        user_calc_service = UserCalculationService(config_db)
-        system_calc_service = SystemCalculationService(config_db)
+        # FIXED: Initialize calculation services with proper DAOs
+        user_calc_dao = UserCalculationDAO(config_db)  # Create DAO with session
+        system_calc_dao = SystemCalculationDAO(config_db)  # Create DAO with session
+        
+        user_calc_service = UserCalculationService(user_calc_dao)  # Pass DAO to service
+        system_calc_service = SystemCalculationService(system_calc_dao)  # Pass DAO to service
 
-        # ===== 1. CREATE USER DEFINED CALCULATIONS =====
+        # ===== 1. USER-DEFINED CALCULATIONS =====
         print("Creating user-defined calculations...")
-
-        user_defined_calcs = [
+        
+        user_calculations = [
             {
                 "name": "Total Ending Balance",
-                "description": "Sum of all tranche ending balance amounts",
+                "description": "Sum of all tranche ending balances",
                 "aggregation_function": AggregationFunction.SUM,
                 "source_model": SourceModel.TRANCHE_BAL,
-                "source_field": "tr_end_bal_amt",
+                "source_field": "tr_end_bal_amt",  # Use actual field name from your model
                 "group_level": GroupLevel.DEAL,
             },
             {
                 "name": "Average Pass Through Rate",
-                "description": "Weighted average pass through rate across tranches",
+                "description": "Weighted average pass through rate",
                 "aggregation_function": AggregationFunction.WEIGHTED_AVG,
                 "source_model": SourceModel.TRANCHE_BAL,
-                "source_field": "tr_pass_thru_rte",
-                "weight_field": "tr_end_bal_amt",
+                "source_field": "tr_pass_thru_rte",  # Use actual field name from your model
+                "weight_field": "tr_end_bal_amt",  # Use actual field name from your model
                 "group_level": GroupLevel.DEAL,
             },
         ]
 
-        user_defined_count = 0
-        for calc_data in user_defined_calcs:
+        user_created_count = 0
+        for calc_config in user_calculations:
             try:
-                request = UserCalculationCreate(**calc_data)
-                user_calc_service.create_user_calculation(request, "system_initializer")
-                user_defined_count += 1
+                request = UserCalculationCreate(**calc_config)
+                created_calc = user_calc_service.create_user_calculation(request)
+                print(f"✅ Created user calculation: {created_calc.name}")
+                user_created_count += 1
             except Exception as e:
-                print(f"⚠️  Error creating user-defined calculation {calc_data['name']}: {e}")
+                print(f"⚠️  Error creating user-defined calculation {calc_config['name']}: {str(e)}")
 
-        print(f"✅ Created {user_defined_count} user-defined calculations")
+        print(f"✅ Created {user_created_count} user-defined calculations")
 
-        # ===== 2. CREATE SYSTEM SQL CALCULATIONS =====
+        # ===== 2. SYSTEM SQL CALCULATIONS =====
         print("Creating system SQL calculations...")
-
-        system_sql_calcs = [
+        
+        system_calculations = [
             {
                 "name": "Issuer Type Classification",
-                "description": "Categorizes deals by issuer type (GSE, Government, Private)",
-                "group_level": GroupLevel.DEAL,
+                "description": "Classify deals by issuer type",
                 "raw_sql": """
                 SELECT 
-                    deal.dl_nbr,
+                    d.dl_nbr,
                     CASE 
-                        WHEN deal.issr_cde LIKE '%FHLMC%' THEN 'GSE'
-                        WHEN deal.issr_cde LIKE '%FNMA%' THEN 'GSE'
-                        WHEN deal.issr_cde LIKE '%GNMA%' THEN 'Government'
-                        ELSE 'Private'
-                    END AS issuer_type
-                FROM deal
+                        WHEN d.issr_cde LIKE 'BANK%' THEN 'Bank'
+                        WHEN d.issr_cde LIKE 'CREDIT%' THEN 'Credit Union'
+                        ELSE 'Other'
+                    END as issuer_type
+                FROM deal d
                 """,
                 "result_column_name": "issuer_type",
+                "group_level": GroupLevel.DEAL,
             },
         ]
 
-        system_sql_count = 0
-        for calc_data in system_sql_calcs:
+        system_created_count = 0
+        for calc_config in system_calculations:
             try:
-                request = SystemCalculationCreate(**calc_data)
-                created_calc = system_calc_service.create_system_calculation(request, "system_initializer")
-                # Auto-approve system calculations created during initialization
-                system_calc_service.approve_system_calculation(created_calc.id, "system_initializer")
-                system_sql_count += 1
+                request = SystemCalculationCreate(**calc_config)
+                created_calc = system_calc_service.create_system_calculation(request, "system")
+                print(f"✅ Created system calculation: {created_calc.name}")
+                system_created_count += 1
             except Exception as e:
-                print(f"⚠️  Error creating system SQL calculation {calc_data['name']}: {e}")
+                print(f"⚠️  Error creating system SQL calculation {calc_config['name']}: {str(e)}")
 
-        print(f"✅ Created {system_sql_count} system SQL calculations")
+        print(f"✅ Created {system_created_count} system SQL calculations")
 
-        # Print final counts
-        config_db.commit()
-        final_user_count = config_db.query(UserCalculation).filter(UserCalculation.is_active == True).count()
-        final_system_count = config_db.query(SystemCalculation).filter(SystemCalculation.is_active == True).count()
-        print(f"\n📋 Final counts:")
-        print(f"   User calculations: {final_user_count}")
-        print(f"   System calculations: {final_system_count}")
+        print("\n📋 Final counts:")
+        print(f"   User calculations: {user_created_count}")
+        print(f"   System calculations: {system_created_count}")
 
     except Exception as e:
         config_db.rollback()
-        print(f"❌ Error creating calculation system: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Error in create_standard_calculations: {str(e)}")
         raise
     finally:
         config_db.close()
@@ -222,69 +219,138 @@ def create_standard_calculations():
 
 
 def create_sample_data():
-    """Create simple sample data for development and testing."""
-    from app.datawarehouse.models import Deal, Tranche, TrancheBal
-    import random
-
-    # Create data warehouse session
-    dw_db = DWSessionLocal()
-
+    """Create sample data in the data warehouse - FIXED VERSION."""
+    
+    # Import models - INCLUDING the new CDI model
+    from app.datawarehouse.models import Deal, Tranche, TrancheBal, DealCdiVarRpt
+    
+    dw_db = next(get_dw_db())
+    
     try:
-        # Check if sample data already exists
+        # Check if data already exists
         existing_deals = dw_db.query(Deal).count()
         if existing_deals > 0:
-            print(f"Sample data already exists ({existing_deals} deals found). Skipping creation.")
+            print("Sample data already exists. Skipping creation.")
             return
 
-        print("Creating simple sample data...")
-
-        # Create 5 simple deals
-        deals_data = [
-            {"dl_nbr": 1001, "issr_cde": "FHLMC24", "cdi_file_nme": "FH1001_CDI"},
-            {"dl_nbr": 1002, "issr_cde": "FNMA24", "cdi_file_nme": "FN1002_CDI"},
-            {"dl_nbr": 1003, "issr_cde": "GNMA24", "cdi_file_nme": "GN1003_CDI"},
-            {"dl_nbr": 1004, "issr_cde": "FHLMC24", "cdi_file_nme": "FH1004_CDI"},
-            {"dl_nbr": 1005, "issr_cde": "FNMA24", "cdi_file_nme": "FN1005_CDI"},
-        ]
+        print("Creating sample data...")
 
         # Create deals
-        for deal_data in deals_data:
-            deal = Deal(**deal_data)
-            dw_db.add(deal)
+        deals = [
+            Deal(dl_nbr=100, issr_cde="BANK01", cdi_file_nme="DEAL100", CDB_cdi_file_nme="CDB100"),
+            Deal(dl_nbr=200, issr_cde="CREDIT01", cdi_file_nme="DEAL200", CDB_cdi_file_nme="CDB200"),
+            Deal(dl_nbr=300, issr_cde="OTHER01", cdi_file_nme="DEAL300", CDB_cdi_file_nme="CDB300"),
+        ]
+        
+        dw_db.add_all(deals)
+        dw_db.flush()  # Flush to get the IDs
 
-        # Create simple tranches (A, B, C for each deal)
-        for deal_data in deals_data:
-            for tr_id in ["A", "B", "C"]:
-                tranche = Tranche(
-                    dl_nbr=deal_data["dl_nbr"],
-                    tr_id=tr_id,
-                    tr_cusip_id=f"{deal_data['issr_cde'][:4]}{tr_id}{str(deal_data['dl_nbr'])[-3:]}"
-                )
-                dw_db.add(tranche)
+        # Create tranches
+        tranches = [
+            # Deal 100
+            Tranche(dl_nbr=100, tr_id="A", tr_cusip_id="100000AAA0"),
+            Tranche(dl_nbr=100, tr_id="B", tr_cusip_id="100000BBB0"),
+            
+            # Deal 200
+            Tranche(dl_nbr=200, tr_id="A", tr_cusip_id="200000AAA0"),
+            Tranche(dl_nbr=200, tr_id="B", tr_cusip_id="200000BBB0"),
+            
+            # Deal 300
+            Tranche(dl_nbr=300, tr_id="A", tr_cusip_id="300000AAA0"),
+        ]
+        
+        dw_db.add_all(tranches)
+        dw_db.flush()
 
-                # Create balance data for cycle 202404
-                balance = TrancheBal(
-                    dl_nbr=deal_data["dl_nbr"],
-                    tr_id=tr_id,
-                    cycle_cde=202404,
-                    tr_end_bal_amt=random.uniform(1000000, 50000000),
-                    tr_prin_rel_ls_amt=random.uniform(10000, 500000),  # Added this
-                    tr_pass_thru_rte=random.uniform(0.02, 0.08),
-                    tr_accrl_days=random.randint(28, 31),  # Added this
-                    tr_int_dstrb_amt=random.uniform(5000, 100000),
-                    tr_prin_dstrb_amt=random.uniform(50000, 1000000),
-                    tr_int_accrl_amt=random.uniform(1000, 50000),  # Added this
-                    tr_int_shtfl_amt=random.uniform(0, 10000),  # Added this
-                )
-                dw_db.add(balance)
-
+        # Create tranche balances
+        tranche_bals = [
+            # Deal 100, Cycle 1
+            TrancheBal(
+                dl_nbr=100, tr_id="A", cycle_cde=1, 
+                tr_end_bal_amt=1000000, tr_prin_rel_ls_amt=50000, tr_pass_thru_rte=0.045,
+                tr_accrl_days=30, tr_int_dstrb_amt=3750, tr_prin_dstrb_amt=50000,
+                tr_int_accrl_amt=3750, tr_int_shtfl_amt=0
+            ),
+            TrancheBal(
+                dl_nbr=100, tr_id="B", cycle_cde=1,
+                tr_end_bal_amt=500000, tr_prin_rel_ls_amt=20000, tr_pass_thru_rte=0.055,
+                tr_accrl_days=30, tr_int_dstrb_amt=2292, tr_prin_dstrb_amt=20000,
+                tr_int_accrl_amt=2292, tr_int_shtfl_amt=0
+            ),
+            
+            # Deal 200, Cycle 1
+            TrancheBal(
+                dl_nbr=200, tr_id="A", cycle_cde=1,
+                tr_end_bal_amt=2000000, tr_prin_rel_ls_amt=100000, tr_pass_thru_rte=0.040,
+                tr_accrl_days=30, tr_int_dstrb_amt=6667, tr_prin_dstrb_amt=100000,
+                tr_int_accrl_amt=6667, tr_int_shtfl_amt=0
+            ),
+            TrancheBal(
+                dl_nbr=200, tr_id="B", cycle_cde=1,
+                tr_end_bal_amt=800000, tr_prin_rel_ls_amt=50000, tr_pass_thru_rte=0.060,
+                tr_accrl_days=30, tr_int_dstrb_amt=4000, tr_prin_dstrb_amt=50000,
+                tr_int_accrl_amt=4000, tr_int_shtfl_amt=0
+            ),
+            
+            # Deal 300, Cycle 1
+            TrancheBal(
+                dl_nbr=300, tr_id="A", cycle_cde=1,
+                tr_end_bal_amt=1500000, tr_prin_rel_ls_amt=100000, tr_pass_thru_rte=0.035,
+                tr_accrl_days=30, tr_int_dstrb_amt=4375, tr_prin_dstrb_amt=100000,
+                tr_int_accrl_amt=4375, tr_int_shtfl_amt=0
+            ),
+        ]
+        
+        dw_db.add_all(tranche_bals)
+        dw_db.flush()
+        
+        # Create sample CDI variables
+        from sqlalchemy.sql import func
+        current_time = func.now()
+        cdi_variables = [
+            # Investment Income for Deal 100
+            DealCdiVarRpt(
+                dl_nbr=100, cycle_cde=1,
+                dl_cdi_var_nme="#RPT_RRI_A".ljust(32),  # Pad to CHAR(32)
+                dl_cdi_var_value="125000.00".ljust(32),  # Pad to CHAR(32)
+                lst_upd_dtm=current_time,
+                lst_upd_user_id='system',
+                lst_upd_host_nme='localhost'
+            ),
+            DealCdiVarRpt(
+                dl_nbr=100, cycle_cde=1,
+                dl_cdi_var_nme="#RPT_RRI_B".ljust(32),
+                dl_cdi_var_value="65000.00".ljust(32),
+                lst_upd_dtm=current_time,
+                lst_upd_user_id='system',
+                lst_upd_host_nme='localhost'
+            ),
+            
+            # Excess Interest for Deal 200
+            DealCdiVarRpt(
+                dl_nbr=200, cycle_cde=1,
+                dl_cdi_var_nme="#RPT_EXC_A".ljust(32),
+                dl_cdi_var_value="25000.00".ljust(32),
+                lst_upd_dtm=current_time,
+                lst_upd_user_id='system',
+                lst_upd_host_nme='localhost'
+            ),
+        ]
+        
+        dw_db.add_all(cdi_variables)
         dw_db.commit()
-        print(f"✅ Created 5 deals with 15 tranches and balance data")
-
+        
+        print("✅ Sample data created successfully (including CDI variables)")
+        print(f"   Created {len(deals)} deals")
+        print(f"   Created {len(tranches)} tranches") 
+        print(f"   Created {len(tranche_bals)} tranche balance records")
+        print(f"   Created {len(cdi_variables)} CDI variable records")
+        
     except Exception as e:
         dw_db.rollback()
-        print(f"❌ Error creating sample data: {e}")
-        raise
+        print(f"❌ Error creating sample data: {str(e)}")
+        raise  # Re-raise to see the full error
+        
     finally:
         dw_db.close()
 

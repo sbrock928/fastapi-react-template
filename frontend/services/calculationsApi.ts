@@ -14,10 +14,18 @@ import type {
   SystemCalculationUpdateRequest,
   SystemSqlValidationRequest,
   SystemSqlValidationResponse,
-  CalculationUsage,
-  PreviewData
+  CalculationUsage
 } from '@/types/calculations';
 import { parseCalculationId } from '@/types/calculations';
+
+// Add the PreviewData type for individual calculation previews
+type PreviewData = {
+  sql: string;
+  columns: string[];
+  calculation_type: string;
+  group_level: string;
+  parameters: any;
+};
 
 // Updated to handle string-based calculation IDs
 export const calculationsApi = {
@@ -36,7 +44,7 @@ export const calculationsApi = {
   },
 
   async updateCalculation(id: number, data: UserCalculationUpdateRequest): Promise<AxiosResponse<UserCalculation>> {
-    return apiClient.put(`/calculations/user/${id}`, data);
+    return apiClient.patch(`/calculations/user/${id}`, data);
   },
 
   async deleteCalculation(id: number): Promise<AxiosResponse<{ message: string }>> {
@@ -388,7 +396,6 @@ export const safeCalculationsApi = {
   updateSystemCalculation: withErrorHandling(calculationsApi.updateSystemCalculation),
   validateSystemSql: withErrorHandling(calculationsApi.validateSystemSql),
   getStaticFields: withErrorHandling(calculationsApi.getStaticFields),
-  previewSQL: withErrorHandling(calculationsApi.previewSQL),
   getAvailableCalculations: withErrorHandling(calculationsApi.getAvailableCalculations),
   getAllCalculations: withErrorHandling(calculationsApi.getAllCalculations),
 };

@@ -184,13 +184,6 @@ const SQLPreviewModal: React.FC<SQLPreviewModalProps> = ({
                     <small className="text-muted">This may indicate an error in the report configuration.</small>
                   </div>
                 )}
-
-                {/* Additional Info */}
-                <div className={`alert ${styles.previewInfoAlert}`}>
-                  <i className={`bi bi-info-circle ${styles.previewInfoIcon}`}></i>
-                  <strong>Preview Note:</strong> These are the individual SQL queries that will be executed and merged when the report runs. 
-                  Each calculation is optimized separately for performance.
-                </div>
               </div>
             ) : (
               <div className={styles.previewEmptyState}>

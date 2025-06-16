@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from urllib.parse import unquote
+import time
 from app.core.dependencies import get_db, get_dw_db, get_user_calculation_dao, get_system_calculation_dao
 
 from .service import (
@@ -14,6 +15,20 @@ from .service import (
     StaticFieldService,
     CalculationConfigService,
     ReportExecutionService
+)
+from .cdi_service import CDIVariableCalculationService
+from .cdi_schemas import (
+    CDIVariableCreate, 
+    CDIVariableUpdate, 
+    CDIVariableResponse,
+    CDIVariableExecutionRequest,
+    CDIVariableExecutionResponse,
+    CDIVariableConfigResponse,
+    CDIVariableSummary,
+    CDIVariableValidationRequest,
+    CDIVariableValidationResponse,
+    CDIVariableBulkCreateRequest,
+    CDIVariableBulkCreateResponse
 )
 from .resolver import CalculationRequest, QueryFilters
 from .schemas import (
@@ -62,6 +77,18 @@ def get_report_execution_service(
 ) -> ReportExecutionService:
     """Get report execution service"""
     return ReportExecutionService(dw_db, config_db)
+
+
+def get_cdi_service(
+    config_db: Session = Depends(get_db),
+    dw_db: Session = Depends(get_dw_db),
+    system_calc_service: SystemCalculationService = Depends(get_system_calculation_service)
+) -> CDIVariableCalculationService:
+    """Get CDI variable calculation service"""
+    cdi_service = CDIVariableCalculationService(dw_db, config_db, system_calc_service)
+    # Set up bidirectional relationship
+    system_calc_service.set_cdi_service(cdi_service)
+    return cdi_service
 
 
 # ===== UNIFIED CALCULATIONS ENDPOINT (ROOT) =====
@@ -168,13 +195,13 @@ def create_user_calculation(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.put("/user/{calc_id}", response_model=UserCalculationResponse)
+@router.patch("/user/{calc_id}", response_model=UserCalculationResponse)
 def update_user_calculation(
     calc_id: int,
     request: UserCalculationUpdate,
     service: UserCalculationService = Depends(get_user_calculation_service)
 ):
-    """Update an existing user calculation"""
+    """Update an existing user calculation (partial update)"""
     try:
         return service.update_user_calculation(calc_id, request)
     except Exception as e:
@@ -477,10 +504,10 @@ def preview_single_calculation(
         query_result = service.resolver.resolve_single_calculation(calc_request, filters)
         
         return {
-            "sql": query_result.sql,
-            "columns": query_result.columns,
-            "calculation_type": query_result.calc_type,
-            "group_level": query_result.group_level,
+            "sql": query_result["sql"],
+            "columns": query_result["columns"],
+            "calculation_type": query_result["calculation_type"],
+            "group_level": query_result["group_level"],
             "parameters": {
                 "deal_tranche_map": deal_tranche_map,
                 "cycle_code": cycle_code
@@ -668,4 +695,298 @@ def validate_system_calculation_result_column(
         "result_column": result_column,
         "is_available": existing_calc is None,
         "existing_calculation": existing_calc.name if existing_calc else None
+    }
+
+
+# ===== CDI VARIABLE CONFIGURATION ENDPOINTS =====
+
+@router.get("/cdi-variables/config", response_model=CDIVariableConfigResponse)
+def get_cdi_variable_config(
+    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
+) -> CDIVariableConfigResponse:
+    """Get configuration data for CDI variable calculations"""
+    return CDIVariableConfigResponse(
+        available_patterns=cdi_service.get_available_variable_patterns(),
+        default_tranche_mappings=cdi_service.get_default_tranche_mappings(),
+        variable_types=[
+            "investment_income",
+            "excess_interest", 
+            "fees",
+            "principal",
+            "interest",
+            "other"
+        ]
+    )
+
+# ===== CDI VARIABLE CRUD ENDPOINTS =====
+
+@router.get("/cdi-variables", response_model=List[CDIVariableResponse])
+def get_all_cdi_variables(
+    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
+) -> List[CDIVariableResponse]:
+    """Get all CDI variable calculations"""
+    return cdi_service.get_all_cdi_variable_calculations()
+
+@router.get("/cdi-variables/summary", response_model=List[CDIVariableSummary])
+def get_cdi_variables_summary(
+    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
+) -> List[CDIVariableSummary]:
+    """Get summary of all CDI variable calculations"""
+    cdi_calcs = cdi_service.get_all_cdi_variable_calculations()
+    
+    summaries = []
+    for calc in cdi_calcs:
+        summaries.append(CDIVariableSummary(
+            id=calc.id,
+            name=calc.name,
+            variable_type=calc.variable_type,
+            result_column_name=calc.result_column_name,
+            tranche_count=len(calc.tranche_mappings),
+            created_by=calc.created_by,
+            created_at=calc.created_at,
+            is_active=calc.is_active
+        ))
+    
+    return summaries
+
+@router.get("/cdi-variables/{calc_id}", response_model=CDIVariableResponse)
+def get_cdi_variable_by_id(
+    calc_id: int,
+    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
+) -> CDIVariableResponse:
+    """Get a specific CDI variable calculation by ID"""
+    calc = cdi_service.get_cdi_variable_calculation(calc_id)
+    if not calc:
+        raise HTTPException(status_code=404, detail="CDI variable calculation not found")
+    return calc
+
+@router.post("/cdi-variables", response_model=CDIVariableResponse)
+def create_cdi_variable(
+    request: CDIVariableCreate,
+    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service),
+    created_by: str = "system"  # TODO: Get from auth context
+) -> CDIVariableResponse:
+    """Create a new CDI variable calculation"""
+    try:
+        return cdi_service.create_cdi_variable_calculation(request, created_by)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.patch("/cdi-variables/{calc_id}", response_model=CDIVariableResponse)
+def update_cdi_variable(
+    calc_id: int,
+    request: CDIVariableUpdate,
+    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
+) -> CDIVariableResponse:
+    """Update an existing CDI variable calculation (partial update)"""
+    try:
+        return cdi_service.update_cdi_variable_calculation(calc_id, request)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.delete("/cdi-variables/{calc_id}")
+def delete_cdi_variable(
+    calc_id: int,
+    system_calc_service: SystemCalculationService = Depends(get_system_calculation_service)
+) -> Dict[str, str]:
+    """Delete a CDI variable calculation (soft delete the underlying SystemCalculation)"""
+    try:
+        return system_calc_service.delete_system_calculation(calc_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# ===== CDI VARIABLE EXECUTION ENDPOINTS =====
+
+@router.post("/cdi-variables/{calc_id}/execute", response_model=CDIVariableExecutionResponse)
+def execute_cdi_variable(
+    calc_id: int,
+    request: CDIVariableExecutionRequest,
+    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
+) -> CDIVariableExecutionResponse:
+    """Execute a CDI variable calculation"""
+    start_time = time.time()
+    
+    try:
+        # Get calculation info
+        calc = cdi_service.get_cdi_variable_calculation(calc_id)
+        if not calc:
+            raise HTTPException(status_code=404, detail="CDI variable calculation not found")
+        
+        # Execute the calculation
+        result_df = cdi_service.execute_cdi_variable_calculation(
+            calc_id, request.cycle_code, request.deal_numbers
+        )
+        
+        # Convert DataFrame to list of dicts
+        result_data = result_df.to_dict('records') if not result_df.empty else []
+        
+        execution_time = (time.time() - start_time) * 1000  # Convert to milliseconds
+        
+        return CDIVariableExecutionResponse(
+            calculation_id=calc_id,
+            calculation_name=calc.name,
+            cycle_code=request.cycle_code,
+            deal_count=len(request.deal_numbers),
+            tranche_count=len(result_data),
+            data=result_data,
+            execution_time_ms=execution_time
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Execution failed: {str(e)}")
+
+@router.post("/cdi-variables/execute-batch")
+def execute_cdi_variables_batch(
+    calculation_ids: List[int],
+    cycle_code: int,
+    deal_numbers: List[int],
+    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
+) -> Dict[str, Any]:
+    """Execute multiple CDI variable calculations in batch"""
+    
+    results = {}
+    errors = {}
+    
+    for calc_id in calculation_ids:
+        try:
+            result_df = cdi_service.execute_cdi_variable_calculation(calc_id, cycle_code, deal_numbers)
+            results[str(calc_id)] = result_df.to_dict('records') if not result_df.empty else []
+        except Exception as e:
+            errors[str(calc_id)] = str(e)
+    
+    return {
+        "successful_calculations": len(results),
+        "failed_calculations": len(errors),
+        "results": results,
+        "errors": errors,
+        "cycle_code": cycle_code,
+        "deal_count": len(deal_numbers)
+    }
+
+# ===== CDI VARIABLE VALIDATION ENDPOINTS =====
+
+@router.post("/cdi-variables/validate", response_model=CDIVariableValidationResponse)
+def validate_cdi_variable_config(
+    request: CDIVariableValidationRequest,
+    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
+) -> CDIVariableValidationResponse:
+    """Validate a CDI variable configuration before creating it"""
+    
+    try:
+        # Generate test SQL to see if configuration is valid
+        sql = cdi_service._generate_dynamic_sql(
+            request.variable_pattern, 
+            request.tranche_mappings, 
+            request.cycle_code, 
+            request.sample_deal_numbers
+        )
+        
+        # Try to execute the SQL to validate it
+        import pandas as pd
+        result_df = pd.read_sql(sql, cdi_service.dw_db.bind)
+        
+        warnings = []
+        errors = []
+        
+        # Check for potential issues
+        if result_df.empty:
+            warnings.append("No data found for the given configuration and sample deals")
+        
+        # Check if all tranche types have data
+        found_tranches = set()
+        if not result_df.empty and 'tranche_type' in result_df.columns:
+            found_tranches = set(result_df['tranche_type'].unique())
+        
+        configured_tranches = set(request.tranche_mappings.keys())
+        missing_tranches = configured_tranches - found_tranches
+        
+        if missing_tranches:
+            warnings.append(f"No data found for tranche types: {', '.join(missing_tranches)}")
+        
+        return CDIVariableValidationResponse(
+            is_valid=len(errors) == 0,
+            validation_results={
+                "sql_generated": True,
+                "sql_executed": True,
+                "configured_tranches": list(configured_tranches),
+                "found_tranches": list(found_tranches),
+                "missing_tranches": list(missing_tranches)
+            },
+            sample_data_count=len(result_df),
+            warnings=warnings,
+            errors=errors
+        )
+        
+    except Exception as e:
+        return CDIVariableValidationResponse(
+            is_valid=False,
+            validation_results={"sql_generated": False, "error": str(e)},
+            sample_data_count=0,
+            warnings=[],
+            errors=[f"Configuration validation failed: {str(e)}"]
+        )
+
+# ===== BULK OPERATIONS =====
+
+@router.post("/cdi-variables/bulk-create", response_model=CDIVariableBulkCreateResponse)
+def bulk_create_cdi_variables(
+    request: CDIVariableBulkCreateRequest,
+    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
+) -> CDIVariableBulkCreateResponse:
+    """Create multiple CDI variable calculations at once"""
+    
+    created_calculations = []
+    failures = []
+    
+    for calc_request in request.calculations:
+        try:
+            created_calc = cdi_service.create_cdi_variable_calculation(calc_request, request.created_by)
+            created_calculations.append(created_calc)
+        except Exception as e:
+            failures.append({
+                "calculation_name": calc_request.name,
+                "error": str(e)
+            })
+    
+    return CDIVariableBulkCreateResponse(
+        created_count=len(created_calculations),
+        failed_count=len(failures),
+        created_calculations=created_calculations,
+        failures=failures
+    )
+
+# ===== INTEGRATION WITH EXISTING ENDPOINTS =====
+
+@router.get("/all-with-cdi", response_model=Dict[str, Any])
+def get_all_calculations_with_cdi(
+    group_level: Optional[str] = Query(None),
+    user_calc_service: UserCalculationService = Depends(get_user_calculation_service),
+    system_calc_service: SystemCalculationService = Depends(get_system_calculation_service),
+    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
+) -> Dict[str, Any]:
+    """Get all calculations including CDI variables"""
+    
+    # Get regular calculations
+    user_calcs = user_calc_service.get_all_user_calculations(group_level)
+    system_calcs = system_calc_service.get_all_system_calculations(group_level)
+    
+    # Get CDI variable calculations
+    cdi_calcs = cdi_service.get_all_cdi_variable_calculations()
+    
+    # Filter system calcs to exclude CDI variables (to avoid duplication)
+    regular_system_calcs = [
+        calc for calc in system_calcs 
+        if not system_calc_service.is_cdi_variable_calculation(calc.id)
+    ]
+    
+    return {
+        "user_calculations": [UserCalculationResponse.model_validate(calc) for calc in user_calcs],
+        "system_calculations": [SystemCalculationResponse.model_validate(calc) for calc in regular_system_calcs],
+        "cdi_variable_calculations": cdi_calcs,
+        "summary": {
+            "total_user": len(user_calcs),
+            "total_system": len(regular_system_calcs),
+            "total_cdi_variables": len(cdi_calcs),
+            "total_all": len(user_calcs) + len(regular_system_calcs) + len(cdi_calcs)
+        }
     }

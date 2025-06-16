@@ -16,9 +16,10 @@ from app.reporting.schemas import (
     AvailableCalculation,
     ReportScope,
 )
-from app.core.dependencies import SessionDep, DWSessionDep, get_user_calculation_service, get_system_calculation_service, get_report_execution_service
+from app.core.dependencies import SessionDep, DWSessionDep, get_user_calculation_service, get_system_calculation_service, get_report_execution_service, get_cdi_calculation_service
 from app.datawarehouse.dao import DatawarehouseDAO
 from app.calculations.service import UserCalculationService, SystemCalculationService, ReportExecutionService
+from app.calculations.cdi_service import CDIVariableCalculationService
 import io
 import pandas as pd
 from fastapi import Response, HTTPException

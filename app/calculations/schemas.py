@@ -118,7 +118,7 @@ class SystemCalculationCreate(SystemCalculationBase):
     @field_validator("raw_sql")
     @classmethod
     def validate_sql_basic(cls, v):
-        """Enhanced SQL validation with CTE support"""
+        """Enhanced SQL validation with CTE support and better error messages"""
         if not v or not v.strip():
             raise ValueError("raw_sql cannot be empty")
         
@@ -129,8 +129,30 @@ class SystemCalculationCreate(SystemCalculationBase):
         
         if has_ctes:
             # For CTEs, validate the structure but don't require it to start with SELECT
-            if not cls._validate_cte_structure(sql_trimmed):
-                raise ValueError("Invalid CTE structure")
+            try:
+                if not cls._validate_cte_structure(sql_trimmed):
+                    # Provide more detailed error information
+                    import re
+                    sql_clean = re.sub(r'--.*$', '', sql_trimmed, flags=re.MULTILINE)
+                    sql_clean = re.sub(r'/\*.*?\*/', '', sql_clean, flags=re.DOTALL)
+                    sql_clean = ' '.join(sql_clean.split())
+                    
+                    if not re.search(r'WITH\s+\w+\s+AS\s*\(', sql_clean, re.IGNORECASE):
+                        raise ValueError("CTE must have format: WITH cte_name AS (...)")
+                    
+                    # Check for balanced parentheses
+                    paren_count = sql_trimmed.count('(') - sql_trimmed.count(')')
+                    if paren_count != 0:
+                        raise ValueError(f"Unbalanced parentheses in CTE (difference: {paren_count})")
+                    
+                    # Check for final SELECT
+                    if 'SELECT' not in sql_clean.upper():
+                        raise ValueError("CTE must end with a SELECT statement")
+                    
+                    raise ValueError("Invalid CTE structure - unknown validation error")
+            except ValueError as e:
+                # Re-raise with more context
+                raise ValueError(f"CTE validation failed: {str(e)}")
         else:
             # For simple queries, require SELECT start
             sql_lower = sql_trimmed.lower()
@@ -151,14 +173,64 @@ class SystemCalculationCreate(SystemCalculationBase):
     
     @staticmethod
     def _validate_cte_structure(sql: str) -> bool:
-        """Basic CTE structure validation"""
+        """Enhanced CTE structure validation with better comment and formatting support"""
         import re
         
+        # Remove comments first for validation
+        # Remove single-line comments (-- comment)
+        sql_clean = re.sub(r'--.*$', '', sql, flags=re.MULTILINE)
+        # Remove multi-line comments (/* comment */)
+        sql_clean = re.sub(r'/\*.*?\*/', '', sql_clean, flags=re.DOTALL)
+        
+        # Remove extra whitespace and normalize
+        sql_clean = ' '.join(sql_clean.split())
+        
+        # More flexible CTE pattern that handles various formatting styles
+        # This pattern looks for: WITH (optional whitespace) word (optional whitespace) AS (optional whitespace) (
+        cte_pattern = r'WITH\s+\w+(?:\s*,\s*\w+)*\s+AS\s*\('
+        
         # Check for basic CTE syntax
-        if not re.search(r'WITH\s+\w+\s+AS\s*\(', sql, re.IGNORECASE):
+        if not re.search(cte_pattern, sql_clean, re.IGNORECASE):
+            # Try a more lenient pattern for single CTE
+            simple_cte_pattern = r'WITH\s+\w+\s+AS\s*\('
+            if not re.search(simple_cte_pattern, sql_clean, re.IGNORECASE):
+                return False
+        
+        # Verify it ends with a SELECT statement (after all CTEs)
+        # Find the final SELECT that's not inside parentheses at the root level
+        paren_depth = 0
+        in_quotes = False
+        quote_char = ''
+        final_select_found = False
+        
+        i = 0
+        while i < len(sql_clean):
+            char = sql_clean[i]
+            
+            # Handle quotes
+            if (char == '"' or char == "'") and (i == 0 or sql_clean[i-1] != '\\'):
+                if not in_quotes:
+                    in_quotes = True
+                    quote_char = char
+                elif char == quote_char:
+                    in_quotes = False
+                    quote_char = ''
+            
+            if not in_quotes:
+                if char == '(':
+                    paren_depth += 1
+                elif char == ')':
+                    paren_depth -= 1
+                elif paren_depth == 0 and sql_clean[i:i+6].upper() == 'SELECT':
+                    # Found a SELECT at root level (not inside CTE parentheses)
+                    final_select_found = True
+            
+            i += 1
+        
+        if not final_select_found:
             return False
         
-        # Check for balanced parentheses
+        # Check for balanced parentheses in original SQL
         paren_count = 0
         in_quotes = False
         quote_char = ''
@@ -179,6 +251,9 @@ class SystemCalculationCreate(SystemCalculationBase):
                     paren_count += 1
                 elif char == ')':
                     paren_count -= 1
+                    # Early detection of unbalanced parens
+                    if paren_count < 0:
+                        return False
         
         return paren_count == 0
 

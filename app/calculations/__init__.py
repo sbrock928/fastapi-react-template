@@ -1,5 +1,5 @@
 # app/calculations/__init__.py
-"""Calculations feature - separated user and system calculations"""
+"""Calculations feature - separated user and system calculations with unified resolver"""
 
 from .models import UserCalculation, SystemCalculation, AggregationFunction, SourceModel, GroupLevel
 from .schemas import (
@@ -22,7 +22,7 @@ from .service import (
     ReportExecutionService
 )
 from .dao import UserCalculationDAO, SystemCalculationDAO, CalculationStatsDAO
-from .resolver import SimpleCalculationResolver, CalculationRequest, QueryFilters
+from .resolver import UnifiedCalculationResolver, CalculationRequest, QueryFilters
 
 __all__ = [
     # Models
@@ -53,7 +53,7 @@ __all__ = [
     "SystemCalculationDAO",
     "CalculationStatsDAO",
     # Resolver
-    "SimpleCalculationResolver",
+    "UnifiedCalculationResolver",
     "CalculationRequest", 
     "QueryFilters",
 ]

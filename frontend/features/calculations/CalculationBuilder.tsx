@@ -13,21 +13,9 @@ import FilterSection from './components/FilterSection';
 import CalculationCard from './components/CalculationCard';
 import CalculationModal from './components/CalculationModal';
 import SystemCalculationsTab from './components/SystemCalculationsTab';
-import SqlPreviewModal from './components/SqlPreviewModal';
 import UsageModal from './components/UsageModal';
 
-// Constants
-import { SAMPLE_PREVIEW_PARAMS } from './constants/calculationConstants';
-
 type CalculationTab = 'user-defined' | 'system-defined';
-
-type PreviewData = {
-  sql: string;
-  columns: string[];
-  calculation_type: string;
-  group_level: string;
-  parameters: any;
-};
 
 const CalculationBuilder: React.FC = () => {
   const { showToast } = useToast();
@@ -63,13 +51,15 @@ const CalculationBuilder: React.FC = () => {
   const [showModal, setShowModal] = useState<boolean>(false);
   const [modalType, setModalType] = useState<'user-defined' | 'system-sql'>('user-defined');
   const [editingCalculation, setEditingCalculation] = useState<UserCalculation | SystemCalculation | null>(null);
-  const [showPreviewModal, setShowPreviewModal] = useState<boolean>(false);
-  const [previewData, setPreviewData] = useState<PreviewData | null>(null);
-  const [previewLoading, setPreviewLoading] = useState<boolean>(false);
   const [showUsageModal, setShowUsageModal] = useState<boolean>(false);
   const [selectedUsageData, setSelectedUsageData] = useState<any>(null);
   const [usageLoading, setUsageLoading] = useState<boolean>(false);
   const [usageScope] = useState<'DEAL' | 'TRANCHE' | 'ALL'>('ALL');
+
+  // Preview modal states
+  const [showPreviewModal, setShowPreviewModal] = useState<boolean>(false);
+  const [previewData, setPreviewData] = useState<any>(null);
+  const [previewLoading, setPreviewLoading] = useState<boolean>(false);
 
   // Form state
   const {
@@ -81,6 +71,12 @@ const CalculationBuilder: React.FC = () => {
     resetForm,
     initializeForm
   } = useCalculationForm(editingCalculation as UserCalculation | null);
+
+  // Sample parameters for SQL preview
+  const SAMPLE_PREVIEW_PARAMS = {
+    deal_tranche_mapping: { 101: ['A', 'B'], 102: [], 103: [] },
+    cycle: 202404
+  };
 
   // Initialize data
   useEffect(() => {
@@ -205,32 +201,6 @@ const CalculationBuilder: React.FC = () => {
     }
   };
 
-  // Handle SQL preview
-  const handlePreviewSQL = async (calcId: number) => {
-    setPreviewLoading(true);
-    setPreviewData(null);
-    setShowPreviewModal(true);
-    
-    try {
-      const response = await calculationsApi.previewSQL(calcId, SAMPLE_PREVIEW_PARAMS);
-      // Ensure the response data matches our PreviewData type
-      const previewData = {
-        sql: response.data.sql || '',
-        columns: response.data.columns || [],
-        calculation_type: response.data.calculation_type || '',
-        group_level: response.data.group_level || '',
-        parameters: response.data.parameters || {}
-      };
-      setPreviewData(previewData);
-    } catch (error: unknown) {
-      console.error('Error generating SQL preview:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      showToast(`Error generating SQL preview: ${errorMessage}`, 'error');
-    } finally {
-      setPreviewLoading(false);
-    }
-  };
-
   // Update the existing calculations state when unified data changes
   const [filteredUserCalculations, setFilteredUserCalculations] = useState<UserCalculation[]>([]);
   const [filteredSystemCalculations, setFilteredSystemCalculations] = useState<SystemCalculation[]>([]);
@@ -286,6 +256,32 @@ const CalculationBuilder: React.FC = () => {
       setShowUsageModal(false);
     } finally {
       setUsageLoading(false);
+    }
+  };
+
+  // Handle SQL preview - FIXED: Proper error handling and data validation
+  const handlePreviewSQL = async (calcId: number) => {
+    setPreviewLoading(true);
+    setShowPreviewModal(true); // Show modal first with loading state
+    
+    try {
+      const response = await calculationsApi.previewSQL(calcId, SAMPLE_PREVIEW_PARAMS);
+      
+      // Validate response data
+      if (response.data && response.data.sql) {
+        setPreviewData(response.data);
+      } else {
+        throw new Error('Invalid response data from preview API');
+      }
+    } catch (error) {
+      console.error('Error previewing SQL:', error);
+      setPreviewData({
+        sql: '-- Error generating SQL preview\n-- Please try again or contact support',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      showToast('Failed to preview SQL. Please try again.', 'error');
+    } finally {
+      setPreviewLoading(false);
     }
   };
 
@@ -486,8 +482,8 @@ const CalculationBuilder: React.FC = () => {
                                   usageScope={usageScope}
                                   onEdit={(calc) => handleOpenModal('user-defined', calc)}
                                   onDelete={tabData.deleteCalculation}
-                                  onPreviewSQL={handlePreviewSQL}
                                   onShowUsage={handleShowUsage}
+                                  onPreviewSQL={() => handlePreviewSQL(calc.id)} // Add preview handler
                                 />
                               </div>
                             ))}
@@ -517,8 +513,8 @@ const CalculationBuilder: React.FC = () => {
                     usageScope={usageScope}
                     onCreateSystemSql={() => handleOpenModal('system-sql')}
                     onEditSystemSql={(calc) => handleOpenModal('system-sql', calc)}
-                    onPreviewSQL={handlePreviewSQL}
                     onShowUsage={handleShowUsage}
+                    onPreviewSQL={(calcId) => handlePreviewSQL(calcId)} // Add the missing preview handler
                   />
                 )}
               </div>
@@ -550,19 +546,133 @@ const CalculationBuilder: React.FC = () => {
             hasUnsavedChanges={hasUnsavedChanges}
           />
 
-          <SqlPreviewModal
-            isOpen={showPreviewModal}
-            previewData={previewData}
-            previewLoading={previewLoading}
-            onClose={() => setShowPreviewModal(false)}
-          />
-
           <UsageModal
             isOpen={showUsageModal}
             selectedUsageData={selectedUsageData}
             usageLoading={usageLoading}
             onClose={() => setShowUsageModal(false)}
           />
+
+          {/* Preview SQL Modal - FIXED: Proper Bootstrap modal implementation */}
+          <div
+            className={`modal ${showPreviewModal ? 'show d-block' : 'd-none'}`}
+            tabIndex={-1}
+            aria-hidden={!showPreviewModal}
+            style={{ backgroundColor: showPreviewModal ? 'rgba(0,0,0,0.5)' : 'transparent' }}
+          >
+            <div className="modal-dialog modal-xl">
+              <div className="modal-content">
+                <div className="modal-header">
+                  <h5 className="modal-title">
+                    <i className="bi bi-code-square me-2"></i>
+                    SQL Preview
+                  </h5>
+                  <button
+                    type="button"
+                    className="btn-close"
+                    onClick={() => setShowPreviewModal(false)}
+                    aria-label="Close"
+                  ></button>
+                </div>
+                <div className="modal-body">
+                  {previewLoading ? (
+                    <div className="text-center py-4">
+                      <div className="spinner-border text-primary" role="status">
+                        <span className="visually-hidden">Loading...</span>
+                      </div>
+                      <p className="mt-2 mb-0">Generating SQL preview...</p>
+                    </div>
+                  ) : previewData ? (
+                    <div>
+                      {/* SQL Content */}
+                      <div className="mb-3">
+                        <label className="form-label fw-bold">Generated SQL:</label>
+                        <pre className="bg-light p-3 rounded border" style={{ fontSize: '0.875rem', maxHeight: '400px', overflow: 'auto' }}>
+                          <code>{previewData.sql || '-- No SQL available'}</code>
+                        </pre>
+                      </div>
+                      
+                      {/* Additional Information */}
+                      {previewData.columns && (
+                        <div className="mb-3">
+                          <label className="form-label fw-bold">Expected Columns:</label>
+                          <div className="bg-light p-2 rounded border">
+                            <small className="text-muted">
+                              {Array.isArray(previewData.columns) 
+                                ? previewData.columns.join(', ') 
+                                : previewData.columns}
+                            </small>
+                          </div>
+                        </div>
+                      )}
+                      
+                      <div className="row">
+                        {previewData.calculation_type && (
+                          <div className="col-md-6 mb-2">
+                            <label className="form-label fw-bold">Calculation Type:</label>
+                            <div className="bg-light p-2 rounded border">
+                              <small className="text-muted">{previewData.calculation_type}</small>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {previewData.group_level && (
+                          <div className="col-md-6 mb-2">
+                            <label className="form-label fw-bold">Group Level:</label>
+                            <div className="bg-light p-2 rounded border">
+                              <small className="text-muted">{previewData.group_level}</small>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Error Display */}
+                      {previewData.error && (
+                        <div className="alert alert-warning mt-3">
+                          <i className="bi bi-exclamation-triangle me-2"></i>
+                          <strong>Preview Warning:</strong> {previewData.error}
+                        </div>
+                      )}
+                      
+                      {/* Info Note */}
+                      <div className="alert alert-info mt-3">
+                        <i className="bi bi-info-circle me-2"></i>
+                        <strong>Preview Note:</strong> This is a sample SQL query generated with test parameters. 
+                        The actual query used in reports will include your specific deal/tranche filters and cycle selection.
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-4 text-muted">
+                      <i className="bi bi-exclamation-circle fs-1"></i>
+                      <p className="mt-2">No preview data available</p>
+                    </div>
+                  )}
+                </div>
+                <div className="modal-footer">
+                  {previewData && previewData.sql && (
+                    <button
+                      type="button"
+                      className="btn btn-outline-primary me-auto"
+                      onClick={() => {
+                        navigator.clipboard.writeText(previewData.sql);
+                        showToast('SQL copied to clipboard!', 'success');
+                      }}
+                    >
+                      <i className="bi bi-clipboard me-2"></i>
+                      Copy SQL
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setShowPreviewModal(false)}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </>
       )}
     </div>

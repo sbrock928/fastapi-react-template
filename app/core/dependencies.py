@@ -32,10 +32,39 @@ def get_system_calculation_service(system_calc_dao = Depends(get_system_calculat
     from app.calculations.service import SystemCalculationService
     return SystemCalculationService(system_calc_dao)
 
-def get_report_execution_service(
-    config_db: Session = Depends(get_db),
-    dw_db: Session = Depends(get_dw_db)
+def get_cdi_calculation_service(
+    config_db: SessionDep, 
+    dw_db: DWSessionDep,
+    system_calc_service = Depends(get_system_calculation_service)
 ):
-    """Get report execution service"""
-    from app.calculations.service import ReportExecutionService
-    return ReportExecutionService(dw_db, config_db)
+    """Get CDI Variable Calculation Service with proper dependency injection"""
+    from app.calculations.cdi_service import CDIVariableCalculationService
+    cdi_service = CDIVariableCalculationService(dw_db, config_db, system_calc_service)
+    # Set up bidirectional relationship for integrated execution
+    system_calc_service.set_cdi_service(cdi_service)
+    return cdi_service
+
+def get_report_execution_service_with_cdi(
+    config_db: SessionDep,
+    dw_db: DWSessionDep
+):
+    """Get Enhanced Report Execution Service (replaces the old one)"""
+    from app.calculations.dao import SystemCalculationDAO
+    from app.calculations.service import SystemCalculationService, ReportExecutionService
+    from app.calculations.cdi_service import CDIVariableCalculationService
+    
+    # Create services manually since we need proper dependency chain
+    system_calc_dao = SystemCalculationDAO(config_db)
+    system_calc_service = SystemCalculationService(system_calc_dao)
+    cdi_service = CDIVariableCalculationService(dw_db, config_db, system_calc_service)
+    system_calc_service.set_cdi_service(cdi_service)
+    
+    return ReportExecutionService(dw_db, config_db, cdi_service)
+
+# Backward compatible alias for enhanced report execution service
+def get_report_execution_service(
+    config_db: SessionDep,
+    dw_db: DWSessionDep
+):
+    """Get report execution service with CDI integration"""
+    return get_report_execution_service_with_cdi(config_db, dw_db)
