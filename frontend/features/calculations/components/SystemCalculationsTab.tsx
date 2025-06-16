@@ -1,6 +1,6 @@
 // frontend/features/calculations/components/SystemCalculationsTab.tsx
 import React from 'react';
-import type { Calculation } from '@/types/calculations';
+import type { Calculation, SystemCalculation } from '@/types/calculations';
 import CalculationCard from './CalculationCard';
 import FilterSection from './FilterSection';
 
@@ -29,8 +29,21 @@ const SystemCalculationsTab: React.FC<SystemCalculationsTabProps> = ({
   onPreviewSQL,
   onShowUsage
 }) => {
-  // Only show system SQL calculations - system field calculations are auto-generated
-  const systemSqlCalcs = filteredCalculations.filter(calc => calc.calculation_type === 'SYSTEM_SQL');
+  // Filter out CDI variables - only show actual system SQL calculations
+  const systemSqlCalcs = filteredCalculations.filter(calc => {
+    // First check if this is a SystemCalculation (has metadata_config property)
+    if (calc.calculation_type !== 'SYSTEM_SQL') {
+      return false; // This filters out UserCalculations
+    }
+    
+    // Now we know calc is a SystemCalculation, safe to access metadata_config
+    const systemCalc = calc as SystemCalculation;
+    const isCDIVariable = systemCalc.metadata_config && 
+                         systemCalc.metadata_config.calculation_type === 'cdi_variable';
+    
+    // Only include if it's a system SQL calculation AND not a CDI variable
+    return !isCDIVariable;
+  });
 
   // Dummy delete function (system calculations cannot be deleted)
   const handleDeleteAttempt = (_id: number, name: string) => {

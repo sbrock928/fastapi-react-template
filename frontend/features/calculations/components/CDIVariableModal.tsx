@@ -11,9 +11,11 @@ import type {
 } from '@/types/cdi';
 import { 
   INITIAL_CDI_FORM,
-  CDI_VARIABLE_TYPE_OPTIONS,
+  CDI_GROUP_LEVEL_OPTIONS,
   createCDIVariableRequest,
-  populateCDIFormFromResponse
+  populateCDIFormFromResponse,
+  requiresTrancheMapping,
+  getVariablePatternPlaceholder
 } from '@/types/cdi';
 
 interface CDIVariableModalProps {
@@ -38,7 +40,6 @@ const CDIVariableModal: React.FC<CDIVariableModalProps> = ({
   const [form, setForm] = useState<CDIVariableForm>(INITIAL_CDI_FORM);
   const [config, setConfig] = useState<CDIVariableConfig | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [configLoading, setConfigLoading] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [newMappingKey, setNewMappingKey] = useState('');
   const [newMappingValues, setNewMappingValues] = useState('');
@@ -72,14 +73,11 @@ const CDIVariableModal: React.FC<CDIVariableModalProps> = ({
 
   const loadConfig = async () => {
     try {
-      setConfigLoading(true);
       const response = await cdiVariableApi.getCDIConfig();
       setConfig(response.data);
     } catch (error) {
       console.error('Failed to load CDI configuration:', error);
       showToast('Failed to load CDI configuration', 'error');
-    } finally {
-      setConfigLoading(false);
     }
   };
 
@@ -92,23 +90,6 @@ const CDIVariableModal: React.FC<CDIVariableModalProps> = ({
 
   const handleFormChange = (field: keyof CDIVariableForm, value: any) => {
     setForm(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handlePatternSelect = (pattern: string) => {
-    handleFormChange('variable_pattern', pattern);
-    
-    // Auto-populate some defaults based on pattern
-    if (pattern.includes('RRI')) {
-      handleFormChange('variable_type', 'investment_income');
-    } else if (pattern.includes('EXC')) {
-      handleFormChange('variable_type', 'excess_interest');
-    } else if (pattern.includes('FEES')) {
-      handleFormChange('variable_type', 'fees');
-    } else if (pattern.includes('PRINC')) {
-      handleFormChange('variable_type', 'principal');
-    } else if (pattern.includes('INT')) {
-      handleFormChange('variable_type', 'interest');
-    }
   };
 
   const loadDefaultMappings = () => {
@@ -162,13 +143,15 @@ const CDIVariableModal: React.FC<CDIVariableModalProps> = ({
       return false;
     }
 
-    if (!form.variable_pattern.includes('{tranche_suffix}')) {
-      showToast('Variable pattern must contain {tranche_suffix} placeholder', 'error');
+    // Only validate tranche suffix placeholder for tranche-level calculations
+    if (form.group_level === 'tranche' && !form.variable_pattern.includes('{tranche_suffix}')) {
+      showToast('Tranche-level variable pattern must contain {tranche_suffix} placeholder', 'error');
       return false;
     }
 
-    if (!form.variable_type.trim()) {
-      showToast('Variable type is required', 'error');
+    // Deal-level patterns should not contain tranche suffix placeholder
+    if (form.group_level === 'deal' && form.variable_pattern.includes('{tranche_suffix}')) {
+      showToast('Deal-level variable pattern should not contain {tranche_suffix} placeholder', 'error');
       return false;
     }
 
@@ -182,8 +165,9 @@ const CDIVariableModal: React.FC<CDIVariableModalProps> = ({
       return false;
     }
 
-    if (Object.keys(form.tranche_mappings).length === 0) {
-      showToast('At least one tranche mapping is required', 'error');
+    // Only require tranche mappings for tranche-level calculations
+    if (requiresTrancheMapping(form.group_level) && Object.keys(form.tranche_mappings).length === 0) {
+      showToast('At least one tranche mapping is required for tranche-level calculations', 'error');
       return false;
     }
 
@@ -203,7 +187,6 @@ const CDIVariableModal: React.FC<CDIVariableModalProps> = ({
           name: form.name,
           description: form.description,
           variable_pattern: form.variable_pattern,
-          variable_type: form.variable_type,
           result_column_name: form.result_column_name,
           tranche_mappings: form.tranche_mappings
         };
@@ -274,19 +257,24 @@ const CDIVariableModal: React.FC<CDIVariableModalProps> = ({
               </div>
 
               <div className="col-md-4">
-                <label className="form-label">Variable Type *</label>
+                <label className="form-label">Group Level *</label>
                 <select
                   className="form-select"
-                  value={form.variable_type}
-                  onChange={(e) => handleFormChange('variable_type', e.target.value)}
+                  value={form.group_level || 'tranche'}
+                  onChange={(e) => handleFormChange('group_level', e.target.value as 'deal' | 'tranche')}
                 >
-                  <option value="">Select type...</option>
-                  {CDI_VARIABLE_TYPE_OPTIONS.map(option => (
+                  {CDI_GROUP_LEVEL_OPTIONS.map(option => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
                   ))}
                 </select>
+                <small className="form-text text-muted">
+                  {form.group_level === 'deal' 
+                    ? 'Deal-level: One result per deal, no tranche breakdown' 
+                    : 'Tranche-level: Results broken down by tranche within each deal'
+                  }
+                </small>
               </div>
 
               <div className="col-12">
@@ -314,37 +302,18 @@ const CDIVariableModal: React.FC<CDIVariableModalProps> = ({
                     className="form-control"
                     value={form.variable_pattern}
                     onChange={(e) => handleFormChange('variable_pattern', e.target.value)}
-                    placeholder="e.g., #RPT_RRI_{tranche_suffix}"
+                    placeholder={getVariablePatternPlaceholder(form.group_level)}
                   />
-                  {config && config.available_patterns.length > 0 && (
-                    <button
-                      type="button"
-                      className="btn btn-outline-secondary dropdown-toggle"
-                      data-bs-toggle="dropdown"
-                    >
-                      Quick Select
-                    </button>
-                  )}
                 </div>
-                {config && config.available_patterns.length > 0 && (
-                  <div className="dropdown-menu">
-                    {config.available_patterns.map(pattern => (
-                      <button
-                        key={pattern}
-                        type="button"
-                        className="dropdown-item"
-                        onClick={() => handlePatternSelect(pattern)}
-                      >
-                        {pattern}
-                      </button>
-                    ))}
-                  </div>
-                )}
                 <small className="form-text text-muted">
-                  Use {'{tranche_suffix}'} as a placeholder for tranche identifiers
+                  {form.group_level === 'tranche' 
+                    ? `Use {tranche_suffix} as a placeholder for tranche identifiers`
+                    : 'For deal-level variables, enter the exact variable name (no placeholders needed)'
+                  }
                 </small>
               </div>
 
+              {/* Result Column Name */}
               <div className="col-12">
                 <label className="form-label">Result Column Name *</label>
                 <input
@@ -360,86 +329,101 @@ const CDIVariableModal: React.FC<CDIVariableModalProps> = ({
                 </small>
               </div>
 
-              {/* Tranche Mappings */}
-              <div className="col-12 mt-4">
-                <div className="d-flex align-items-center justify-content-between border-bottom pb-2">
-                  <h6 className="mb-0">Tranche Mappings</h6>
-                  {config && Object.keys(config.default_tranche_mappings).length > 0 && (
+              {/* Tranche Mappings - Only show for tranche-level calculations */}
+              {requiresTrancheMapping(form.group_level) && (
+                <>
+                  <div className="col-12 mt-4">
+                    <div className="d-flex align-items-center justify-content-between border-bottom pb-2">
+                      <h6 className="mb-0">Tranche Mappings</h6>
+                      {config && Object.keys(config.default_tranche_mappings).length > 0 && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-primary"
+                          onClick={loadDefaultMappings}
+                        >
+                          Load Defaults
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Add New Mapping */}
+                  <div className="col-md-4">
+                    <label className="form-label">Suffix</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={newMappingKey}
+                      onChange={(e) => setNewMappingKey(e.target.value)}
+                      placeholder="e.g., M1, B1"
+                    />
+                  </div>
+
+                  <div className="col-md-6">
+                    <label className="form-label">Tranche IDs (comma-separated)</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={newMappingValues}
+                      onChange={(e) => setNewMappingValues(e.target.value)}
+                      placeholder="e.g., 1M1, 2M1, M1"
+                    />
+                  </div>
+
+                  <div className="col-md-2">
+                    <label className="form-label">&nbsp;</label>
                     <button
                       type="button"
-                      className="btn btn-sm btn-outline-primary"
-                      onClick={loadDefaultMappings}
+                      className="btn btn-primary w-100"
+                      onClick={addTrancheMapping}
                     >
-                      Load Defaults
+                      Add
                     </button>
+                  </div>
+
+                  {/* Existing Mappings */}
+                  {Object.keys(form.tranche_mappings).length > 0 && (
+                    <div className="col-12">
+                      <div className="table-responsive">
+                        <table className="table table-sm">
+                          <thead>
+                            <tr>
+                              <th>Suffix</th>
+                              <th>Tranche IDs</th>
+                              <th style={{ width: '80px' }}>Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(form.tranche_mappings).map(([suffix, trancheIds]) => (
+                              <tr key={suffix}>
+                                <td><strong>{suffix}</strong></td>
+                                <td>{trancheIds.join(', ')}</td>
+                                <td>
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm btn-outline-danger"
+                                    onClick={() => removeTrancheMapping(suffix)}
+                                  >
+                                    Remove
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
                   )}
-                </div>
-              </div>
+                </>
+              )}
 
-              {/* Add New Mapping */}
-              <div className="col-md-4">
-                <label className="form-label">Suffix</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  value={newMappingKey}
-                  onChange={(e) => setNewMappingKey(e.target.value)}
-                  placeholder="e.g., M1, B1"
-                />
-              </div>
-
-              <div className="col-md-6">
-                <label className="form-label">Tranche IDs (comma-separated)</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  value={newMappingValues}
-                  onChange={(e) => setNewMappingValues(e.target.value)}
-                  placeholder="e.g., 1M1, 2M1, M1"
-                />
-              </div>
-
-              <div className="col-md-2">
-                <label className="form-label">&nbsp;</label>
-                <button
-                  type="button"
-                  className="btn btn-primary w-100"
-                  onClick={addTrancheMapping}
-                >
-                  Add
-                </button>
-              </div>
-
-              {/* Existing Mappings */}
-              {Object.keys(form.tranche_mappings).length > 0 && (
-                <div className="col-12">
-                  <div className="table-responsive">
-                    <table className="table table-sm">
-                      <thead>
-                        <tr>
-                          <th>Suffix</th>
-                          <th>Tranche IDs</th>
-                          <th style={{ width: '80px' }}>Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Object.entries(form.tranche_mappings).map(([suffix, trancheIds]) => (
-                          <tr key={suffix}>
-                            <td><strong>{suffix}</strong></td>
-                            <td>{trancheIds.join(', ')}</td>
-                            <td>
-                              <button
-                                type="button"
-                                className="btn btn-sm btn-outline-danger"
-                                onClick={() => removeTrancheMapping(suffix)}
-                              >
-                                Remove
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+              {/* Deal-level information */}
+              {form.group_level === 'deal' && (
+                <div className="col-12 mt-4">
+                  <div className="alert alert-info">
+                    <i className="bi bi-info-circle me-2"></i>
+                    <strong>Deal-Level Calculation:</strong> This variable will return one value per deal without tranche breakdown. 
+                    The variable pattern should be the exact CDI variable name as it appears in the database.
                   </div>
                 </div>
               )}
@@ -448,16 +432,26 @@ const CDIVariableModal: React.FC<CDIVariableModalProps> = ({
 
           <div className="modal-footer">
             <button type="button" className="btn btn-secondary" onClick={handleClose}>
+              <i className="bi bi-x-circle me-2"></i>
               Cancel
             </button>
-            <button
-              type="button"
+            <button 
+              type="button" 
               className="btn btn-primary"
               onClick={handleSave}
-              disabled={isSaving || configLoading}
+              disabled={isSaving}
             >
-              {isSaving && <i className="bi bi-arrow-clockwise spin me-2"></i>}
-              {isEditMode ? 'Update' : 'Create'} CDI Variable
+              {isSaving ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <i className="bi bi-save me-2"></i>
+                  Save Variable
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -472,8 +466,8 @@ function formHasContent(form: CDIVariableForm): boolean {
     form.name?.trim() ||
     form.description?.trim() ||
     form.variable_pattern?.trim() ||
-    form.variable_type?.trim() ||
     form.result_column_name?.trim() ||
+    form.group_level ||
     Object.keys(form.tranche_mappings).length > 0
   );
 }
@@ -483,8 +477,8 @@ function formHasChanges(current: CDIVariableForm, original: CDIVariableResponse)
     current.name !== original.name ||
     current.description !== (original.description || '') ||
     current.variable_pattern !== original.variable_pattern ||
-    current.variable_type !== original.variable_type ||
     current.result_column_name !== original.result_column_name ||
+    current.group_level !== original.group_level ||
     JSON.stringify(current.tranche_mappings) !== JSON.stringify(original.tranche_mappings)
   );
 }

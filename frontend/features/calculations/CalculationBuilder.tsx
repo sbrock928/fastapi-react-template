@@ -25,7 +25,6 @@ const CalculationBuilder: React.FC = () => {
   const {
     userCalculations,
     systemCalculations,
-    summary,
     isLoading: calculationsLoading,
     refetch: refetchCalculations
   } = useUnifiedCalculations();
@@ -327,7 +326,25 @@ const CalculationBuilder: React.FC = () => {
 
   // Get CDI variable count safely
   const getCDIVariableCount = () => {
-    return (summary as any)?.cdi_variable_count || 0;
+    // Count CDI variables from system calculations (those with metadata_config.calculation_type === 'cdi_variable')
+    return systemCalculations.filter(calc => {
+      const isCDIVariable = calc.metadata_config && 
+                           calc.metadata_config.calculation_type === 'cdi_variable';
+      return calc.calculation_type === 'SYSTEM_SQL' && isCDIVariable;
+    }).length;
+  };
+
+  // Calculate filtered counts for tab badges
+  const getSystemSqlCount = () => {
+    // Filter out CDI variables from system calculations
+    return systemCalculations.filter(calc => {
+      // Check if this is a CDI variable by looking at metadata_config
+      const isCDIVariable = calc.metadata_config && 
+                           calc.metadata_config.calculation_type === 'cdi_variable';
+      
+      // Only count if it's a system SQL calculation AND not a CDI variable
+      return calc.calculation_type === 'SYSTEM_SQL' && !isCDIVariable;
+    }).length;
   };
 
   return (
@@ -339,44 +356,6 @@ const CalculationBuilder: React.FC = () => {
           <p className="text-muted mb-0">Create and manage calculations for reporting</p>
         </div>
       </div>
-
-      {/* Calculation Statistics - now using summary from unified endpoint */}
-      {isConfigAvailable() && (
-        <div className="card bg-light mt-4 mb-4">
-          <div className="card-body">
-            <h6 className="card-title text-center mb-3">
-              <i className="bi bi-bar-chart me-2"></i>
-              Calculation Statistics
-            </h6>
-            <div className="row text-center">
-              <div className="col-md-2">
-                <div className="h4 mb-0 text-primary">{summary.user_calculation_count}</div>
-                <small className="text-muted">User Calculations</small>
-              </div>
-              <div className="col-md-2">
-                <div className="h4 mb-0 text-info">{summary.user_in_use_count}</div>
-                <small className="text-muted">User In Use</small>
-              </div>
-              <div className="col-md-2">
-                <div className="h4 mb-0 text-success">{summary.system_calculation_count}</div>
-                <small className="text-muted">System Calculations</small>
-              </div>
-              <div className="col-md-2">
-                <div className="h4 mb-0 text-warning">{summary.system_in_use_count}</div>
-                <small className="text-muted">System In Use</small>
-              </div>
-              <div className="col-md-2">
-                <div className="h4 mb-0 text-secondary">{getCDIVariableCount()}</div>
-                <small className="text-muted">CDI Variables</small>
-              </div>
-              <div className="col-md-2">
-                <div className="h4 mb-0 text-dark">{summary.total_calculations}</div>
-                <small className="text-muted">Total</small>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Configuration Error State */}
       {configError && (
@@ -443,16 +422,6 @@ const CalculationBuilder: React.FC = () => {
                     <span className="badge bg-primary ms-2">{userCalculations.length}</span>
                   </button>
                   <button
-                    className={`nav-link ${activeTab === 'system-defined' ? 'active' : ''}`}
-                    type="button"
-                    onClick={() => handleTabSwitch('system-defined')}
-                    disabled={hasUnsavedChanges}
-                  >
-                    <i className="bi bi-gear-fill me-2"></i>
-                    System Defined Calculations
-                    <span className="badge bg-primary ms-2">{systemCalculations.length}</span>
-                  </button>
-                  <button
                     className={`nav-link ${activeTab === 'cdi-variables' ? 'active' : ''}`}
                     type="button"
                     onClick={() => handleTabSwitch('cdi-variables')}
@@ -460,8 +429,19 @@ const CalculationBuilder: React.FC = () => {
                   >
                     <i className="bi bi-diagram-3 me-2"></i>
                     CDI Variables
-                    <span className="badge bg-secondary ms-2">{getCDIVariableCount()}</span>
+                    <span className="badge bg-primary ms-2">{getCDIVariableCount()}</span>
                   </button>
+                  <button
+                    className={`nav-link ${activeTab === 'system-defined' ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => handleTabSwitch('system-defined')}
+                    disabled={hasUnsavedChanges}
+                  >
+                    <i className="bi bi-gear-fill me-2"></i>
+                    System Defined Calculations
+                    <span className="badge bg-primary ms-2">{getSystemSqlCount()}</span>
+                  </button>
+
                 </div>
               </nav>
             </div>

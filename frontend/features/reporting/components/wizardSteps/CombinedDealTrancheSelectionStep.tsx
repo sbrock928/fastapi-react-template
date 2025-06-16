@@ -50,6 +50,9 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
   const [expandedDeals, setExpandedDeals] = useState<Set<number>>(new Set());
   const [trancheSearchTerms, setTrancheSearchTerms] = useState<Record<number, string>>({});
 
+  // NEW: State to cache deal information for selected deals
+  const [dealInfoCache, setDealInfoCache] = useState<Record<number, Deal>>({});
+
   // Load issuer codes using our anti-spam hook
   const {
     data: issuerCodes,
@@ -111,17 +114,24 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
 
   // Create tree items from selected deals
   const treeItems = useMemo<DealTrancheTreeItem[]>(() => {
+    console.log(`🔍 Creating tree items for ${selectedDeals.length} selected deals:`, selectedDeals);
+    console.log(`📊 Tranches data:`, tranches);
+    console.log(`🎯 Selected tranches:`, selectedTranches);
+    
     return selectedDeals.map(dlNbr => {
       const dealTranches = tranches[dlNbr] || [];
       const selectedTrancheIds = selectedTranches[dlNbr] || [];
       
-      // Find the deal info from search results or create a placeholder
-      const deal: Deal = dealSearchResults.find(d => d.dl_nbr === dlNbr) || {
-        dl_nbr: dlNbr,
-        issr_cde: 'Unknown',
-        cdi_file_nme: 'Unknown',
-        CDB_cdi_file_nme: 'Unknown' // Changed from null to string to match Deal type
-      };
+      console.log(`  - Deal ${dlNbr}: ${dealTranches.length} tranches, ${selectedTrancheIds.length} selected`);
+      
+      // First try to get deal info from cache, then from search results, then create placeholder
+      const deal: Deal = dealInfoCache[dlNbr] || 
+        dealSearchResults.find(d => d.dl_nbr === dlNbr) || {
+          dl_nbr: dlNbr,
+          issr_cde: 'Loading...',
+          cdi_file_nme: 'Loading...',
+          CDB_cdi_file_nme: null
+        };
 
       return {
         dlNbr,
@@ -132,7 +142,66 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
         tranches: dealTranches
       };
     });
-  }, [selectedDeals, tranches, selectedTranches, expandedDeals, dealSearchResults]);
+  }, [selectedDeals, tranches, selectedTranches, expandedDeals, dealSearchResults, dealInfoCache]);
+
+  // DEBUG: Add an effect to log when tranches prop changes
+  useEffect(() => {
+    console.log(`🔄 Tranches prop updated:`, tranches);
+  }, [tranches]);
+
+  // DEBUG: Add an effect to log when selectedTranches prop changes  
+  useEffect(() => {
+    console.log(`🎯 SelectedTranches prop updated:`, selectedTranches);
+  }, [selectedTranches]);
+
+  // Update deal info cache when search results change
+  useEffect(() => {
+    dealSearchResults.forEach(deal => {
+      if (selectedDeals.includes(deal.dl_nbr)) {
+        setDealInfoCache(prev => ({
+          ...prev,
+          [deal.dl_nbr]: deal
+        }));
+      }
+    });
+  }, [dealSearchResults, selectedDeals]);
+
+  // NEW: Load deal information for selected deals that aren't in cache
+  useEffect(() => {
+    const loadMissingDealInfo = async () => {
+      const missingDeals = selectedDeals.filter(dlNbr => !dealInfoCache[dlNbr]);
+      
+      if (missingDeals.length === 0) return;
+
+      try {
+        // NEW EFFICIENT APPROACH: Use the new API endpoint to fetch deals by numbers directly
+        console.log(`Loading deal info for ${missingDeals.length} deals: ${missingDeals.join(', ')}`);
+        const response = await reportingApi.getDealsByNumbers(missingDeals);
+        const foundDeals = response.data;
+
+        // Update cache with found deals
+        const newCacheEntries: Record<number, Deal> = {};
+        foundDeals.forEach(deal => {
+          newCacheEntries[deal.dl_nbr] = deal;
+        });
+
+        if (Object.keys(newCacheEntries).length > 0) {
+          setDealInfoCache(prev => ({
+            ...prev,
+            ...newCacheEntries
+          }));
+          console.log(`✅ Loaded deal info for ${Object.keys(newCacheEntries).length} deals efficiently`);
+        }
+      } catch (error) {
+        console.error('Error loading deal information:', error);
+      }
+    };
+
+    // Only run if there are selected deals missing from cache
+    if (selectedDeals.length > 0) {
+      loadMissingDealInfo();
+    }
+  }, [selectedDeals]); // FIXED: Removed dealInfoCache from dependencies to prevent infinite loops
 
   // Handle deal addition
   const handleAddDeal = (deal: Deal) => {

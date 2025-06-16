@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Request throttling map to prevent spam
 const requestThrottleMap = new Map<string, number>();
-const THROTTLE_DELAY = 200; // Increased to 200ms to better handle StrictMode double-renders
+const THROTTLE_DELAY = 50; // Decreased to 50ms for less aggressive throttling
 
 // Create axios instance with common configuration
 const apiClient = axios.create({
@@ -21,32 +21,16 @@ apiClient.interceptors.request.use(
       return config;
     }
 
-    // Create a throttle key for this request
-    const throttleKey = `${config.method?.toUpperCase()}_${config.url}_${JSON.stringify(config.params || {})}`;
+    // Create a throttle key for this request - include timestamp to make keys more unique
+    const throttleKey = `${config.method?.toUpperCase()}_${config.url}_${JSON.stringify(config.params || {})}_${config.data ? JSON.stringify(config.data) : ''}`;
     const now = Date.now();
     const lastRequest = requestThrottleMap.get(throttleKey);
     
-    // Throttle identical requests - but handle it more gracefully
+    // Only throttle if the EXACT same request was made very recently (within THROTTLE_DELAY)
+    // This is much more lenient and won't interfere with legitimate requests
     if (lastRequest && (now - lastRequest) < THROTTLE_DELAY) {
-      // In development mode (React.StrictMode), don't log warnings for throttled requests
-      // as they're expected due to double-rendering
-      if (process.env.NODE_ENV === 'development') {
-        // Silently throttle by returning a resolved promise with empty data
-        // This prevents error messages while still preventing spam
-        return Promise.resolve({
-          ...config,
-          adapter: () => Promise.resolve({
-            data: { data: [] }, // Return empty data structure
-            status: 200,
-            statusText: 'OK (Throttled)',
-            headers: {},
-            config
-          })
-        });
-      } else {
-        console.warn(`Throttling duplicate request: ${throttleKey}`);
-        return Promise.reject(new Error('Request throttled - too many identical requests'));
-      }
+      console.warn(`Throttling duplicate request: ${throttleKey}`);
+      return Promise.reject(new Error('Request throttled - too many identical requests'));
     }
     
     requestThrottleMap.set(throttleKey, now);

@@ -63,36 +63,6 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
     calculationsLoading
   } = useReportBuilderData({ reportScope });
 
-  // NEW: Function to load tranches for a deal
-  const loadTranchesForDeal = async (dlNbr: number) => {
-    try {
-      setTranchesLoading(true);
-      const response = await reportingApi.getDealTranches(dlNbr);
-      const dealTranches = response.data;
-      
-      // Update tranches state
-      setTranches(prev => ({
-        ...prev,
-        [dlNbr]: dealTranches
-      }));
-      
-      // Auto-select all tranches by default (only for new deals, not when editing)
-      if (!isEditMode) {
-        const allTrancheIds = dealTranches.map(t => t.tr_id);
-        setSelectedTranches(prev => ({
-          ...prev,
-          [dlNbr]: allTrancheIds
-        }));
-      }
-      
-    } catch (error: any) {
-      console.error('Error loading tranches for deal:', dlNbr, error);
-      showToast(`Failed to load tranches for deal ${dlNbr}`, 'error');
-    } finally {
-      setTranchesLoading(false);
-    }
-  };
-
   // NEW: Load tranches for existing deals when editing
   useEffect(() => {
     if (isEditMode && editingReport && selectedDeals.length > 0) {
@@ -100,8 +70,18 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
         try {
           setTranchesLoading(true);
           
-          // Load tranches for all selected deals
-          const tranchePromises = selectedDeals.map(async (dlNbr) => {
+          // Only load tranches for deals that don't already have them loaded
+          const dealsNeedingTranches = selectedDeals.filter(dlNbr => !tranches[dlNbr] || tranches[dlNbr].length === 0);
+          
+          if (dealsNeedingTranches.length === 0) {
+            console.log('📋 All deals already have tranches loaded, skipping...');
+            return;
+          }
+          
+          console.log(`📋 Loading tranches for ${dealsNeedingTranches.length} deals in edit mode:`, dealsNeedingTranches);
+          
+          // Load tranches for deals that need them
+          const tranchePromises = dealsNeedingTranches.map(async (dlNbr) => {
             try {
               const response = await reportingApi.getDealTranches(dlNbr);
               return { dlNbr, tranches: response.data };
@@ -114,12 +94,13 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
           const results = await Promise.all(tranchePromises);
           
           // Update tranches state with all loaded data
-          const newTranches: Record<number, TrancheReportSummary[]> = {};
-          results.forEach(({ dlNbr, tranches }) => {
-            newTranches[dlNbr] = tranches;
+          const newTranches: Record<number, TrancheReportSummary[]> = { ...tranches };
+          results.forEach(({ dlNbr, tranches: dealTranches }) => {
+            newTranches[dlNbr] = dealTranches;
           });
           
           setTranches(newTranches);
+          console.log(`✅ Loaded tranches for ${results.length} deals in edit mode`);
           
         } catch (error) {
           console.error('Error loading tranches for editing:', error);
@@ -131,7 +112,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       
       loadAllTranches();
     }
-  }, [isEditMode, editingReport, selectedDeals, showToast]);
+  }, [isEditMode, editingReport, selectedDeals, showToast]); // Removed tranches from dependencies to prevent conflicts
 
   // Validation and navigation
   const formState = {
@@ -161,11 +142,51 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       return;
     }
 
-    // Add the deal to selected deals
-    setSelectedDeals((prev: number[]) => [...prev, dlNbr]);
+    console.log(`🎯 Adding deal ${dlNbr} to selected deals...`);
     
-    // Load tranches for the new deal
-    await loadTranchesForDeal(dlNbr);
+    try {
+      // Load tranches FIRST, then update state all at once to prevent race conditions
+      console.log(`🔄 Loading tranches for deal ${dlNbr} before adding to state...`);
+      setTranchesLoading(true);
+      const response = await reportingApi.getDealTranches(dlNbr);
+      const dealTranches = response.data;
+      
+      console.log(`✅ Loaded ${dealTranches.length} tranches for deal ${dlNbr}:`, dealTranches.map(t => t.tr_id));
+      
+      // Update all state in a single batch to prevent race conditions
+      setSelectedDeals((prev: number[]) => {
+        const newSelected = [...prev, dlNbr];
+        console.log(`📝 Updated selectedDeals:`, newSelected);
+        return newSelected;
+      });
+      
+      setTranches(prev => {
+        const updated = {
+          ...prev,
+          [dlNbr]: dealTranches
+        };
+        console.log(`📊 Updated tranches state:`, updated);
+        return updated;
+      });
+      
+      // Auto-select all tranches by default (only for new deals, not when editing)
+      if (!isEditMode && dealTranches.length > 0) {
+        const allTrancheIds = dealTranches.map(t => t.tr_id);
+        console.log(`🎯 Auto-selecting ${allTrancheIds.length} tranches for deal ${dlNbr}:`, allTrancheIds);
+        setSelectedTranches(prev => ({
+          ...prev,
+          [dlNbr]: allTrancheIds
+        }));
+      }
+      
+      console.log(`✅ Finished adding deal ${dlNbr}`);
+      
+    } catch (error: any) {
+      console.error('❌ Error adding deal:', dlNbr, error);
+      showToast(`Failed to load tranches for deal ${dlNbr}`, 'error');
+    } finally {
+      setTranchesLoading(false);
+    }
   };
 
   // Handle deal removal

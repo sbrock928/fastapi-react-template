@@ -1,4 +1,4 @@
-# app/calculations/cdi_service.py - UPDATED VERSION USING SQLALCHEMY MODELS
+# app/calculations/cdi_service.py - FIXED VERSION SUPPORTING BOTH DEAL AND TRANCHE LEVEL
 """Service for handling CDI Variable calculations with SQLAlchemy models"""
 
 from typing import Dict, List, Optional, Any, Tuple
@@ -14,9 +14,8 @@ from .cdi_schemas import CDIVariableCreate, CDIVariableResponse, CDIVariableUpda
 from app.datawarehouse.models import DealCdiVarRpt, TrancheBal
 
 
-
 class CDIVariableCalculationService:
-    """Service for managing CDI Variable calculations using SystemCalculation framework and SQLAlchemy models"""
+    """Service for managing CDI Variable calculations supporting both deal and tranche level"""
     
     def __init__(self, dw_db: Session, config_db: Session, system_calc_service: SystemCalculationService):
         self.dw_db = dw_db
@@ -26,20 +25,28 @@ class CDIVariableCalculationService:
     # ===== CDI VARIABLE CRUD OPERATIONS =====
     
     def create_cdi_variable_calculation(self, request: CDIVariableCreate, created_by: str) -> CDIVariableResponse:
-        """Create a new CDI variable calculation"""
+        """Create a new CDI variable calculation - FIXED to support both deal and tranche level"""
+        
+        # FIXED: Don't force tranche level - respect the request
+        if not hasattr(request, 'group_level') or not request.group_level:
+            # Default based on whether tranche mappings are provided
+            default_level = GroupLevel.TRANCHE if request.tranche_mappings else GroupLevel.DEAL
+        else:
+            default_level = GroupLevel(request.group_level)
         
         # Generate the metadata config for CDI variables
         metadata_config = {
             "calculation_type": "cdi_variable",
             "variable_pattern": request.variable_pattern,
-            "variable_type": request.variable_type,
-            "tranche_mappings": request.tranche_mappings,
-            "description": f"CDI Variable calculation for {request.variable_type}",
-            "required_models": ["Deal", "TrancheBal", "DealCdiVarRpt"],  # Updated to include CDI model
+            "group_level": default_level.value,  # Store the actual level
+            "tranche_mappings": request.tranche_mappings if default_level == GroupLevel.TRANCHE else {},
+            "description": f"CDI Variable calculation",
+            "required_models": self._get_required_models(default_level),
             "performance_hints": {
                 "complexity": "medium",
                 "estimated_rows": 1000,
-                "uses_orm": True  # Flag that this uses SQLAlchemy models
+                "uses_orm": True,
+                "is_deal_level": default_level == GroupLevel.DEAL
             }
         }
         
@@ -48,9 +55,9 @@ class CDIVariableCalculationService:
         system_calc_request = SystemCalculationCreate(
             name=request.name,
             description=request.description,
-            raw_sql=self._generate_placeholder_sql(request.variable_pattern),  # Placeholder - real SQL generated at runtime
+            raw_sql=self._generate_placeholder_sql(request.variable_pattern, default_level),
             result_column_name=request.result_column_name,
-            group_level=GroupLevel.TRANCHE,  # CDI variables are always tranche-level
+            group_level=default_level,  # FIXED: Use the actual level, not hardcoded TRANCHE
             metadata_config=metadata_config
         )
         
@@ -61,14 +68,14 @@ class CDIVariableCalculationService:
             name=system_calc.name,
             description=system_calc.description,
             variable_pattern=request.variable_pattern,
-            variable_type=request.variable_type,
             result_column_name=system_calc.result_column_name,
-            tranche_mappings=request.tranche_mappings,
+            group_level=default_level.value,  # Include group level in response
+            tranche_mappings=request.tranche_mappings if default_level == GroupLevel.TRANCHE else {},
             created_by=system_calc.created_by,
             created_at=system_calc.created_at,
             is_active=system_calc.is_active
         )
-    
+
     def get_cdi_variable_calculation(self, calc_id: int) -> Optional[CDIVariableResponse]:
         """Get a CDI variable calculation by ID"""
         system_calc = self.system_calc_service.get_system_calculation_by_id(calc_id)
@@ -80,7 +87,7 @@ class CDIVariableCalculationService:
     
     def get_all_cdi_variable_calculations(self) -> List[CDIVariableResponse]:
         """Get all CDI variable calculations"""
-        all_system_calcs = self.system_calc_service.get_all_system_calculations(group_level="tranche")
+        all_system_calcs = self.system_calc_service.get_all_system_calculations()
         
         cdi_calcs = [
             self._convert_to_cdi_response(calc) 
@@ -89,7 +96,7 @@ class CDIVariableCalculationService:
         ]
         
         return cdi_calcs
-    
+
     def update_cdi_variable_calculation(self, calc_id: int, request: CDIVariableUpdate) -> CDIVariableResponse:
         """Update an existing CDI variable calculation"""
         
@@ -102,10 +109,10 @@ class CDIVariableCalculationService:
         metadata_config = existing_calc.metadata_config.copy()
         if request.variable_pattern:
             metadata_config["variable_pattern"] = request.variable_pattern
-        if request.variable_type:
-            metadata_config["variable_type"] = request.variable_type
-        if request.tranche_mappings:
+        if request.tranche_mappings is not None:
             metadata_config["tranche_mappings"] = request.tranche_mappings
+        if hasattr(request, 'group_level') and request.group_level:
+            metadata_config["group_level"] = request.group_level
         
         # Create system calculation update request
         from .schemas import SystemCalculationUpdate
@@ -119,11 +126,11 @@ class CDIVariableCalculationService:
         updated_calc = self.system_calc_service.update_system_calculation(calc_id, system_update)
         return self._convert_to_cdi_response(updated_calc)
     
-    # ===== EXECUTION METHODS USING SQLALCHEMY MODELS =====
+    # ===== EXECUTION METHODS SUPPORTING BOTH LEVELS =====
     
     def execute_cdi_variable_calculation(self, calc_id: int, cycle_code: int, 
                                        deal_numbers: List[int]) -> pd.DataFrame:
-        """Execute a CDI variable calculation using SQLAlchemy models"""
+        """Execute a CDI variable calculation - FIXED to support both deal and tranche level"""
         
         system_calc = self.system_calc_service.get_system_calculation_by_id(calc_id)
         if not system_calc or not self._is_cdi_variable_calculation(system_calc):
@@ -131,31 +138,73 @@ class CDIVariableCalculationService:
         
         metadata = system_calc.metadata_config
         variable_pattern = metadata["variable_pattern"]
-        tranche_mappings = metadata["tranche_mappings"]
+        group_level = GroupLevel(metadata.get("group_level", "tranche"))
         
         try:
-            # Use SQLAlchemy models instead of raw SQL
-            result_data = self._execute_using_models(
-                variable_pattern, tranche_mappings, cycle_code, deal_numbers
-            )
+            if group_level == GroupLevel.DEAL:
+                # DEAL-LEVEL: Query CDI variables directly without tranche join
+                result_data = self._execute_deal_level(variable_pattern, cycle_code, deal_numbers)
+            else:
+                # TRANCHE-LEVEL: Query with tranche mappings (original approach)
+                tranche_mappings = metadata["tranche_mappings"]
+                result_data = self._execute_tranche_level(variable_pattern, tranche_mappings, cycle_code, deal_numbers)
             
             # Convert to DataFrame
             if result_data:
                 result_df = pd.DataFrame(result_data)
                 # Ensure consistent column naming
-                result_df = result_df.rename(columns={'variable_value': system_calc.result_column_name})
+                if 'variable_value' in result_df.columns:
+                    result_df = result_df.rename(columns={'variable_value': system_calc.result_column_name})
             else:
                 # Return empty DataFrame with expected columns
-                result_df = pd.DataFrame(columns=['dl_nbr', 'tr_id', 'cycle_cde', system_calc.result_column_name])
+                base_columns = ['dl_nbr', 'cycle_cde', system_calc.result_column_name]
+                if group_level == GroupLevel.TRANCHE:
+                    base_columns.insert(1, 'tr_id')
+                result_df = pd.DataFrame(columns=base_columns)
             
             return result_df
             
         except Exception as e:
             raise InvalidCalculationError(f"Error executing CDI variable calculation: {str(e)}")
     
-    def _execute_using_models(self, variable_pattern: str, tranche_mappings: Dict[str, List[str]], 
-                            cycle_code: int, deal_numbers: List[int]) -> List[Dict]:
-        """Execute CDI variable calculation using SQLAlchemy models instead of raw SQL"""
+    def _execute_deal_level(self, variable_pattern: str, cycle_code: int, deal_numbers: List[int]) -> List[Dict]:
+        """Execute deal-level CDI variable calculation (NEW)"""
+        
+        # For deal-level variables, we don't use tranche suffix replacement
+        # The variable pattern should be the exact variable name
+        if '{tranche_suffix}' in variable_pattern:
+            raise InvalidCalculationError(
+                "Deal-level CDI variables should not contain {tranche_suffix} placeholder"
+            )
+        
+        variable_name = variable_pattern
+        
+        # Query CDI variables directly without tranche join
+        cdi_vars = (
+            self.dw_db.query(DealCdiVarRpt)
+            .filter(
+                DealCdiVarRpt.dl_nbr.in_(deal_numbers),
+                DealCdiVarRpt.cycle_cde == cycle_code,
+                DealCdiVarRpt.dl_cdi_var_nme == variable_name.ljust(32)  # Account for CHAR(32) padding
+            )
+            .all()
+        )
+        
+        # Convert to result format (no tr_id for deal-level)
+        results = []
+        for cdi_var in cdi_vars:
+            results.append({
+                'dl_nbr': cdi_var.dl_nbr,
+                'cycle_cde': cdi_var.cycle_cde,
+                'variable_value': cdi_var.numeric_value,
+                'variable_name': cdi_var.variable_name
+            })
+        
+        return results
+    
+    def _execute_tranche_level(self, variable_pattern: str, tranche_mappings: Dict[str, List[str]], 
+                             cycle_code: int, deal_numbers: List[int]) -> List[Dict]:
+        """Execute tranche-level CDI variable calculation (EXISTING LOGIC)"""
         
         all_results = []
         
@@ -194,15 +243,134 @@ class CDIVariableCalculationService:
                         'dl_nbr': cdi_var.dl_nbr,
                         'tr_id': tranche.tr_id,
                         'cycle_cde': cdi_var.cycle_cde,
-                        'variable_value': cdi_var.numeric_value,  # Use the model property for numeric conversion
+                        'variable_value': cdi_var.numeric_value,
                         'tranche_type': tranche_suffix,
-                        'variable_name': cdi_var.variable_name  # Trimmed variable name
+                        'variable_name': cdi_var.variable_name
                     })
         
         return all_results
     
     # ===== DISCOVERY AND VALIDATION METHODS =====
     
+    def discover_deal_level_variables(self, cycle_code: int, deal_numbers: List[int] = None, 
+                                    pattern_prefix: str = "#RPT_") -> List[Dict[str, Any]]:
+        """Discover deal-level CDI variables (NEW)"""
+        
+        query = self.dw_db.query(
+            DealCdiVarRpt.dl_cdi_var_nme.distinct(),
+            DealCdiVarRpt.dl_nbr.label('sample_deal')
+        ).filter(
+            DealCdiVarRpt.cycle_cde == cycle_code,
+            DealCdiVarRpt.dl_cdi_var_nme.like(f"{pattern_prefix}%")
+        )
+        
+        if deal_numbers:
+            query = query.filter(DealCdiVarRpt.dl_nbr.in_(deal_numbers))
+        
+        results = query.all()
+        
+        # Check which variables are deal-level vs tranche-level
+        deal_level_vars = []
+        
+        for var_name, sample_deal in results:
+            var_name_clean = var_name.strip()
+            
+            # Check if this variable appears without corresponding tranche data
+            # (i.e., it's truly deal-level)
+            tranche_check = (
+                self.dw_db.query(DealCdiVarRpt)
+                .join(TrancheBal, and_(
+                    DealCdiVarRpt.dl_nbr == TrancheBal.dl_nbr,
+                    DealCdiVarRpt.cycle_cde == TrancheBal.cycle_cde
+                ))
+                .filter(
+                    DealCdiVarRpt.dl_cdi_var_nme == var_name,
+                    DealCdiVarRpt.cycle_cde == cycle_code,
+                    DealCdiVarRpt.dl_nbr == sample_deal
+                )
+                .count()
+            )
+            
+            direct_check = (
+                self.dw_db.query(DealCdiVarRpt)
+                .filter(
+                    DealCdiVarRpt.dl_cdi_var_nme == var_name,
+                    DealCdiVarRpt.cycle_cde == cycle_code,
+                    DealCdiVarRpt.dl_nbr == sample_deal
+                )
+                .count()
+            )
+            
+            # If direct query returns more records than tranche join, it's likely deal-level
+            is_likely_deal_level = direct_check > 0 and (tranche_check == 0 or direct_check > tranche_check * 2)
+            
+            if is_likely_deal_level:
+                deal_level_vars.append({
+                    'variable_name': var_name_clean,
+                    'sample_deal': sample_deal,
+                    'appears_deal_level': True,
+                    'direct_records': direct_check,
+                    'tranche_joined_records': tranche_check
+                })
+        
+        return deal_level_vars
+    
+    def analyze_cdi_variable_level(self, variable_name: str, cycle_code: int, 
+                                 deal_numbers: List[int]) -> Dict[str, Any]:
+        """Analyze whether a CDI variable is deal-level or tranche-level (NEW)"""
+        
+        padded_name = variable_name.ljust(32)
+        
+        # Query direct CDI records
+        direct_records = (
+            self.dw_db.query(DealCdiVarRpt)
+            .filter(
+                DealCdiVarRpt.dl_cdi_var_nme == padded_name,
+                DealCdiVarRpt.cycle_cde == cycle_code,
+                DealCdiVarRpt.dl_nbr.in_(deal_numbers)
+            )
+            .count()
+        )
+        
+        # Query records that can be joined to tranches
+        tranche_joined_records = (
+            self.dw_db.query(DealCdiVarRpt)
+            .join(TrancheBal, and_(
+                DealCdiVarRpt.dl_nbr == TrancheBal.dl_nbr,
+                DealCdiVarRpt.cycle_cde == TrancheBal.cycle_cde
+            ))
+            .filter(
+                DealCdiVarRpt.dl_cdi_var_nme == padded_name,
+                DealCdiVarRpt.cycle_cde == cycle_code,
+                DealCdiVarRpt.dl_nbr.in_(deal_numbers)
+            )
+            .count()
+        )
+        
+        # Analyze the pattern
+        if direct_records == 0:
+            level_suggestion = "no_data"
+        elif tranche_joined_records == 0:
+            level_suggestion = "deal_level"
+        elif direct_records == tranche_joined_records:
+            level_suggestion = "tranche_level" 
+        elif direct_records > tranche_joined_records:
+            level_suggestion = "mixed_or_deal_level"
+        else:
+            level_suggestion = "unknown"
+        
+        return {
+            'variable_name': variable_name,
+            'direct_records': direct_records,
+            'tranche_joined_records': tranche_joined_records,
+            'suggested_level': level_suggestion,
+            'analysis': {
+                'has_data': direct_records > 0,
+                'can_join_tranches': tranche_joined_records > 0,
+                'ratio': direct_records / max(tranche_joined_records, 1)
+            }
+        }
+
     def discover_available_variables(self, cycle_code: int, deal_numbers: List[int] = None, 
                                    pattern_prefix: str = "#RPT_") -> Dict[str, List[str]]:
         """Discover available CDI variables in the datawarehouse"""
@@ -230,7 +398,7 @@ class CDIVariableCalculationService:
                     grouped_vars[pattern_type].append(var_name)
         
         return grouped_vars
-    
+
     def validate_tranche_mappings(self, tranche_mappings: Dict[str, List[str]], 
                                 cycle_code: int, deal_numbers: List[int]) -> Dict[str, Any]:
         """Validate that tranche mappings have corresponding data in the datawarehouse"""
@@ -270,6 +438,31 @@ class CDIVariableCalculationService:
     
     # ===== UTILITY METHODS =====
     
+    def _get_required_models(self, group_level: GroupLevel) -> List[str]:
+        """Get required models based on group level"""
+        if group_level == GroupLevel.DEAL:
+            return ["Deal", "DealCdiVarRpt"]
+        else:
+            return ["Deal", "TrancheBal", "DealCdiVarRpt"]
+    
+    def _generate_placeholder_sql(self, variable_pattern: str, group_level: GroupLevel) -> str:
+        """Generate placeholder SQL for SystemCalculation storage"""
+        if group_level == GroupLevel.DEAL:
+            return f"""SELECT 
+                dl_nbr,
+                cycle_cde,
+                0.0 as calculated_value
+            FROM dbo.deal_cdi_var_rpt 
+            WHERE 1=0"""
+        else:
+            return f"""SELECT 
+                dl_nbr,
+                'placeholder' as tr_id, 
+                cycle_cde,
+                0.0 as calculated_value
+            FROM dbo.deal_cdi_var_rpt 
+            WHERE 1=0"""
+    
     def _is_cdi_variable_calculation(self, system_calc: SystemCalculation) -> bool:
         """Check if a SystemCalculation is a CDI variable calculation"""
         return (
@@ -286,60 +479,14 @@ class CDIVariableCalculationService:
             name=system_calc.name,
             description=system_calc.description,
             variable_pattern=metadata.get("variable_pattern", ""),
-            variable_type=metadata.get("variable_type", ""),
             result_column_name=system_calc.result_column_name,
+            group_level=metadata.get("group_level", "tranche"),  # Include group level
             tranche_mappings=metadata.get("tranche_mappings", {}),
             created_by=system_calc.created_by,
             created_at=system_calc.created_at,
             is_active=system_calc.is_active
         )
-    
-    def _generate_placeholder_sql(self, variable_pattern: str) -> str:
-        """Generate placeholder SQL for SystemCalculation storage"""
-        return """SELECT 
-    d.dl_nbr,
-    t.tr_id, 
-    tb.cycle_cde,
-    0.0 as calculated_value
-FROM deal d
-JOIN tranche t ON d.dl_nbr = t.dl_nbr
-JOIN tranchebal tb ON t.dl_nbr = tb.dl_nbr AND t.tr_id = tb.tr_id
-WHERE 1=0"""
 
-    def _generate_dynamic_sql(self, variable_pattern: str, tranche_mappings: Dict[str, List[str]], 
-                            cycle_code: int, deal_numbers: List[int]) -> str:
-        """Generate dynamic SQL for validation purposes (used by validation script)"""
-        
-        # Build UNION ALL query for all tranche suffixes
-        union_parts = []
-        
-        for tranche_suffix, tr_id_list in tranche_mappings.items():
-            variable_name = variable_pattern.replace("{tranche_suffix}", tranche_suffix)
-            tr_id_placeholders = "', '".join(tr_id_list)
-            deal_placeholders = ", ".join(str(deal) for deal in deal_numbers)
-            
-            sql_part = f"""
-            SELECT 
-                cdi.dl_nbr,
-                tb.tr_id,
-                cdi.cycle_cde,
-                CAST(LTRIM(RTRIM(cdi.dl_cdi_var_value)) AS FLOAT) as variable_value,
-                '{tranche_suffix}' as tranche_type,
-                LTRIM(RTRIM(cdi.dl_cdi_var_nme)) as variable_name
-            FROM deal_cdi_var_rpt cdi
-            JOIN tranchebal tb ON cdi.dl_nbr = tb.dl_nbr AND cdi.cycle_cde = tb.cycle_cde
-            WHERE cdi.dl_nbr IN ({deal_placeholders})
-                AND cdi.cycle_cde = {cycle_code}
-                AND LTRIM(RTRIM(cdi.dl_cdi_var_nme)) = '{variable_name}'
-                AND tb.tr_id IN ('{tr_id_placeholders}')"""
-            
-            union_parts.append(sql_part)
-        
-        # Combine all parts with UNION ALL
-        full_sql = " UNION ALL ".join(union_parts)
-        
-        return full_sql
-    
     # ===== CONFIGURATION HELPERS =====
     
     def get_available_variable_patterns(self) -> List[str]:
@@ -368,7 +515,7 @@ WHERE 1=0"""
             "1B1": ["1B1"],
             "2B1": ["2B1"]
         }
-    
+
     # ===== ENHANCED FEATURES WITH MODELS =====
     
     def get_cdi_variable_summary(self, cycle_code: int, deal_numbers: List[int] = None) -> Dict[str, Any]:
@@ -408,3 +555,106 @@ WHERE 1=0"""
             summary["value_ranges"][var_name]["count"] += 1
         
         return summary
+
+    # ===== SQL PREVIEW GENERATION =====
+    
+    def generate_cdi_sql_preview(self, calc_id: int, cycle_code: int, deal_numbers: List[int]) -> Dict[str, Any]:
+        """Generate SQL preview for CDI variable calculation"""
+        
+        system_calc = self.system_calc_service.get_system_calculation_by_id(calc_id)
+        if not system_calc or not self._is_cdi_variable_calculation(system_calc):
+            raise CalculationNotFoundError(f"CDI variable calculation with ID {calc_id} not found")
+        
+        metadata = system_calc.metadata_config
+        variable_pattern = metadata["variable_pattern"]
+        group_level = GroupLevel(metadata.get("group_level", "tranche"))
+        
+        if group_level == GroupLevel.DEAL:
+            return self._generate_deal_level_sql_preview(variable_pattern, cycle_code, deal_numbers)
+        else:
+            tranche_mappings = metadata["tranche_mappings"]
+            return self._generate_tranche_level_sql_preview(variable_pattern, tranche_mappings, cycle_code, deal_numbers)
+    
+    def _generate_deal_level_sql_preview(self, variable_pattern: str, cycle_code: int, deal_numbers: List[int]) -> Dict[str, Any]:
+        """Generate SQL preview for deal-level CDI calculation"""
+        
+        # For deal-level, the pattern should be the exact variable name
+        variable_name = variable_pattern
+        
+        sql = f"""-- Deal-level CDI Variable Query
+-- Variable Pattern: {variable_pattern}
+-- Variable Name: {variable_name}
+
+SELECT 
+    cdi.dl_nbr as "Deal Number",
+    cdi.cycle_cde as "Cycle Code", 
+    cdi.dl_cdi_var_value as variable_value,
+    TRIM(cdi.dl_cdi_var_nme) as variable_name
+FROM dbo.deal_cdi_var_rpt cdi
+WHERE cdi.dl_nbr IN ({', '.join(map(str, deal_numbers))})
+    AND cdi.cycle_cde = {cycle_code}
+    AND TRIM(cdi.dl_cdi_var_nme) = '{variable_name}'
+ORDER BY cdi.dl_nbr"""
+
+        return {
+            "sql": sql,
+            "calculation_type": "deal_level_cdi",
+            "variable_pattern": variable_pattern,
+            "variable_name": variable_name,
+            "estimated_rows": len(deal_numbers)
+        }
+    
+    def _generate_tranche_level_sql_preview(self, variable_pattern: str, tranche_mappings: Dict[str, List[str]], 
+                                          cycle_code: int, deal_numbers: List[int]) -> Dict[str, Any]:
+        """Generate SQL preview for tranche-level CDI calculation"""
+        
+        # Generate individual queries for each tranche suffix
+        union_queries = []
+        variable_names = []
+        
+        for tranche_suffix, tr_id_list in tranche_mappings.items():
+            variable_name = variable_pattern.replace("{tranche_suffix}", tranche_suffix)
+            variable_names.append(variable_name)
+            
+            tr_id_filter = "', '".join(tr_id_list)
+            
+            query = f"""    -- Tranche Suffix: {tranche_suffix} -> Variable: {variable_name}
+    SELECT 
+        cdi.dl_nbr as "Deal Number",
+        tb.tr_id as "Tranche ID",
+        cdi.cycle_cde as "Cycle Code",
+        cdi.dl_cdi_var_value as variable_value,
+        TRIM(cdi.dl_cdi_var_nme) as variable_name,
+        '{tranche_suffix}' as tranche_type
+    FROM dbo.deal_cdi_var_rpt cdi
+    INNER JOIN dbo.tranche_bal tb ON cdi.dl_nbr = tb.dl_nbr 
+        AND cdi.cycle_cde = tb.cycle_cde
+    WHERE cdi.dl_nbr IN ({', '.join(map(str, deal_numbers))})
+        AND cdi.cycle_cde = {cycle_code}
+        AND TRIM(cdi.dl_cdi_var_nme) = '{variable_name}'
+        AND tb.tr_id IN ('{tr_id_filter}')"""
+            
+            union_queries.append(query)
+        
+        # Combine all queries with UNION ALL
+        sql = f"""-- Tranche-level CDI Variable Query
+-- Variable Pattern: {variable_pattern}
+-- Tranche Mappings: {len(tranche_mappings)} suffix mappings
+
+{chr(10).join(union_queries)}
+
+UNION ALL
+
+""".rstrip("UNION ALL\n\n") + """
+ORDER BY "Deal Number", "Tranche ID" """
+
+        estimated_rows = len(deal_numbers) * sum(len(tr_ids) for tr_ids in tranche_mappings.values())
+        
+        return {
+            "sql": sql,
+            "calculation_type": "tranche_level_cdi", 
+            "variable_pattern": variable_pattern,
+            "variable_names": variable_names,
+            "tranche_mappings": tranche_mappings,
+            "estimated_rows": estimated_rows
+        }

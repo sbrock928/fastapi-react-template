@@ -21,7 +21,6 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
   const [filteredVariables, setFilteredVariables] = useState<CDIVariableResponse[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedType, setSelectedType] = useState<string>('all');
   const [showModal, setShowModal] = useState(false);
   const [editingVariable, setEditingVariable] = useState<CDIVariableResponse | null>(null);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
@@ -31,10 +30,10 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
     loadCDIVariables();
   }, []);
 
-  // Filter variables when search term or type changes
+  // Filter variables when search term changes
   useEffect(() => {
     filterVariables();
-  }, [cdiVariables, searchTerm, selectedType]);
+  }, [cdiVariables, searchTerm]);
 
   const loadCDIVariables = async () => {
     try {
@@ -59,14 +58,8 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
         variable.name.toLowerCase().includes(search) ||
         variable.description?.toLowerCase().includes(search) ||
         variable.variable_pattern.toLowerCase().includes(search) ||
-        variable.variable_type.toLowerCase().includes(search) ||
         variable.result_column_name.toLowerCase().includes(search)
       );
-    }
-
-    // Filter by type
-    if (selectedType !== 'all') {
-      filtered = filtered.filter(variable => variable.variable_type === selectedType);
     }
 
     setFilteredVariables(filtered);
@@ -104,35 +97,6 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
     loadCDIVariables();
     onRefreshNeeded?.();
     setShowModal(false);
-  };
-
-  const handleExecuteVariable = async (variable: CDIVariableResponse) => {
-    // For now, just show a toast. In a real implementation, this could open a modal
-    // to select cycle and deals, then execute the variable calculation
-    showToast(`Execute functionality for "${variable.name}" would be implemented here`, 'info');
-  };
-
-  const getVariableTypes = () => {
-    const types = Array.from(new Set(cdiVariables.map(v => v.variable_type)));
-    return types.sort();
-  };
-
-  const getVariableTypeDisplay = (type: string) => {
-    return type.split('_').map(word => 
-      word.charAt(0).toUpperCase() + word.slice(1)
-    ).join(' ');
-  };
-
-  const getVariableTypeColor = (type: string) => {
-    const colors = {
-      'investment_income': 'success',
-      'excess_interest': 'info',
-      'fees': 'warning',
-      'principal': 'primary',
-      'interest': 'secondary',
-      'other': 'dark'
-    };
-    return colors[type as keyof typeof colors] || 'secondary';
   };
 
   return (
@@ -179,20 +143,6 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <div className="col-md-3">
-          <select
-            className="form-select"
-            value={selectedType}
-            onChange={(e) => setSelectedType(e.target.value)}
-          >
-            <option value="all">All Types</option>
-            {getVariableTypes().map(type => (
-              <option key={type} value={type}>
-                {getVariableTypeDisplay(type)}
-              </option>
-            ))}
-          </select>
-        </div>
         <div className="col-md-5">
           <div className="text-muted small d-flex align-items-center">
             <i className="bi bi-info-circle me-2"></i>
@@ -232,12 +182,14 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
                                   <i className="bi bi-diagram-3 me-2"></i>
                                   {variable.name}
                                 </h6>
-                                <span className={`badge bg-${getVariableTypeColor(variable.variable_type)}`}>
-                                  {getVariableTypeDisplay(variable.variable_type)}
+                                <span className={`badge ${variable.group_level === 'deal' ? 'bg-info' : 'bg-success'}`}>
+                                  {variable.group_level === 'deal' ? 'Deal Level' : 'Tranche Level'}
                                 </span>
-                                <span className="badge bg-light text-dark">
-                                  {Object.keys(variable.tranche_mappings).length} tranche types
-                                </span>
+                                {variable.group_level === 'tranche' && (
+                                  <span className="badge bg-light text-dark">
+                                    {Object.keys(variable.tranche_mappings).length} tranche types
+                                  </span>
+                                )}
                               </div>
                               
                               {variable.description && (
@@ -253,19 +205,21 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
                                 </small>
                               </div>
 
-                              {/* Tranche Mappings */}
-                              <div className="mb-2">
-                                <small className="text-muted">
-                                  <strong>Tranche Mappings:</strong>
-                                </small>
-                                <div className="mt-1">
-                                  {Object.entries(variable.tranche_mappings).map(([suffix, trancheIds]) => (
-                                    <span key={suffix} className="badge bg-secondary me-1 mb-1">
-                                      {suffix}: {trancheIds.join(', ')}
-                                    </span>
-                                  ))}
+                              {/* Tranche Mappings - Only show for tranche-level calculations */}
+                              {variable.group_level === 'tranche' && Object.keys(variable.tranche_mappings).length > 0 && (
+                                <div className="mb-2">
+                                  <small className="text-muted">
+                                    <strong>Tranche Mappings:</strong>
+                                  </small>
+                                  <div className="mt-1">
+                                    {Object.entries(variable.tranche_mappings).map(([suffix, trancheIds]) => (
+                                      <span key={suffix} className="badge bg-secondary me-1 mb-1">
+                                        {suffix}: {trancheIds.join(', ')}
+                                      </span>
+                                    ))}
+                                  </div>
                                 </div>
-                              </div>
+                              )}
                               
                               {variable.created_at && (
                                 <div className="text-muted mt-2">
@@ -280,14 +234,6 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
                             </div>
                             
                             <div className="btn-group-vertical">
-                              <button
-                                onClick={() => handleExecuteVariable(variable)}
-                                className="btn btn-outline-success btn-sm"
-                                title="Execute CDI variable calculation"
-                              >
-                                <i className="bi bi-play-circle"></i> Execute
-                              </button>
-                              
                               <button
                                 onClick={() => handleEditVariable(variable)}
                                 className="btn btn-outline-warning btn-sm"
@@ -314,8 +260,8 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
                 <div className="text-center py-4 text-muted">
                   <i className="bi bi-diagram-3 display-4 d-block mb-3"></i>
                   <h6>No CDI Variables Found</h6>
-                  {searchTerm || selectedType !== 'all' ? (
-                    <p className="mb-3">No CDI variables match your current filters. Try adjusting your search criteria.</p>
+                  {searchTerm ? (
+                    <p className="mb-3">No CDI variables match your current search criteria. Try adjusting your search term.</p>
                   ) : (
                     <p className="mb-3">CDI variables provide dynamic mapping of financial metrics from CDI reporting data.</p>
                   )}

@@ -11,10 +11,10 @@ class CDIVariableBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="Display name for the calculation")
     description: Optional[str] = Field(None, max_length=500, description="Optional description")
     variable_pattern: str = Field(..., description="Pattern for CDI variable names, e.g., '#RPT_RRI_{tranche_suffix}'")
-    variable_type: str = Field(..., description="Type identifier, e.g., 'investment_income', 'excess_interest'")
     result_column_name: str = Field(..., min_length=1, max_length=100, pattern=r"^[a-zA-Z][a-zA-Z0-9_]*$", 
                                    description="Column name in the result dataset")
-    tranche_mappings: Dict[str, List[str]] = Field(..., description="Mapping of tranche suffixes to tr_id values")
+    group_level: Optional[str] = Field(None, description="Calculation level: 'deal' or 'tranche'")
+    tranche_mappings: Dict[str, List[str]] = Field(default={}, description="Mapping of tranche suffixes to tr_id values")
     
     @field_validator("variable_pattern")
     @classmethod 
@@ -23,17 +23,23 @@ class CDIVariableBase(BaseModel):
         if not v or not v.strip():
             raise ValueError("variable_pattern cannot be empty")
         
-        if "{tranche_suffix}" not in v:
-            raise ValueError("variable_pattern must contain '{tranche_suffix}' placeholder")
-        
         return v.strip()
+    
+    @field_validator("group_level")
+    @classmethod
+    def validate_group_level(cls, v):
+        """Validate group level"""
+        if v is not None and v not in ['deal', 'tranche']:
+            raise ValueError("group_level must be 'deal' or 'tranche'")
+        return v
     
     @field_validator("tranche_mappings")
     @classmethod
     def validate_tranche_mappings(cls, v):
         """Validate tranche mappings structure"""
+        # Allow empty tranche mappings for deal-level calculations
         if not v:
-            raise ValueError("tranche_mappings cannot be empty")
+            return v
         
         for suffix, tr_ids in v.items():
             if not suffix or not suffix.strip():
@@ -56,7 +62,6 @@ class CDIVariableUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
     variable_pattern: Optional[str] = Field(None)
-    variable_type: Optional[str] = Field(None)
     result_column_name: Optional[str] = Field(None, pattern=r"^[a-zA-Z][a-zA-Z0-9_]*$")
     tranche_mappings: Optional[Dict[str, List[str]]] = Field(None)
     
@@ -79,8 +84,8 @@ class CDIVariableResponse(BaseModel):
     name: str
     description: Optional[str]
     variable_pattern: str
-    variable_type: str
     result_column_name: str
+    group_level: str = Field(..., description="Calculation level: 'deal' or 'tranche'")
     tranche_mappings: Dict[str, List[str]]
     created_by: str
     created_at: datetime
@@ -115,7 +120,8 @@ class CDIVariableExecutionResponse(BaseModel):
     calculation_name: str
     cycle_code: int
     deal_count: int
-    tranche_count: int
+    record_count: int = Field(..., description="Number of result records returned")
+    group_level: str = Field(..., description="Calculation level: 'deal' or 'tranche'")
     data: List[Dict[str, Any]] = Field(..., description="Result data as list of dictionaries")
     execution_time_ms: Optional[float] = Field(None, description="Execution time in milliseconds")
     
@@ -128,6 +134,8 @@ class CDIVariableConfigResponse(BaseModel):
     available_patterns: List[str] = Field(..., description="Available variable patterns")
     default_tranche_mappings: Dict[str, List[str]] = Field(..., description="Default tranche mappings")
     variable_types: List[str] = Field(..., description="Common variable types")
+    deal_level_examples: Optional[List[str]] = Field(default=[], description="Example deal-level patterns")
+    tranche_level_examples: Optional[List[str]] = Field(default=[], description="Example tranche-level patterns")
     
     class Config:
         from_attributes = True
@@ -137,7 +145,6 @@ class CDIVariableSummary(BaseModel):
     """Schema for CDI variable calculation summaries"""
     id: int
     name: str
-    variable_type: str
     result_column_name: str
     tranche_count: int = Field(..., description="Number of tranche types configured")
     created_by: str
@@ -148,7 +155,8 @@ class CDIVariableSummary(BaseModel):
 class CDIVariableValidationRequest(BaseModel):
     """Schema for validating CDI variable configurations"""
     variable_pattern: str
-    tranche_mappings: Dict[str, List[str]]
+    group_level: str = Field(..., description="Calculation level: 'deal' or 'tranche'")
+    tranche_mappings: Dict[str, List[str]] = Field(default={}, description="Tranche mappings (required for tranche-level)")
     cycle_code: int = Field(..., description="Cycle code to test against")
     sample_deal_numbers: List[int] = Field(..., min_length=1, max_length=10, 
                                           description="Sample deal numbers for validation")
@@ -194,3 +202,46 @@ class VariablePatternInfo(BaseModel):
     description: str = Field(..., description="Description of what this pattern represents")
     examples: List[str] = Field(..., description="Example variable names generated from this pattern")
     common_variable_type: str = Field(..., description="Commonly used variable_type for this pattern")
+
+
+# ===== DISCOVERY AND ANALYSIS SCHEMAS =====
+
+class CDIVariableDiscoveryRequest(BaseModel):
+    """Schema for discovering CDI variables in the datawarehouse"""
+    cycle_code: int = Field(..., description="Cycle code to search in")
+    deal_numbers: List[int] = Field(..., min_length=1, max_length=100, description="Deal numbers to analyze")
+    pattern_prefix: str = Field(default="#RPT_", description="Variable name prefix to search for")
+
+class CDIVariableDiscoveryResponse(BaseModel):
+    """Schema for CDI variable discovery results"""
+    cycle_code: int
+    deal_count: int
+    discovered_variables: List[str] = Field(..., description="All discovered variable names")
+    deal_level_candidates: List[str] = Field(..., description="Variables that appear to be deal-level")
+    tranche_level_candidates: List[str] = Field(..., description="Variables that appear to be tranche-level")
+    analysis_summary: Dict[str, Any] = Field(..., description="Summary statistics")
+
+class CDIVariableLevelAnalysis(BaseModel):
+    """Schema for analyzing whether a variable is deal or tranche level"""
+    variable_name: str
+    direct_records: int = Field(..., description="Number of direct CDI records found")
+    tranche_joined_records: int = Field(..., description="Number of records that can join to tranches")
+    suggested_level: str = Field(..., description="Suggested level: deal_level, tranche_level, mixed_or_deal_level, no_data, unknown")
+    analysis: Dict[str, Any] = Field(..., description="Detailed analysis results")
+
+# Updated variable type constants
+DEAL_LEVEL_VARIABLE_TYPES = [
+    {"value": "deal_summary", "label": "Deal Summary", "pattern": "#RPT_DEAL_TOTAL"},
+    {"value": "deal_payment_info", "label": "Deal Payment Info", "pattern": "#RPT_DEAL_PAYMENT_DATE"},
+    {"value": "deal_status", "label": "Deal Status", "pattern": "#RPT_DEAL_STATUS"},
+]
+
+TRANCHE_LEVEL_VARIABLE_TYPES = [
+    {"value": "investment_income", "label": "Investment Income", "pattern": "#RPT_RRI_{tranche_suffix}"},
+    {"value": "excess_interest", "label": "Excess Interest", "pattern": "#RPT_EXC_{tranche_suffix}"},
+    {"value": "fees", "label": "Fees", "pattern": "#RPT_FEES_{tranche_suffix}"},
+    {"value": "principal", "label": "Principal", "pattern": "#RPT_PRINC_{tranche_suffix}"},
+    {"value": "interest", "label": "Interest", "pattern": "#RPT_INT_{tranche_suffix}"},
+]
+
+ALL_VARIABLE_TYPES = DEAL_LEVEL_VARIABLE_TYPES + TRANCHE_LEVEL_VARIABLE_TYPES

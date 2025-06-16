@@ -257,8 +257,13 @@ class ReportExecutionService:
 
         filters = QueryFilters(deal_tranche_map, cycle_code, report_scope)
         
-        # Generate the unified SQL for regular calculations
-        unified_sql = self.resolver._build_unified_query(regular_requests, filters) if regular_requests else None
+        # Generate the unified SQL for regular calculations only
+        unified_sql = None
+        if regular_requests:
+            try:
+                unified_sql = self.resolver._build_unified_query(regular_requests, filters)
+            except Exception as e:
+                unified_sql = f"-- ERROR generating unified SQL: {str(e)}"
         
         result = {
             'unified_sql': unified_sql,
@@ -277,16 +282,48 @@ class ReportExecutionService:
             }
         }
         
-        # Add CDI calculation info if present
-        if cdi_requests:
-            result['cdi_calculations'] = [
-                {
-                    'calc_id': getattr(req, 'calc_id', 'unknown'),
-                    'alias': getattr(req, 'alias', 'unknown'),
-                    'note': 'CDI calculations are executed separately via CDI service'
-                }
-                for req in cdi_requests
-            ]
+        # Add CDI calculation SQL previews if present
+        if cdi_requests and self.cdi_service:
+            cdi_sql_previews = []
+            deal_numbers = list(deal_tranche_map.keys())
+            
+            for req in cdi_requests:
+                try:
+                    # Extract calc_id from the request
+                    if hasattr(req, 'calc_id') and req.calc_id:
+                        calc_id = req.calc_id
+                    elif hasattr(req, 'calculation_id'):
+                        # Handle string format like "system.123"
+                        calc_id_str = str(req.calculation_id)
+                        if calc_id_str.startswith('system.'):
+                            calc_id = int(calc_id_str.split('.')[-1])
+                        else:
+                            calc_id = int(calc_id_str)
+                    else:
+                        continue
+                    
+                    # Generate SQL preview for this CDI calculation
+                    cdi_preview = self.cdi_service.generate_cdi_sql_preview(
+                        calc_id, cycle_code, deal_numbers
+                    )
+                    
+                    # Add the alias from the request for context
+                    cdi_preview['alias'] = getattr(req, 'alias', f'cdi_calc_{calc_id}')
+                    cdi_preview['calc_id'] = calc_id
+                    
+                    cdi_sql_previews.append(cdi_preview)
+                    
+                except Exception as e:
+                    # If preview generation fails, add error info
+                    cdi_sql_previews.append({
+                        'alias': getattr(req, 'alias', 'unknown'),
+                        'calc_id': getattr(req, 'calc_id', 'unknown'),
+                        'error': f'Failed to generate SQL preview: {str(e)}',
+                        'sql': '-- SQL generation failed',
+                        'calculation_type': 'cdi_error'
+                    })
+            
+            result['cdi_sql_previews'] = cdi_sql_previews
         
         return result
     

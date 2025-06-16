@@ -149,6 +149,19 @@ def create_comprehensive_test_data():
             "#RPT_INT_": "interest_payments"     # Interest Payments
         }
         
+        # Deal-level CDI variable patterns (NEW)
+        deal_level_patterns = {
+            "#RPT_DEAL_TOTAL_PRINCIPAL": "deal_summary",
+            "#RPT_DEAL_TOTAL_INTEREST": "deal_summary", 
+            "#RPT_DEAL_PAYMENT_DATE": "deal_payment_info",
+            "#RPT_DEAL_STATUS": "deal_status",
+            "#RPT_DEAL_SERVICER_FEE": "deal_summary",
+            "#RPT_DEAL_NET_INCOME": "deal_summary",
+            "#RPT_DEAL_EXCESS_SPREAD": "deal_summary",
+            "#RPT_DEAL_MATURITY_DATE": "deal_payment_info",
+            "#RPT_DEAL_RATING": "deal_status"
+        }
+        
         current_time = func.now()
         
         for cycle in CYCLES:
@@ -158,6 +171,67 @@ def create_comprehensive_test_data():
                 # Get tranches for this deal
                 deal_tranches = [t for t in created_tranches if t.dl_nbr == deal.dl_nbr]
                 
+                # ===== CREATE DEAL-LEVEL CDI VARIABLES (NEW) =====
+                # Calculate deal totals from tranche balances
+                deal_total_balance = sum(
+                    tb.tr_end_bal_amt for tb in created_tranche_bals 
+                    if tb.dl_nbr == deal.dl_nbr and tb.cycle_cde == cycle
+                )
+                deal_total_interest = sum(
+                    tb.tr_int_dstrb_amt for tb in created_tranche_bals 
+                    if tb.dl_nbr == deal.dl_nbr and tb.cycle_cde == cycle
+                )
+                deal_total_principal = sum(
+                    tb.tr_prin_dstrb_amt for tb in created_tranche_bals 
+                    if tb.dl_nbr == deal.dl_nbr and tb.cycle_cde == cycle
+                )
+                
+                for var_name, var_type in deal_level_patterns.items():
+                    if var_type == "deal_summary":
+                        if "PRINCIPAL" in var_name:
+                            value = deal_total_principal * random.uniform(0.95, 1.05)
+                        elif "INTEREST" in var_name:
+                            value = deal_total_interest * random.uniform(0.95, 1.05)
+                        elif "SERVICER_FEE" in var_name:
+                            value = deal_total_balance * 0.005 * random.uniform(0.8, 1.2)  # 0.5% servicing fee
+                        elif "NET_INCOME" in var_name:
+                            value = deal_total_interest * random.uniform(1.1, 1.3)  # Income > interest
+                        elif "EXCESS_SPREAD" in var_name:
+                            value = deal_total_interest * random.uniform(0.1, 0.25)  # 10-25% excess
+                        else:
+                            value = deal_total_balance * random.uniform(0.01, 0.05)
+                    elif var_type == "deal_payment_info":
+                        if "DATE" in var_name:
+                            # Generate payment date as YYYYMMDD format
+                            base_date = datetime(2024, 1, 15) + timedelta(days=cycle*30)
+                            value = int(base_date.strftime("%Y%m%d"))
+                        else:
+                            value = random.uniform(1000, 10000)
+                    elif var_type == "deal_status":
+                        if "RATING" in var_name:
+                            # Generate numeric rating (1-10)
+                            value = random.randint(1, 10)
+                        elif "STATUS" in var_name:
+                            # Generate status code (1=Active, 2=Maturing, 3=Closed)
+                            status_codes = [1, 1, 1, 2, 3]  # Weighted toward Active
+                            value = random.choice(status_codes)
+                        else:
+                            value = random.randint(1, 5)
+                    else:
+                        value = random.uniform(1000, 50000)
+                    
+                    cdi_var = DealCdiVarRpt(
+                        dl_nbr=deal.dl_nbr,
+                        cycle_cde=cycle,
+                        dl_cdi_var_nme=var_name.ljust(32),  # Pad to CHAR(32)
+                        dl_cdi_var_value=f"{value:.2f}".ljust(32),  # Pad to CHAR(32)
+                        lst_upd_dtm=current_time,
+                        lst_upd_user_id='data_seeder',
+                        lst_upd_host_nme='localhost'
+                    )
+                    cycle_cdi_vars.append(cdi_var)
+                
+                # ===== CREATE TRANCHE-LEVEL CDI VARIABLES (EXISTING) =====
                 for pattern_prefix, var_type in cdi_patterns.items():
                     for tranche in deal_tranches:
                         # Create both specific tranche ID and generic patterns
@@ -243,10 +317,18 @@ def create_comprehensive_test_data():
             pattern_count = len([v for v in created_cdi_vars if v.variable_name.startswith(pattern.strip())])
             print(f"   • {pattern}* ({desc}): {pattern_count} variables")
         
+        # Show deal-level patterns (NEW)
+        print(f"\n🏢 Deal-Level CDI Variables Created:")
+        for pattern, desc in deal_level_patterns.items():
+            pattern_count = len([v for v in created_cdi_vars if v.variable_name.strip() == pattern])
+            print(f"   • {pattern} ({desc}): {pattern_count} variables")
+        
         print(f"\n✅ Ready for Testing:")
         print(f"   • Test CDI calculations with cycle codes: {CYCLES}")
         print(f"   • Use deal numbers: {min(d.dl_nbr for d in created_deals)}-{max(d.dl_nbr for d in created_deals)}")
         print(f"   • Available tranche types: {', '.join(TRANCHE_TYPES.keys())}")
+        print(f"   • Deal-level variables: {len(deal_level_patterns)} patterns per deal")
+        print(f"   • Tranche-level variables: {len(cdi_patterns)} patterns per tranche")
         
     except Exception as e:
         dw_db.rollback()

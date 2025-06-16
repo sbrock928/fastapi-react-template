@@ -28,7 +28,13 @@ from .cdi_schemas import (
     CDIVariableValidationRequest,
     CDIVariableValidationResponse,
     CDIVariableBulkCreateRequest,
-    CDIVariableBulkCreateResponse
+    CDIVariableBulkCreateResponse,
+    CDIVariableDiscoveryRequest,
+    CDIVariableDiscoveryResponse, 
+    CDIVariableLevelAnalysis,
+    DEAL_LEVEL_VARIABLE_TYPES,
+    TRANCHE_LEVEL_VARIABLE_TYPES,
+    ALL_VARIABLE_TYPES
 )
 from .resolver import CalculationRequest, QueryFilters
 from .schemas import (
@@ -704,18 +710,13 @@ def validate_system_calculation_result_column(
 def get_cdi_variable_config(
     cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
 ) -> CDIVariableConfigResponse:
-    """Get configuration data for CDI variable calculations"""
+    """Get configuration data for CDI variable calculations - UPDATED"""
     return CDIVariableConfigResponse(
-        available_patterns=cdi_service.get_available_variable_patterns(),
+        available_patterns=[vt["pattern"] for vt in ALL_VARIABLE_TYPES],
         default_tranche_mappings=cdi_service.get_default_tranche_mappings(),
-        variable_types=[
-            "investment_income",
-            "excess_interest", 
-            "fees",
-            "principal",
-            "interest",
-            "other"
-        ]
+        variable_types=[vt["value"] for vt in ALL_VARIABLE_TYPES],
+        deal_level_examples=[vt["pattern"] for vt in DEAL_LEVEL_VARIABLE_TYPES],  # NEW
+        tranche_level_examples=[vt["pattern"] for vt in TRANCHE_LEVEL_VARIABLE_TYPES]  # NEW
     )
 
 # ===== CDI VARIABLE CRUD ENDPOINTS =====
@@ -803,7 +804,7 @@ def execute_cdi_variable(
     request: CDIVariableExecutionRequest,
     cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
 ) -> CDIVariableExecutionResponse:
-    """Execute a CDI variable calculation"""
+    """Execute a CDI variable calculation - UPDATED for deal/tranche level support"""
     start_time = time.time()
     
     try:
@@ -827,7 +828,8 @@ def execute_cdi_variable(
             calculation_name=calc.name,
             cycle_code=request.cycle_code,
             deal_count=len(request.deal_numbers),
-            tranche_count=len(result_data),
+            record_count=len(result_data),  # UPDATED: Use record_count instead of tranche_count
+            group_level=calc.group_level,   # ADDED: Include group level
             data=result_data,
             execution_time_ms=execution_time
         )
@@ -870,49 +872,65 @@ def validate_cdi_variable_config(
     request: CDIVariableValidationRequest,
     cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
 ) -> CDIVariableValidationResponse:
-    """Validate a CDI variable configuration before creating it"""
+    """Validate a CDI variable configuration before creating it - UPDATED"""
     
     try:
-        # Generate test SQL to see if configuration is valid
-        sql = cdi_service._generate_dynamic_sql(
-            request.variable_pattern, 
-            request.tranche_mappings, 
-            request.cycle_code, 
-            request.sample_deal_numbers
-        )
-        
-        # Try to execute the SQL to validate it
-        import pandas as pd
-        result_df = pd.read_sql(sql, cdi_service.dw_db.bind)
-        
         warnings = []
         errors = []
         
-        # Check for potential issues
-        if result_df.empty:
-            warnings.append("No data found for the given configuration and sample deals")
+        # Validate based on group level
+        if request.group_level == "deal":
+            if "{tranche_suffix}" in request.variable_pattern:
+                errors.append("Deal-level variables should not contain {tranche_suffix} placeholder")
+            if request.tranche_mappings:
+                warnings.append("Deal-level variables don't need tranche mappings")
+        else:  # tranche level
+            if "{tranche_suffix}" not in request.variable_pattern:
+                errors.append("Tranche-level variables must contain {tranche_suffix} placeholder")
+            if not request.tranche_mappings:
+                errors.append("Tranche-level variables require tranche mappings")
         
-        # Check if all tranche types have data
-        found_tranches = set()
-        if not result_df.empty and 'tranche_type' in result_df.columns:
-            found_tranches = set(result_df['tranche_type'].unique())
-        
-        configured_tranches = set(request.tranche_mappings.keys())
-        missing_tranches = configured_tranches - found_tranches
-        
-        if missing_tranches:
-            warnings.append(f"No data found for tranche types: {', '.join(missing_tranches)}")
+        # Test against actual data
+        sample_data_count = 0
+        if not errors:
+            if request.group_level == "deal":
+                # Test deal-level variable
+                analysis = cdi_service.analyze_cdi_variable_level(
+                    variable_name=request.variable_pattern,
+                    cycle_code=request.cycle_code,
+                    deal_numbers=request.sample_deal_numbers
+                )
+                sample_data_count = analysis["direct_records"]
+                
+                if analysis["suggested_level"] not in ["deal_level", "mixed_or_deal_level"]:
+                    warnings.append(f"Variable appears to be {analysis['suggested_level']} based on data analysis")
+                    
+            else:
+                # Test tranche-level variable (existing logic)
+                # Generate test variable names and check
+                test_results = []
+                for suffix in list(request.tranche_mappings.keys())[:3]:  # Test first 3
+                    test_var = request.variable_pattern.replace("{tranche_suffix}", suffix)
+                    analysis = cdi_service.analyze_cdi_variable_level(
+                        variable_name=test_var,
+                        cycle_code=request.cycle_code,
+                        deal_numbers=request.sample_deal_numbers
+                    )
+                    test_results.append(analysis)
+                    sample_data_count += analysis["direct_records"]
+                
+                if not any(r["direct_records"] > 0 for r in test_results):
+                    warnings.append("No data found for any of the tested tranche suffixes")
         
         return CDIVariableValidationResponse(
             is_valid=len(errors) == 0,
             validation_results={
-                "sql_generated": True,
-                "sql_executed": True,
-                "configured_tranches": list(configured_tranches),
-                "found_tranches": list(found_tranches),
-                "missing_tranches": list(missing_tranches)
+                "group_level": request.group_level,
+                "pattern_valid": "{tranche_suffix}" in request.variable_pattern if request.group_level == "tranche" else "{tranche_suffix}" not in request.variable_pattern,
+                "has_data": sample_data_count > 0,
+                "tested_variable": request.variable_pattern
             },
-            sample_data_count=len(result_df),
+            sample_data_count=sample_data_count,
             warnings=warnings,
             errors=errors
         )
@@ -920,73 +938,145 @@ def validate_cdi_variable_config(
     except Exception as e:
         return CDIVariableValidationResponse(
             is_valid=False,
-            validation_results={"sql_generated": False, "error": str(e)},
+            validation_results={"error": str(e)},
             sample_data_count=0,
             warnings=[],
-            errors=[f"Configuration validation failed: {str(e)}"]
+            errors=[f"Validation failed: {str(e)}"]
         )
 
-# ===== BULK OPERATIONS =====
+# ===== NEW DISCOVERY ENDPOINTS =====
 
-@router.post("/cdi-variables/bulk-create", response_model=CDIVariableBulkCreateResponse)
-def bulk_create_cdi_variables(
-    request: CDIVariableBulkCreateRequest,
+@router.post("/cdi-variables/discover", response_model=CDIVariableDiscoveryResponse)
+def discover_cdi_variables(
+    request: CDIVariableDiscoveryRequest,
     cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
-) -> CDIVariableBulkCreateResponse:
-    """Create multiple CDI variable calculations at once"""
+) -> CDIVariableDiscoveryResponse:
+    """Discover available CDI variables in the datawarehouse and classify by level"""
     
-    created_calculations = []
-    failures = []
-    
-    for calc_request in request.calculations:
-        try:
-            created_calc = cdi_service.create_cdi_variable_calculation(calc_request, request.created_by)
-            created_calculations.append(created_calc)
-        except Exception as e:
-            failures.append({
-                "calculation_name": calc_request.name,
-                "error": str(e)
-            })
-    
-    return CDIVariableBulkCreateResponse(
-        created_count=len(created_calculations),
-        failed_count=len(failures),
-        created_calculations=created_calculations,
-        failures=failures
-    )
+    try:
+        # Discover deal-level variables
+        deal_level_vars = cdi_service.discover_deal_level_variables(
+            cycle_code=request.cycle_code,
+            deal_numbers=request.deal_numbers,
+            pattern_prefix=request.pattern_prefix
+        )
+        
+        # Get overall analysis
+        analysis = cdi_service.get_cdi_variable_summary(
+            cycle_code=request.cycle_code,
+            deal_numbers=request.deal_numbers
+        )
+        
+        return CDIVariableDiscoveryResponse(
+            cycle_code=request.cycle_code,
+            deal_count=len(request.deal_numbers),
+            discovered_variables=analysis.get("variables", []),
+            deal_level_candidates=[var["variable_name"] for var in deal_level_vars],
+            tranche_level_candidates=[
+                var["variable_name"] for var in analysis.get("variables", [])
+                if var["variable_name"] not in [dlv["variable_name"] for dlv in deal_level_vars]
+            ],
+            analysis_summary={
+                "total_variables": analysis.get("total_variables", 0),
+                "deal_level_count": len(deal_level_vars),
+                "patterns_found": list(set([
+                    var["variable_name"].split("_")[1] if "_" in var["variable_name"] else "OTHER"
+                    for var in analysis.get("variables", [])
+                ]))
+            }
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Discovery failed: {str(e)}")
 
-# ===== INTEGRATION WITH EXISTING ENDPOINTS =====
-
-@router.get("/all-with-cdi", response_model=Dict[str, Any])
-def get_all_calculations_with_cdi(
-    group_level: Optional[str] = Query(None),
-    user_calc_service: UserCalculationService = Depends(get_user_calculation_service),
-    system_calc_service: SystemCalculationService = Depends(get_system_calculation_service),
+@router.post("/cdi-variables/analyze-level", response_model=CDIVariableLevelAnalysis)
+def analyze_cdi_variable_level(
+    variable_name: str,
+    cycle_code: int,
+    deal_numbers: List[int],
     cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
-) -> Dict[str, Any]:
-    """Get all calculations including CDI variables"""
+) -> CDIVariableLevelAnalysis:
+    """Analyze whether a specific CDI variable is deal-level or tranche-level"""
     
-    # Get regular calculations
-    user_calcs = user_calc_service.get_all_user_calculations(group_level)
-    system_calcs = system_calc_service.get_all_system_calculations(group_level)
+    try:
+        analysis = cdi_service.analyze_cdi_variable_level(
+            variable_name=variable_name,
+            cycle_code=cycle_code,
+            deal_numbers=deal_numbers
+        )
+        
+        return CDIVariableLevelAnalysis(**analysis)
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Analysis failed: {str(e)}")
+
+# ===== EXAMPLE ENDPOINT FOR GENERATING SAMPLE CONFIGURATIONS =====
+
+@router.get("/cdi-variables/examples", response_model=Dict[str, List[Dict[str, Any]]])
+def get_cdi_variable_examples() -> Dict[str, List[Dict[str, Any]]]:
+    """Get example CDI variable configurations for both deal and tranche levels"""
     
-    # Get CDI variable calculations
-    cdi_calcs = cdi_service.get_all_cdi_variable_calculations()
+    deal_level_examples = [
+        {
+            "name": "Deal Total Principal",
+            "variable_pattern": "#RPT_DEAL_TOTAL_PRINCIPAL",
+            "variable_type": "deal_summary",
+            "result_column_name": "deal_total_principal",
+            "group_level": "deal",
+            "description": "Total principal amount for the entire deal",
+            "tranche_mappings": {}
+        },
+        {
+            "name": "Deal Payment Date",
+            "variable_pattern": "#RPT_DEAL_PAYMENT_DATE",
+            "variable_type": "deal_payment_info",
+            "result_column_name": "deal_payment_date",
+            "group_level": "deal",
+            "description": "Payment date for the deal",
+            "tranche_mappings": {}
+        },
+        {
+            "name": "Deal Status",
+            "variable_pattern": "#RPT_DEAL_STATUS",
+            "variable_type": "deal_status",
+            "result_column_name": "deal_status",
+            "group_level": "deal",
+            "description": "Current status of the deal",
+            "tranche_mappings": {}
+        }
+    ]
     
-    # Filter system calcs to exclude CDI variables (to avoid duplication)
-    regular_system_calcs = [
-        calc for calc in system_calcs 
-        if not system_calc_service.is_cdi_variable_calculation(calc.id)
+    tranche_level_examples = [
+        {
+            "name": "Investment Income",
+            "variable_pattern": "#RPT_RRI_{tranche_suffix}",
+            "variable_type": "investment_income",
+            "result_column_name": "investment_income",
+            "group_level": "tranche",
+            "description": "Investment income by tranche",
+            "tranche_mappings": {
+                "M1": ["1M1", "2M1", "M1"],
+                "M2": ["1M2", "2M2", "M2"],
+                "B1": ["1B1", "2B1", "B1"],
+                "B2": ["B2", "1B2", "2B2"]
+            }
+        },
+        {
+            "name": "Excess Interest",
+            "variable_pattern": "#RPT_EXC_{tranche_suffix}",
+            "variable_type": "excess_interest",
+            "result_column_name": "excess_interest",
+            "group_level": "tranche",
+            "description": "Excess interest by tranche",
+            "tranche_mappings": {
+                "M1": ["1M1", "2M1", "M1"],
+                "M2": ["1M2", "2M2", "M2"],
+                "B1": ["1B1", "2B1", "B1"]
+            }
+        }
     ]
     
     return {
-        "user_calculations": [UserCalculationResponse.model_validate(calc) for calc in user_calcs],
-        "system_calculations": [SystemCalculationResponse.model_validate(calc) for calc in regular_system_calcs],
-        "cdi_variable_calculations": cdi_calcs,
-        "summary": {
-            "total_user": len(user_calcs),
-            "total_system": len(regular_system_calcs),
-            "total_cdi_variables": len(cdi_calcs),
-            "total_all": len(user_calcs) + len(regular_system_calcs) + len(cdi_calcs)
-        }
+        "deal_level": deal_level_examples,
+        "tranche_level": tranche_level_examples
     }

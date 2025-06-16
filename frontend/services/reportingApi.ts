@@ -27,6 +27,13 @@ const reportingApi = {
     return apiClient.get('/reports/data/deals', { params });
   },
 
+  // Get specific deals by their deal numbers - much more efficient than searching through issuer codes
+  getDealsByNumbers: (dealNumbers: number[]): Promise<{ data: Deal[] }> => {
+    return apiClient.post('/reports/data/deals-by-numbers', {
+      dl_nbrs: dealNumbers
+    });
+  },
+
   // Get tranches for specific deals
   getTranches: (dlNbrs: number[], cycleCode?: number): Promise<{ data: Record<number, TrancheReportSummary[]> }> => {
     return apiClient.post('/reports/data/tranches', {

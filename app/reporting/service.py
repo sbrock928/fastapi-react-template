@@ -1,6 +1,7 @@
 # app/reporting/service.py - Complete service with all original functionality + column management
 
 import time
+import logging
 from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
 from datetime import datetime
@@ -21,6 +22,8 @@ from app.calculations.service import (
 )
 from app.calculations.models import GroupLevel
 
+
+logger = logging.getLogger(__name__)
 
 class ReportService:
     """Complete report service with calculation management and column preferences support."""
@@ -470,42 +473,77 @@ class ReportService:
             raise
 
     async def preview_report_sql(self, report_id: int, cycle_code: int) -> Dict[str, Any]:
-        """Preview SQL for a report."""
+        """Preview SQL for a report with complete runtime SQL generation."""
         if not self.report_execution_service:
             raise HTTPException(status_code=500, detail="Report execution service not available")
 
         report = await self._get_report_or_404(report_id)
         deal_tranche_map, calculation_requests = self._prepare_execution(report)
 
+        # Get the preview result from the execution service
         result = self.report_execution_service.preview_report_sql(
             calculation_requests, deal_tranche_map, cycle_code, report.scope
         )
 
-        # Handle both unified and individual SQL preview formats
-        if 'unified_sql' in result:
-            # New unified approach - return the single SQL query
+        # Generate the complete runtime SQL that would actually be executed
+        try:
+            # Use the resolver to build the complete unified query
+            from ..calculations.resolver import QueryFilters
+            filters = QueryFilters(deal_tranche_map, cycle_code, report.scope)
+            complete_runtime_sql = self.report_execution_service.resolver._build_unified_query(
+                calculation_requests, filters
+            )
+            
+            # Return comprehensive preview data INCLUDING CDI SQL previews
             return {
                 "template_name": report.name,
-                "unified_sql": result['unified_sql'],
-                "parameters": result['parameters'],
-                "summary": result['summary']
+                "complete_runtime_sql": complete_runtime_sql,
+                "unified_sql": result.get('unified_sql'),  # Keep existing for compatibility
+                "sql_previews": result.get('sql_previews', {}),  # Keep existing for compatibility
+                "cdi_sql_previews": result.get('cdi_sql_previews', []),  # ADD CDI PREVIEWS
+                "parameters": {
+                    "deal_tranche_map": deal_tranche_map,
+                    "cycle_code": cycle_code,
+                    "report_scope": report.scope
+                },
+                "summary": {
+                    **result.get('summary', {}),
+                    "execution_approach": "unified_with_ctes",
+                    "total_deals": len(deal_tranche_map),
+                    "total_tranches": sum(len(tranches) for tranches in deal_tranche_map.values()),
+                    "cdi_calculations": len(result.get('cdi_sql_previews', []))  # ADD CDI COUNT
+                }
             }
-        elif 'sql_previews' in result:
-            # Legacy individual approach - return multiple SQL queries
-            return {
+            
+        except Exception as e:
+            # Fallback to existing behavior if runtime SQL generation fails
+            logger.warning(f"Failed to generate complete runtime SQL: {str(e)}")
+            
+            # FIXED: Always include CDI previews even in fallback scenarios
+            base_response = {
                 "template_name": report.name,
-                "sql_previews": result['sql_previews'],
-                "parameters": result['parameters'],
-                "summary": result['summary']
-            }
-        else:
-            # Fallback for unexpected result structure
-            return {
-                "template_name": report.name,
-                "unified_sql": "-- Error: Unable to generate SQL preview",
+                "cdi_sql_previews": result.get('cdi_sql_previews', []),  # Always include CDI
                 "parameters": result.get('parameters', {}),
-                "summary": result.get('summary', {})
+                "summary": {
+                    **result.get('summary', {}),
+                    "cdi_calculations": len(result.get('cdi_sql_previews', []))
+                }
             }
+            
+            if 'unified_sql' in result:
+                base_response.update({
+                    "unified_sql": result['unified_sql']
+                })
+            elif 'sql_previews' in result:
+                base_response.update({
+                    "sql_previews": result['sql_previews']
+                })
+            else:
+                base_response.update({
+                    "error": "Unable to generate SQL preview"
+                })
+            
+            return base_response
 
     async def _log_execution(self, report_id: int, cycle_code: int, executed_by: str,
                             execution_time_ms: float, row_count: int, success: bool,
@@ -1104,6 +1142,20 @@ class ReportService:
             for deal in deals
         ]
 
+    def get_deals_by_numbers(self, deal_numbers: List[int]) -> List[Dict[str, Any]]:
+        """Get specific deals by their deal numbers - much more efficient than searching through issuer codes."""
+        deals = self.dw_dao.get_deals_by_numbers(deal_numbers)
+        # Convert SQLAlchemy model objects to dictionaries
+        return [
+            {
+                "dl_nbr": deal.dl_nbr,
+                "issr_cde": deal.issr_cde,
+                "cdi_file_nme": deal.cdi_file_nme,
+                "CDB_cdi_file_nme": deal.CDB_cdi_file_nme
+            }
+            for deal in deals
+        ]
+
     def get_available_tranches_for_deals(self, deal_ids: List[int], 
                                        cycle_code: int = None) -> Dict[int, List[Dict[str, Any]]]:
         """Get available tranches for specific deals."""
@@ -1114,10 +1166,42 @@ class ReportService:
         return self.dw_dao.get_available_cycles()
 
     async def _get_report_or_404(self, report_id: int) -> Report:
-        """Get report or raise 404."""
+        """Get report or raise 404 with relationships properly loaded."""
         raw_report = await self.report_dao.get_by_id(report_id)
         if not raw_report:
             raise HTTPException(status_code=404, detail="Report not found")
+        
+        # Debug: Check if relationships are loaded
+        print(f"Debug: Report {report_id} found: {raw_report.name}")
+        print(f"Debug: selected_deals type: {type(raw_report.selected_deals)}")
+        print(f"Debug: selected_deals value: {raw_report.selected_deals}")
+        print(f"Debug: selected_calculations type: {type(raw_report.selected_calculations)}")
+        print(f"Debug: selected_calculations value: {raw_report.selected_calculations}")
+        
+        # Ensure relationships are accessible - force loading if needed
+        if raw_report.selected_deals is None:
+            print("Warning: selected_deals is None, attempting to force reload relationships")
+            # Try to get the report again with explicit relationship loading
+            from sqlalchemy.orm import selectinload
+            from sqlalchemy import select
+            from app.reporting.models import ReportDeal, ReportTranche
+            
+            stmt = (
+                select(Report)
+                .options(
+                    selectinload(Report.selected_deals).selectinload(ReportDeal.selected_tranches),
+                    selectinload(Report.selected_calculations),
+                )
+                .where(Report.id == report_id)
+            )
+            result = self.report_dao.db.execute(stmt)
+            raw_report = result.scalars().first()
+            
+            if not raw_report:
+                raise HTTPException(status_code=404, detail="Report not found after reload")
+            
+            print(f"Debug: After reload - selected_deals: {raw_report.selected_deals}")
+            print(f"Debug: After reload - selected_calculations: {raw_report.selected_calculations}")
         
         # Parse column preferences for internal use
         if raw_report.column_preferences and isinstance(raw_report.column_preferences, dict):
@@ -1127,13 +1211,11 @@ class ReportService:
             except Exception as e:
                 print(f"Warning: Could not parse column preferences for report {report_id}: {e}")
                 raw_report._parsed_column_preferences = None
-        else:
-            raw_report._parsed_column_preferences = None
         
         return raw_report
 
-    # ===== EXECUTION LOG METHODS =====
-
+    # ===== EXECUTION LOGS =====
+    
     async def get_execution_logs(self, report_id: int, limit: int = 50) -> List[Dict[str, Any]]:
         """Get execution logs for a report."""
         logs = await self.report_dao.get_execution_logs(report_id, limit)

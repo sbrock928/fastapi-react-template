@@ -232,6 +232,11 @@ class UnifiedCalculationResolver:
             if not calc:
                 return None
             
+            # SKIP CDI VARIABLE CALCULATIONS - they should be handled separately
+            if (calc.metadata_config and 
+                calc.metadata_config.get("calculation_type") == "cdi_variable"):
+                return None  # Don't create CTE for CDI calculations
+            
             # Create safe CTE name by removing spaces and special characters
             safe_cte_name = request.alias.replace(' ', '_').replace('-', '_').replace('.', '_')
             
@@ -329,10 +334,18 @@ FROM ({modified_sql}) AS sys_calc"""
                 quoted_alias = f'"{request.alias}"' if ' ' in request.alias or any(c in request.alias for c in ['-', '.', '/', '\\']) else request.alias
                 select_columns.append(f"base_data.{quoted_alias}")
         
-        # Build joins and add calculation columns
+        # Build joins and add calculation columns - SKIP CDI CALCULATIONS
         joins = []
         for request in calc_requests:
             if request.calc_type in ['user_calculation', 'system_calculation']:
+                
+                # SKIP CDI VARIABLE CALCULATIONS - they should be handled separately
+                if request.calc_type == 'system_calculation' and request.calc_id:
+                    calc = self.config_db.query(SystemCalculation).filter_by(id=request.calc_id, is_active=True).first()
+                    if (calc and calc.metadata_config and 
+                        calc.metadata_config.get("calculation_type") == "cdi_variable"):
+                        continue  # Skip CDI calculations in the unified query
+                
                 # Create safe CTE name by removing spaces and special characters
                 safe_cte_name = request.alias.replace(' ', '_').replace('-', '_').replace('.', '_')
                 cte_alias = f"{safe_cte_name}_cte"

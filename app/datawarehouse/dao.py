@@ -26,6 +26,12 @@ class DatawarehouseDAO:
         result = self.db.execute(stmt)
         return result.scalars().first()
 
+    def get_deals_by_numbers(self, deal_numbers: List[int]) -> List[Deal]:
+        """Get specific deals by their deal numbers - much more efficient than searching through issuer codes."""
+        stmt = select(Deal).where(Deal.dl_nbr.in_(deal_numbers)).order_by(Deal.dl_nbr)
+        result = self.db.execute(stmt)
+        return list(result.scalars().all())
+
     # ===== TRANCHE METHODS =====
 
     def get_tranches_by_dl_nbr(self, dl_nbr: int) -> List[Tranche]:

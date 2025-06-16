@@ -5,8 +5,8 @@ export interface CDIVariableBase {
     name: string;
     description?: string;
     variable_pattern: string;
-    variable_type: string;
     result_column_name: string;
+    group_level?: 'deal' | 'tranche';
     tranche_mappings: Record<string, string[]>;
   }
   
@@ -16,13 +16,14 @@ export interface CDIVariableBase {
     name?: string;
     description?: string;
     variable_pattern?: string;
-    variable_type?: string;
     result_column_name?: string;
+    group_level?: 'deal' | 'tranche';
     tranche_mappings?: Record<string, string[]>;
   }
   
   export interface CDIVariableResponse extends CDIVariableBase {
     id: number;
+    group_level: 'deal' | 'tranche';
     created_by: string;
     created_at: string;
     is_active: boolean;
@@ -31,8 +32,8 @@ export interface CDIVariableBase {
   export interface CDIVariableSummary {
     id: number;
     name: string;
-    variable_type: string;
     result_column_name: string;
+    group_level?: 'deal' | 'tranche';
     tranche_count: number;
     created_by: string;
     created_at: string;
@@ -89,27 +90,15 @@ export interface CDIVariableBase {
     name: '',
     description: '',
     variable_pattern: '',
-    variable_type: '',
     result_column_name: '',
+    group_level: 'tranche', // Default to tranche level
     tranche_mappings: {}
   };
-  
-  // Helper types
-  export type CDIVariableType = 
-    | 'investment_income'
-    | 'excess_interest'
-    | 'fees'
-    | 'principal'
-    | 'interest'
-    | 'other';
-  
-  export const CDI_VARIABLE_TYPE_OPTIONS: Array<{value: CDIVariableType; label: string}> = [
-    { value: 'investment_income', label: 'Investment Income' },
-    { value: 'excess_interest', label: 'Excess Interest' },
-    { value: 'fees', label: 'Fees' },
-    { value: 'principal', label: 'Principal' },
-    { value: 'interest', label: 'Interest' },
-    { value: 'other', label: 'Other' }
+
+  // Group level options
+  export const CDI_GROUP_LEVEL_OPTIONS = [
+    { value: 'deal', label: 'Deal Level' },
+    { value: 'tranche', label: 'Tranche Level' }
   ];
   
   // Helper functions
@@ -118,8 +107,8 @@ export interface CDIVariableBase {
       name: form.name,
       description: form.description,
       variable_pattern: form.variable_pattern,
-      variable_type: form.variable_type,
       result_column_name: form.result_column_name,
+      group_level: form.group_level,
       tranche_mappings: form.tranche_mappings
     };
   }
@@ -130,8 +119,21 @@ export interface CDIVariableBase {
       name: response.name,
       description: response.description || '',
       variable_pattern: response.variable_pattern,
-      variable_type: response.variable_type,
       result_column_name: response.result_column_name,
+      group_level: response.group_level,
       tranche_mappings: response.tranche_mappings
     };
+  }
+  
+  // Helper function to determine if tranche mappings are required
+  export function requiresTrancheMapping(groupLevel?: 'deal' | 'tranche'): boolean {
+    return groupLevel === 'tranche';
+  }
+  
+  // Helper function to get appropriate variable pattern placeholder
+  export function getVariablePatternPlaceholder(groupLevel?: 'deal' | 'tranche'): string {
+    if (groupLevel === 'deal') {
+      return 'e.g., #RPT_DEAL_TOTAL';
+    }
+    return 'e.g., #RPT_RRI_{tranche_suffix}';
   }

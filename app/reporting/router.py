@@ -294,6 +294,18 @@ def get_available_deals(
     return deals
 
 
+@router.post("/data/deals-by-numbers", response_model=List[Dict[str, Any]])
+def get_deals_by_numbers(
+    request: Dict[str, Any], service: ReportService = Depends(get_report_service)
+) -> List[Dict[str, Any]]:
+    """Get specific deals by their deal numbers - much more efficient than searching through issuer codes."""
+    deal_numbers = request.get("dl_nbrs", [])
+    if not deal_numbers:
+        return []
+    
+    return service.get_deals_by_numbers(deal_numbers)
+
+
 @router.post("/data/tranches", response_model=Dict[int, List[Dict[str, Any]]])
 def get_available_tranches(
     request: Dict[str, Any], service: ReportService = Depends(get_report_service)
