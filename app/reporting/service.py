@@ -711,6 +711,11 @@ class ReportService:
                 all_tranches = self.dw_dao.get_tranches_by_dl_nbr(deal.dl_nbr)
                 deal_tranche_map[deal.dl_nbr] = [t.tr_id for t in all_tranches]
 
+        # DEBUG: Log the deal-tranche mapping
+        print("=== DEBUG: Deal-Tranche Mapping ===")
+        for deal_id, tranche_ids in deal_tranche_map.items():
+            print(f"  Deal {deal_id}: {tranche_ids}")
+
         # Convert to calculation requests with improved logic
         calculation_requests = []
         
@@ -1107,3 +1112,23 @@ class ReportService:
             raw_report._parsed_column_preferences = None
         
         return raw_report
+
+    # ===== EXECUTION LOG METHODS =====
+
+    async def get_execution_logs(self, report_id: int, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get execution logs for a report."""
+        logs = await self.report_dao.get_execution_logs(report_id, limit)
+        return [
+            {
+                "id": log.id,
+                "report_id": log.report_id,
+                "cycle_code": log.cycle_code,
+                "executed_by": log.executed_by,
+                "execution_time_ms": log.execution_time_ms,
+                "row_count": log.row_count,
+                "success": log.success,
+                "error_message": log.error_message,
+                "executed_at": log.executed_at.isoformat() if log.executed_at else None
+            }
+            for log in logs
+        ]

@@ -165,7 +165,7 @@ class SimpleCalculationResolver:
         columns = ["deal_number"]
         if "TrancheBal" in required_models:
             columns.append("cycle_code")
-        if filters.report_scope == "TRANCHE" and ("Tranche" in required_models or "TrancheBal" in required_models):
+        if filters.report_scope == "TRANCE" and ("Tranche" in required_models or "TrancheBal" in required_models):
             columns.append("tranche_id")
         columns.append(request.alias)
 
@@ -405,14 +405,387 @@ GROUP BY {', '.join(group_columns)}"""
         """Check if field requires tranche-level data"""
         return field_path.startswith("tranche.") or field_path.startswith("tranchebal.")
 
+    def _build_advanced_filters(self, filter_config: List[Dict[str, Any]]) -> str:
+        """Build additional WHERE conditions from advanced config (future expansion)"""
+        conditions = []
+        for filter_def in filter_config:
+            field = filter_def['field']
+            operator = filter_def['operator']
+            value = filter_def['value']
+
+            if isinstance(value, str):
+                conditions.append(f"{field} {operator} '{value}'")
+            else:
+                conditions.append(f"{field} {operator} {value}")
+
+        return ' AND '.join(conditions)
+
+    def _execute_sql(self, sql: str) -> List[Dict[str, Any]]:
+        """Execute SQL and return results as list of dictionaries"""
+        try:
+            result = self.dw_db.execute(text(sql))
+            columns = result.keys()
+            return [dict(zip(columns, row)) for row in result.fetchall()]
+        except Exception as e:
+            print(f"SQL Execution Error: {e}")
+            print(f"Failed SQL: {sql}")
+            raise
+
+class UnifiedCalculationResolver:
+    """Generates a single unified SQL query with CTEs for all calculations"""
+
+    def __init__(self, dw_db: Session, config_db: Session):
+        self.dw_db = dw_db
+        self.config_db = config_db
+
+    def resolve_report(self, calc_requests: List[CalculationRequest], filters: QueryFilters) -> Dict[str, Any]:
+        """Generate a single unified SQL query with CTEs for all calculations"""
+        
+        # Build the unified SQL query
+        unified_sql = self._build_unified_query(calc_requests, filters)
+        
+        # Execute the unified query
+        try:
+            result_data = self._execute_sql(unified_sql)
+            
+            return {
+                'merged_data': result_data,
+                'unified_sql': unified_sql,
+                'debug_info': {
+                    'total_calculations': len(calc_requests),
+                    'static_fields': len([r for r in calc_requests if r.calc_type == 'static_field']),
+                    'user_calculations': len([r for r in calc_requests if r.calc_type == 'user_calculation']),
+                    'system_calculations': len([r for r in calc_requests if r.calc_type == 'system_calculation']),
+                    'query_type': 'unified',
+                    'rows_returned': len(result_data)
+                }
+            }
+        except Exception as e:
+            return {
+                'merged_data': [],
+                'unified_sql': unified_sql,
+                'error': str(e),
+                'debug_info': {
+                    'total_calculations': len(calc_requests),
+                    'query_type': 'unified',
+                    'execution_error': True,
+                    'error_message': str(e)
+                }
+            }
+
+    def _build_unified_query(self, calc_requests: List[CalculationRequest], filters: QueryFilters) -> str:
+        """Build a single SQL query with CTEs for all calculations"""
+        
+        # Separate requests by type
+        static_requests = [r for r in calc_requests if r.calc_type == 'static_field']
+        user_requests = [r for r in calc_requests if r.calc_type == 'user_calculation']
+        system_requests = [r for r in calc_requests if r.calc_type == 'system_calculation']
+        
+        # Build CTEs for calculations
+        ctes = []
+        
+        # Add user calculation CTEs
+        for request in user_requests:
+            cte = self._build_user_calculation_cte(request, filters)
+            if cte:
+                ctes.append(cte)
+        
+        # Add system calculation CTEs
+        for request in system_requests:
+            cte = self._build_system_calculation_cte(request, filters)
+            if cte:
+                ctes.append(cte)
+        
+        # Build base query with static fields
+        base_query = self._build_base_query(static_requests, filters)
+        
+        # Combine everything
+        if ctes:
+            # Add base_data CTE to the list
+            base_cte = f"base_data AS (\n{self._indent_sql(base_query, 4)}\n)"
+            ctes.append(base_cte)
+            
+            # Build the final SELECT that joins everything
+            final_select = self._build_final_select(calc_requests, filters)
+            
+            # Combine: WITH all_ctes final_select
+            return "WITH " + ",\n\n".join(ctes) + "\n\n" + final_select
+        else:
+            # No CTEs needed, just return the base query
+            return base_query
+
+    def _build_base_query(self, static_requests: List[CalculationRequest], filters: QueryFilters) -> str:
+        """Build the base query with all static fields"""
+        
+        # Determine required models from static fields
+        required_models = set(['Deal'])  # Always need Deal
+        
+        for request in static_requests:
+            if request.field_path:
+                field_info = get_static_field_info(request.field_path)
+                required_models.update(field_info['required_models'])
+        
+        # Build base columns
+        base_columns = ["deal.dl_nbr"]
+        
+        # Add tranche info if needed
+        if filters.report_scope == "TRANCHE" and ('Tranche' in required_models or 'TrancheBal' in required_models):
+            base_columns.append("tranche.tr_id")
+            required_models.add('Tranche')
+        
+        # Add cycle code if needed
+        if 'TrancheBal' in required_models:
+            base_columns.append("tranchebal.cycle_cde")
+        
+        # Add all static fields
+        for request in static_requests:
+            if request.field_path:
+                # Quote the alias if it contains spaces or special characters
+                quoted_alias = f'"{request.alias}"' if ' ' in request.alias or any(c in request.alias for c in ['-', '.', '/', '\\']) else request.alias
+                
+                if request.field_path == "deal.CDB_cdi_file_nme":
+                    base_columns.append(f'deal."CDB_cdi_file_nme" AS {quoted_alias}')
+                else:
+                    base_columns.append(f"{request.field_path} AS {quoted_alias}")
+        
+        # Build FROM clause
+        from_clause = self._build_from_clause(list(required_models))
+        
+        # Build WHERE clause
+        where_clause = self._build_where_clause_for_base(filters, required_models)
+        
+        return f"""SELECT DISTINCT {', '.join(base_columns)}
+{from_clause}
+{where_clause}"""
+
+    def _build_user_calculation_cte(self, request: CalculationRequest, filters: QueryFilters) -> Optional[str]:
+        """Build CTE for a user calculation"""
+        try:
+            calc = self.config_db.query(UserCalculation).filter_by(id=request.calc_id, is_active=True).first()
+            if not calc:
+                return None
+            
+            # Build aggregation expression
+            agg_field = f"{calc.source_model.value.lower()}.{calc.source_field}"
+            
+            if calc.aggregation_function == AggregationFunction.SUM:
+                agg_expr = f"SUM({agg_field})"
+            elif calc.aggregation_function == AggregationFunction.AVG:
+                agg_expr = f"AVG({agg_field})"
+            elif calc.aggregation_function == AggregationFunction.COUNT:
+                agg_expr = f"COUNT({agg_field})"
+            elif calc.aggregation_function == AggregationFunction.MIN:
+                agg_expr = f"MIN({agg_field})"
+            elif calc.aggregation_function == AggregationFunction.MAX:
+                agg_expr = f"MAX({agg_field})"
+            elif calc.aggregation_function == AggregationFunction.WEIGHTED_AVG:
+                if not calc.weight_field:
+                    return None
+                weight_field = f"{calc.source_model.value.lower()}.{calc.weight_field}"
+                agg_expr = f"SUM({agg_field} * {weight_field}) / NULLIF(SUM({weight_field}), 0)"
+            else:
+                return None
+            
+            # Create safe CTE name by removing spaces and special characters
+            safe_cte_name = request.alias.replace(' ', '_').replace('-', '_').replace('.', '_')
+            
+            # Quote the result alias if it contains spaces or special characters
+            quoted_alias = f'"{request.alias}"' if ' ' in request.alias or any(c in request.alias for c in ['-', '.', '/', '\\']) else request.alias
+            
+            # Build GROUP BY based on calculation level
+            if calc.group_level.value == "deal":
+                group_columns = ["deal.dl_nbr"]
+                select_columns = ["deal.dl_nbr", f"{agg_expr} AS {quoted_alias}"]
+            else:  # TRANCHE level
+                group_columns = ["deal.dl_nbr", "tranche.tr_id"]
+                select_columns = ["deal.dl_nbr", "tranche.tr_id", f"{agg_expr} AS {quoted_alias}"]
+            
+            # Build the CTE
+            where_clause = self._build_where_clause(filters)
+            
+            return f"""{safe_cte_name}_cte AS (
+    SELECT {', '.join(select_columns)}
+    FROM deal
+    JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
+    JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr AND tranche.tr_id = tranchebal.tr_id
+    {where_clause}
+    GROUP BY {', '.join(group_columns)}
+)"""
+        
+        except Exception as e:
+            # Return a comment CTE for debugging
+            safe_cte_name = request.alias.replace(' ', '_').replace('-', '_').replace('.', '_')
+            return f"""{safe_cte_name}_cte AS (
+    -- ERROR: {str(e)}
+    SELECT NULL AS dl_nbr, NULL AS "{request.alias}"
+    WHERE FALSE
+)"""
+
+    def _build_system_calculation_cte(self, request: CalculationRequest, filters: QueryFilters) -> Optional[str]:
+        """Build CTE for a system calculation"""
+        try:
+            calc = self.config_db.query(SystemCalculation).filter_by(id=request.calc_id, is_active=True).first()
+            if not calc:
+                return None
+            
+            # Create safe CTE name by removing spaces and special characters
+            safe_cte_name = request.alias.replace(' ', '_').replace('-', '_').replace('.', '_')
+            
+            # Inject filters into the system SQL
+            modified_sql = self._inject_filters_into_raw_sql(calc.raw_sql, filters)
+            
+            # Quote the result alias if it contains spaces or special characters
+            quoted_alias = f'"{request.alias}"' if ' ' in request.alias or any(c in request.alias for c in ['-', '.', '/', '\\']) else request.alias
+            
+            # SMART COLUMN DETECTION: Analyze the SQL to determine what columns are actually available
+            sql_upper = modified_sql.upper()
+            
+            # Look for primary key column patterns in the SQL
+            dl_nbr_column = None
+            tr_id_column = None
+            
+            # Check for different dl_nbr column patterns
+            if 'DEAL.DL_NBR AS DEAL_NUMBER' in sql_upper:
+                dl_nbr_column = 'deal_number'
+            elif 'DL_NBR AS DEAL_NUMBER' in sql_upper:
+                dl_nbr_column = 'deal_number'
+            elif 'DEAL.DL_NBR' in sql_upper or 'SELECT DL_NBR' in sql_upper:
+                dl_nbr_column = 'dl_nbr'
+            else:
+                # Default fallback
+                dl_nbr_column = 'dl_nbr'
+            
+            # Check for tr_id patterns if this is tranche level
+            if calc.group_level.value == "tranche":
+                if 'TRANCHE.TR_ID AS TRANCHE_ID' in sql_upper:
+                    tr_id_column = 'tranche_id'
+                elif 'TR_ID AS TRANCHE_ID' in sql_upper:
+                    tr_id_column = 'tranche_id'
+                elif 'TRANCHE.TR_ID' in sql_upper or 'SELECT TR_ID' in sql_upper:
+                    tr_id_column = 'tr_id'
+                else:
+                    tr_id_column = 'tr_id'
+            
+            # Handle different group levels properly for system calculations
+            if calc.group_level.value == "deal":
+                # Deal-level system calculation - only select dl_nbr
+                if calc.result_column_name != request.alias:
+                    wrapped_sql = f"""SELECT sys_calc.{dl_nbr_column} as dl_nbr, {calc.result_column_name} AS {quoted_alias}
+FROM ({modified_sql}) AS sys_calc"""
+                else:
+                    # Need to ensure dl_nbr is properly aliased
+                    if dl_nbr_column != 'dl_nbr':
+                        wrapped_sql = f"""SELECT sys_calc.{dl_nbr_column} as dl_nbr, sys_calc.{quoted_alias}
+FROM ({modified_sql}) AS sys_calc"""
+                    else:
+                        wrapped_sql = modified_sql
+            else:  # TRANCHE level
+                # Tranche-level system calculation - select both dl_nbr and tr_id
+                if calc.result_column_name != request.alias:
+                    wrapped_sql = f"""SELECT sys_calc.{dl_nbr_column} as dl_nbr, sys_calc.{tr_id_column} as tr_id, {calc.result_column_name} AS {quoted_alias}
+FROM ({modified_sql}) AS sys_calc"""
+                else:
+                    # Need to ensure columns are properly aliased
+                    if dl_nbr_column != 'dl_nbr' or tr_id_column != 'tr_id':
+                        wrapped_sql = f"""SELECT sys_calc.{dl_nbr_column} as dl_nbr, sys_calc.{tr_id_column} as tr_id, sys_calc.{quoted_alias}
+FROM ({modified_sql}) AS sys_calc"""
+                    else:
+                        wrapped_sql = modified_sql
+            
+            # Wrap the system SQL in a CTE
+            return f"""{safe_cte_name}_cte AS (
+    {self._indent_sql(wrapped_sql, 4)}
+)"""
+        
+        except Exception as e:
+            # Return a comment CTE for debugging
+            safe_cte_name = request.alias.replace(' ', '_').replace('-', '_').replace('.', '_')
+            return f"""{safe_cte_name}_cte AS (
+    -- ERROR: {str(e)}
+    SELECT NULL AS dl_nbr, NULL AS "{request.alias}"
+    WHERE FALSE
+)"""
+
+    def _build_final_select(self, calc_requests: List[CalculationRequest], filters: QueryFilters) -> str:
+        """Build the final SELECT that joins all CTEs"""
+        
+        # Build select columns
+        select_columns = []
+        
+        # Add base columns
+        if filters.report_scope == "TRANCHE":
+            select_columns.extend(["base_data.dl_nbr", "base_data.tr_id", "base_data.cycle_cde"])
+        else:
+            select_columns.extend(["base_data.dl_nbr", "base_data.cycle_cde"])
+        
+        # Add static field columns
+        for request in calc_requests:
+            if request.calc_type == 'static_field':
+                # Quote the column reference if the alias contains spaces
+                quoted_alias = f'"{request.alias}"' if ' ' in request.alias or any(c in request.alias for c in ['-', '.', '/', '\\']) else request.alias
+                select_columns.append(f"base_data.{quoted_alias}")
+        
+        # Build joins and add calculation columns
+        joins = []
+        for request in calc_requests:
+            if request.calc_type in ['user_calculation', 'system_calculation']:
+                # Create safe CTE name by removing spaces and special characters
+                safe_cte_name = request.alias.replace(' ', '_').replace('-', '_').replace('.', '_')
+                cte_alias = f"{safe_cte_name}_cte"
+                
+                # Determine join condition based on report scope
+                if filters.report_scope == "TRANCHE":
+                    join_condition = f"base_data.dl_nbr = {cte_alias}.dl_nbr AND base_data.tr_id = {cte_alias}.tr_id"
+                else:
+                    join_condition = f"base_data.dl_nbr = {cte_alias}.dl_nbr"
+                
+                joins.append(f"LEFT JOIN {cte_alias} ON {join_condition}")
+                
+                # Quote the column reference if the alias contains spaces
+                quoted_alias = f'"{request.alias}"' if ' ' in request.alias or any(c in request.alias for c in ['-', '.', '/', '\\']) else request.alias
+                select_columns.append(f"{cte_alias}.{quoted_alias}")
+        
+        # Build final query
+        final_query = f"""SELECT {', '.join(select_columns)}
+FROM base_data
+{chr(10).join(joins)}
+ORDER BY base_data.dl_nbr"""
+        
+        if filters.report_scope == "TRANCHE":
+            final_query += ", base_data.tr_id"
+        
+        return final_query
+
     def _build_from_clause(self, required_models: List[str]) -> str:
         """Build FROM/JOIN clause based on required models"""
         base = "FROM deal"
         if "Tranche" in required_models:
             base += "\nJOIN tranche ON deal.dl_nbr = tranche.dl_nbr"
         if "TrancheBal" in required_models:
-            base += "\nJOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr AND tranche.tr_id = tranchebal.tr_id"
+            base += "\nJOIN tranchebal ON deal.dl_nbr = tranchebal.dl_nbr AND tranche.tr_id = tranchebal.tr_id"
         return base
+
+    def _build_where_clause_for_base(self, filters: QueryFilters, required_models: set) -> str:
+        """Build WHERE clause for base query"""
+        conditions = []
+        
+        # Build deal-tranche conditions
+        deal_conditions = []
+        for deal_id, tranche_ids in filters.deal_tranche_map.items():
+            if "Tranche" in required_models and tranche_ids:
+                tranche_list = "', '".join(tranche_ids)
+                deal_conditions.append(f"(deal.dl_nbr = {deal_id} AND tranche.tr_id IN ('{tranche_list}'))")
+            else:
+                deal_conditions.append(f"deal.dl_nbr = {deal_id}")
+        
+        if deal_conditions:
+            conditions.append(f"({' OR '.join(deal_conditions)})")
+        
+        # Add cycle filter if TrancheBal is involved
+        if "TrancheBal" in required_models:
+            conditions.append(f"tranchebal.cycle_cde = {filters.cycle_code}")
+        
+        return f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
     def _build_where_clause(self, filters: QueryFilters) -> str:
         """Build WHERE clause from standard filters"""
@@ -432,234 +805,74 @@ GROUP BY {', '.join(group_columns)}"""
 
         return f"WHERE {' AND '.join(conditions)}"
 
-    def _build_advanced_filters(self, filter_config: List[Dict[str, Any]]) -> str:
-        """Build additional WHERE conditions from advanced config (future expansion)"""
-        conditions = []
-        for filter_def in filter_config:
-            field = filter_def['field']
-            operator = filter_def['operator']
-            value = filter_def['value']
-
-            if isinstance(value, str):
-                conditions.append(f"{field} {operator} '{value}'")
-            else:
-                conditions.append(f"{field} {operator} {value}")
-
-        return ' AND '.join(conditions)
-
     def _inject_filters_into_raw_sql(self, raw_sql: str, filters: QueryFilters) -> str:
-        """Enhanced filter injection for complex SQL including CTEs"""
+        """Inject filters into system SQL with improved logic for deal vs tranche level"""
+        
+        # Check if the SQL contains tranchebal - if not, we can't use tranchebal filters
         sql_upper = raw_sql.upper()
+        has_tranchebal = 'TRANCHEBAL' in sql_upper
+        has_tranche = 'TRANCHE' in sql_upper and 'TRANCHE' != 'TRANCHEBAL'  # Avoid matching tranchebal
         
-        # Enhanced table detection - check for table references in FROM/JOIN clauses
-        import re
-        
-        # Parse the SQL structure to understand CTEs vs main query
-        sql_structure = self._parse_sql_structure(raw_sql)
-        
-        # Build appropriate filters based on tables used in the FINAL query OR CTE definitions
+        # Build filter parts based on what tables are available
         filter_parts = []
         
-        # Get tables from the final SELECT (after CTEs)
-        final_query_tables = sql_structure.get('final_query_tables', set())
-        all_tables = sql_structure.get('all_tables', set())
-        
-        # For CTEs, we need to check if the underlying CTE uses the standard tables
-        # even if the final SELECT only references the CTE name
-        if sql_structure.get('has_ctes', False):
-            # If we have CTEs, use all tables from the entire SQL (including CTE definitions)
-            # This ensures we add filters even when final SELECT only references CTE names
-            tables_for_filtering = all_tables
-        else:
-            # For simple queries, only use final query tables
-            tables_for_filtering = final_query_tables
-        
-        # Only add cycle filter if tranchebal table exists in any part of the query
-        if 'TRANCHEBAL' in tables_for_filtering:
+        # Only add cycle filter if tranchebal is in the query
+        if has_tranchebal:
             filter_parts.append(f"tranchebal.cycle_cde = {filters.cycle_code}")
         
-        # Build deal-tranche conditions based on tables used anywhere in the query
+        # Build deal-tranche conditions based on available tables
         deal_conditions = []
         for deal_id, tranche_ids in filters.deal_tranche_map.items():
-            if 'TRANCHE' in tables_for_filtering and 'TRANCHEBAL' in tables_for_filtering and tranche_ids:
-                # We have both tranche and tranchebal tables with specific tranches
+            if has_tranche and tranche_ids:
+                # We have tranche table and specific tranche filtering
                 tranche_list = "', '".join(tranche_ids)
                 deal_conditions.append(f"(deal.dl_nbr = {deal_id} AND tranche.tr_id IN ('{tranche_list}'))")
-            elif 'DEAL' in tables_for_filtering:
-                # We have deal table or want all tranches for this deal
+            else:
+                # Deal-only filtering (either no tranche table or no tranche filtering needed)
                 deal_conditions.append(f"deal.dl_nbr = {deal_id}")
-
+        
         if deal_conditions:
             filter_parts.append(f"({' OR '.join(deal_conditions)})")
         
-        # If no valid filters can be applied, return original SQL
+        # If no filters can be applied, return original SQL
         if not filter_parts:
             return raw_sql
-            
+        
         full_filter = ' AND '.join(filter_parts)
-
-        # Smart injection based on SQL structure
-        if sql_structure.get('has_ctes', False):
-            # For CTEs, inject filters into the CTE definitions themselves, not the final SELECT
-            return self._inject_filters_into_cte_definitions(raw_sql, full_filter)
-        else:
-            # Simple query - use existing logic
-            return self._inject_filters_into_simple_query(raw_sql, full_filter)
-
-    def _parse_sql_structure(self, sql: str) -> dict:
-        """Parse SQL to understand CTEs, subqueries, and table usage"""
-        import re
         
-        structure = {
-            'has_ctes': False,
-            'has_subqueries': False,
-            'cte_definitions': [],
-            'final_query_start': 0,
-            'final_query_tables': set(),
-            'all_tables': set()
-        }
+        # Check if this is a complex CTE query that we should skip filter injection for
+        if sql_upper.startswith('WITH') and 'FROM deal_metrics' in raw_sql:
+            # This is the complex CTE calculation - return original SQL without filter injection
+            return raw_sql
         
-        sql_upper = sql.upper()
-        
-        # Check for CTEs
-        structure['has_ctes'] = sql_upper.strip().startswith('WITH')
-        
-        # Check for subqueries
-        structure['has_subqueries'] = '(SELECT' in sql_upper
-        
-        if structure['has_ctes']:
-            # Find where CTEs end and final query begins
-            # Look for the pattern ") SELECT" that indicates end of CTE and start of main query
-            cte_end_pattern = r'\)\s*SELECT\b'
-            match = re.search(cte_end_pattern, sql, re.IGNORECASE)
-            if match:
-                structure['final_query_start'] = match.start() + 1  # Start after the )
-                final_query = sql[structure['final_query_start']:]
-                structure['final_query_tables'] = self._extract_tables_from_query(final_query)
-            else:
-                # Fallback: assume the entire query
-                structure['final_query_tables'] = self._extract_tables_from_query(sql)
-        else:
-            # No CTEs, analyze the whole query
-            structure['final_query_tables'] = self._extract_tables_from_query(sql)
-        
-        structure['all_tables'] = self._extract_tables_from_query(sql)
-        
-        return structure
-
-    def _extract_tables_from_query(self, sql: str) -> set:
-        """Extract table names from SQL query"""
-        import re
-        
-        # Find all table references in FROM and JOIN clauses
-        from_join_pattern = r'(?:FROM|JOIN)\s+(\w+)'
-        table_matches = re.findall(from_join_pattern, sql.upper())
-        
-        return set(table_matches)
-
-    def _inject_filters_into_cte_query(self, sql: str, filters: str, structure: dict) -> str:
-        """Inject filters into CTE-based queries"""
-        import re
-        
-        # Find the final SELECT statement after CTEs
-        final_query_start = structure.get('final_query_start', 0)
-        
-        if final_query_start > 0:
-            # Split the SQL into CTE part and final query part
-            cte_part = sql[:final_query_start]
-            final_part = sql[final_query_start:]
-            
-            # Inject filters into the final part
-            modified_final = self._inject_filters_into_simple_query(final_part, filters)
-            
-            return cte_part + modified_final
-        else:
-            # Fallback to simple injection
-            return self._inject_filters_into_simple_query(sql, filters)
-
-    def _inject_filters_into_cte_definitions(self, sql: str, filters: str) -> str:
-        """Inject filters into CTE definitions where the actual tables are referenced"""
-        import re
-        
-        # Strategy: Find the CTE definition that contains the actual table joins
-        # and inject filters there, rather than in the final SELECT
-        
-        # Split the SQL into CTE part and final SELECT part
-        cte_end_pattern = r'\)\s*SELECT\b'
-        match = re.search(cte_end_pattern, sql, re.IGNORECASE)
-        
-        if not match:
-            # Fallback to simple injection if we can't parse the CTE structure
-            return self._inject_filters_into_simple_query(sql, filters)
-        
-        cte_part = sql[:match.start() + 1]  # Include the closing )
-        final_part = sql[match.start() + 1:]  # Start from SELECT
-        
-        # Find individual CTE definitions within the CTE part
-        # Look for pattern: CTE_NAME AS (SELECT ... FROM actual_tables ...)
-        cte_def_pattern = r'(\w+)\s+AS\s*\((.*?)\)(?=\s*,\s*\w+\s+AS\s*\(|\s*\)\s*SELECT|\s*$)'
-        
-        def inject_into_cte_def(match):
-            cte_name = match.group(1)
-            cte_body = match.group(2)
-            
-            # Check if this CTE definition contains actual table references
-            if any(table in cte_body.upper() for table in ['DEAL', 'TRANCHE', 'TRANCHEBAL']):
-                # This CTE uses actual tables, inject filters here
-                modified_body = self._inject_filters_into_simple_query(cte_body, filters)
-                return f"{cte_name} AS ({modified_body})"
-            else:
-                # This CTE doesn't use actual tables, leave it unchanged
-                return match.group(0)
-        
-        # Apply the injection to each CTE definition
-        modified_cte_part = re.sub(cte_def_pattern, inject_into_cte_def, cte_part, flags=re.IGNORECASE | re.DOTALL)
-        
-        # Return the complete modified SQL
-        return modified_cte_part + final_part
-
-    def _inject_filters_into_simple_query(self, sql: str, filters: str) -> str:
-        """Inject filters into simple (non-CTE) queries"""
-        import re
-        
-        sql_upper = sql.upper()
-        
+        # For simple queries, use the original logic
         if " WHERE " in sql_upper:
-            # Already has WHERE clause, append with AND
-            return sql + f" AND {filters}"
+            return raw_sql + f" AND {full_filter}"
         else:
-            # Find the correct insertion point using case-insensitive regex
-            # WHERE must come before GROUP BY, HAVING, ORDER BY, LIMIT
-            insert_keywords = [r'\bGROUP\s+BY\b', r'\bHAVING\b', r'\bORDER\s+BY\b', r'\bLIMIT\b']
-            insert_position = len(sql)
-
-            # Find the earliest clause that should come after WHERE
+            # Find insertion point before GROUP BY, ORDER BY, etc.
+            import re
+            insert_keywords = [r'\bGROUP\s+BY\b', r'\bORDER\s+BY\b', r'\bHAVING\b', r'\bLIMIT\b']
+            insert_position = len(raw_sql)
+            
             for pattern in insert_keywords:
-                match = re.search(pattern, sql, re.IGNORECASE)
+                match = re.search(pattern, raw_sql, re.IGNORECASE)
                 if match and match.start() < insert_position:
                     insert_position = match.start()
+            
+            return raw_sql[:insert_position] + f" WHERE {full_filter} " + raw_sql[insert_position:]
 
-            # Insert WHERE clause at the correct position
-            where_clause = f" WHERE {filters}"
-            return sql[:insert_position] + where_clause + sql[insert_position:]
-    
+    def _indent_sql(self, sql: str, spaces: int) -> str:
+        """Indent SQL for better formatting in CTEs"""
+        indent = " " * spaces
+        return "\n".join(indent + line for line in sql.split("\n"))
+
     def _execute_sql(self, sql: str) -> List[Dict[str, Any]]:
         """Execute SQL and return results as list of dictionaries"""
         try:
             result = self.dw_db.execute(text(sql))
             columns = result.keys()
-            data = [dict(zip(columns, row)) for row in result.fetchall()]
-            
-            # DEBUG: Log SQL execution for static fields - fixed the condition check
-            sql_lower = sql.lower()
-            if ('deal.' in sql_lower or 'cdi_file' in sql_lower or 'issr_cde' in sql_lower):
-                print(f"DEBUG SQL: {sql}")
-                print(f"DEBUG Result columns: {list(columns)}")
-                print(f"DEBUG Result data: {data}")
-            
-            return data
+            return [dict(zip(columns, row)) for row in result.fetchall()]
         except Exception as e:
-            # Return empty result set on error, but log it
             print(f"SQL Execution Error: {e}")
             print(f"Failed SQL: {sql}")
-            return []
+            raise

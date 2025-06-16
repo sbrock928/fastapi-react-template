@@ -19,7 +19,7 @@ from .models import (
     get_static_field_info
 )
 from .dao import UserCalculationDAO, SystemCalculationDAO
-from .resolver import SimpleCalculationResolver, CalculationRequest, QueryFilters
+from .resolver import SimpleCalculationResolver, UnifiedCalculationResolver, CalculationRequest, QueryFilters
 from .schemas import (
     UserCalculationCreate,
     UserCalculationUpdate,
@@ -35,71 +35,112 @@ class ReportExecutionService:
     def __init__(self, dw_db: Session, config_db: Session):
         self.dw_db = dw_db
         self.config_db = config_db
-        self.resolver = SimpleCalculationResolver(dw_db, config_db)
+        # Use the unified resolver for cleaner, more readable SQL
+        self.resolver = UnifiedCalculationResolver(dw_db, config_db)
+        # Keep the old resolver available for compatibility
+        self.simple_resolver = SimpleCalculationResolver(dw_db, config_db)
 
     def execute_report(self, calculation_requests: List[CalculationRequest], 
                       deal_tranche_map: Dict[int, List[str]], cycle_code: int, 
-                      report_scope: str = None) -> Dict[str, Any]:
+                      report_scope: str = None, use_unified: bool = True) -> Dict[str, Any]:
         """Execute a report with mixed calculation types"""
 
         filters = QueryFilters(deal_tranche_map, cycle_code, report_scope)
-        result = self.resolver.resolve_report(calculation_requests, filters)
-
-        return {
-            'data': result['merged_data'],
-            'metadata': {
-                'total_rows': len(result['merged_data']),
-                'calculations_executed': len(calculation_requests),
-                'debug_info': result['debug_info'],
-                'individual_sql_queries': {
-                    alias: query_result.sql 
-                    for alias, query_result in result['individual_queries'].items()
+        
+        if use_unified:
+            # Use the new unified approach with single SQL query and CTEs
+            result = self.resolver.resolve_report(calculation_requests, filters)
+            
+            return {
+                'data': result['merged_data'],
+                'metadata': {
+                    'total_rows': len(result['merged_data']),
+                    'calculations_executed': len(calculation_requests),
+                    'debug_info': result['debug_info'],
+                    'unified_sql': result.get('unified_sql'),
+                    'query_approach': 'unified'
                 }
             }
-        }
+        else:
+            # Use the old individual query approach
+            result = self.simple_resolver.resolve_report(calculation_requests, filters)
+            
+            return {
+                'data': result['merged_data'],
+                'metadata': {
+                    'total_rows': len(result['merged_data']),
+                    'calculations_executed': len(calculation_requests),
+                    'debug_info': result['debug_info'],
+                    'individual_sql_queries': {
+                        alias: query_result.sql 
+                        for alias, query_result in result['individual_queries'].items()
+                    },
+                    'query_approach': 'individual'
+                }
+            }
 
     def preview_report_sql(self, calculation_requests: List[CalculationRequest],
                           deal_tranche_map: Dict[int, List[str]], cycle_code: int, 
-                          report_scope: str = None) -> Dict[str, Any]:
+                          report_scope: str = None, use_unified: bool = True) -> Dict[str, Any]:
         """Preview SQL queries without executing them"""
 
         filters = QueryFilters(deal_tranche_map, cycle_code, report_scope)
         
-        # Generate SQL for each calculation
-        sql_previews = {}
-        for request in calculation_requests:
-            try:
-                query_result = self.resolver.resolve_single_calculation(request, filters)
-                sql_previews[request.alias] = {
-                    'sql': query_result.sql,
-                    'columns': query_result.columns,
-                    'calculation_type': query_result.calc_type,
-                    'group_level': query_result.group_level
+        if use_unified:
+            # Generate the unified SQL
+            unified_sql = self.resolver._build_unified_query(calculation_requests, filters)
+            
+            return {
+                'unified_sql': unified_sql,
+                'parameters': {
+                    'deal_tranche_map': deal_tranche_map,
+                    'cycle_code': cycle_code,
+                    'report_scope': report_scope
+                },
+                'summary': {
+                    'total_calculations': len(calculation_requests),
+                    'static_fields': len([r for r in calculation_requests if r.calc_type == 'static_field']),
+                    'user_calculations': len([r for r in calculation_requests if r.calc_type == 'user_calculation']),
+                    'system_calculations': len([r for r in calculation_requests if r.calc_type == 'system_calculation']),
+                    'query_approach': 'unified'
                 }
-            except Exception as e:
-                sql_previews[request.alias] = {
-                    'sql': f"-- ERROR: {str(e)}",
-                    'columns': [],
-                    'calculation_type': 'error',
-                    'error': str(e)
-                }
-
-        return {
-            'sql_previews': sql_previews,
-            'parameters': {
-                'deal_tranche_map': deal_tranche_map,
-                'cycle_code': cycle_code,
-                'report_scope': report_scope
-            },
-            'summary': {
-                'total_calculations': len(calculation_requests),
-                'static_fields': len([r for r in calculation_requests if r.calc_type == 'static_field']),
-                'user_calculations': len([r for r in calculation_requests if r.calc_type == 'user_calculation']),
-                'system_calculations': len([r for r in calculation_requests if r.calc_type == 'system_calculation'])
             }
-        }
+        else:
+            # Use the old individual query preview
+            sql_previews = {}
+            for request in calculation_requests:
+                try:
+                    query_result = self.simple_resolver.resolve_single_calculation(request, filters)
+                    sql_previews[request.alias] = {
+                        'sql': query_result.sql,
+                        'columns': query_result.columns,
+                        'calculation_type': query_result.calc_type,
+                        'group_level': query_result.group_level
+                    }
+                except Exception as e:
+                    sql_previews[request.alias] = {
+                        'sql': f"-- ERROR: {str(e)}",
+                        'columns': [],
+                        'calculation_type': 'error',
+                        'error': str(e)
+                    }
 
-
+            return {
+                'sql_previews': sql_previews,
+                'parameters': {
+                    'deal_tranche_map': deal_tranche_map,
+                    'cycle_code': cycle_code,
+                    'report_scope': report_scope
+                },
+                'summary': {
+                    'total_calculations': len(calculation_requests),
+                    'static_fields': len([r for r in calculation_requests if r.calc_type == 'static_field']),
+                    'user_calculations': len([r for r in calculation_requests if r.calc_type == 'user_calculation']),
+                    'system_calculations': len([r for r in calculation_requests if r.calc_type == 'system_calculation']),
+                    'query_approach': 'individual'
+                }
+            }
+    
 class UserCalculationService:
     """Service for managing user-defined calculations"""
 
