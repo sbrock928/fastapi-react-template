@@ -23,19 +23,20 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
   const lineNumbersRef = useRef<HTMLDivElement>(null);
   const [focused, setFocused] = useState(false);
 
-  // SQL keywords for highlighting
+  // SQL keywords for highlighting - Enhanced for CTEs and complex queries
   const SQL_KEYWORDS = [
     'SELECT', 'FROM', 'WHERE', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'OUTER', 'ON',
     'GROUP', 'BY', 'ORDER', 'HAVING', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
     'AS', 'AND', 'OR', 'NOT', 'IN', 'LIKE', 'BETWEEN', 'IS', 'NULL', 'DISTINCT',
-    'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'CAST', 'COALESCE', 'NULLIF'
+    'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'CAST', 'COALESCE', 'NULLIF',
+    'WITH', 'RECURSIVE', 'UNION', 'ALL', 'EXCEPT', 'INTERSECT', 'EXISTS'
   ];
 
-  const FUNCTIONS = ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'CASE', 'CAST', 'COALESCE', 'NULLIF'];
+  const FUNCTIONS = ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'CASE', 'CAST', 'COALESCE', 'NULLIF', 'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'LEAD', 'LAG', 'FIRST_VALUE', 'LAST_VALUE'];
   const TABLES = ['deal', 'tranche', 'tranchebal'];
-  const COMMON_FIELDS = ['dl_nbr', 'tr_id', 'issr_cde', 'cdi_file_nme', 'tr_end_bal_amt', 'tr_pass_thru_rte'];
+  const COMMON_FIELDS = ['dl_nbr', 'tr_id', 'issr_cde', 'cdi_file_nme', 'tr_end_bal_amt', 'tr_pass_thru_rte', 'cycle_cde'];
 
-  // Highlight SQL syntax (without line numbers)
+  // Highlight SQL syntax (enhanced for CTEs)
   const highlightSql = (sql: string): string => {
     if (!sql) return '';
 
@@ -46,6 +47,9 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
+
+    // Highlight CTE names (identifiers followed by AS)
+    highlighted = highlighted.replace(/\b(\w+)\s+AS\s*\(/gi, '<span class="sql-cte">$1</span> <span class="sql-keyword">AS</span> (');
 
     // Highlight SQL keywords
     SQL_KEYWORDS.forEach(keyword => {
@@ -81,6 +85,7 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
 
     // Highlight comments
     highlighted = highlighted.replace(/--.*$/gm, '<span class="sql-comment">$&</span>');
+    highlighted = highlighted.replace(/\/\*[\s\S]*?\*\//g, '<span class="sql-comment">$&</span>');
 
     return highlighted;
   };
@@ -361,6 +366,11 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
           .sql-comment {
             color: #6a9955;
             font-style: italic;
+          }
+          .sql-cte {
+            color: #c586c0;
+            font-weight: bold;
+            text-decoration: underline;
           }
         `
       }} />

@@ -448,35 +448,45 @@ GROUP BY {', '.join(group_columns)}"""
         return ' AND '.join(conditions)
 
     def _inject_filters_into_raw_sql(self, raw_sql: str, filters: QueryFilters) -> str:
-        """Inject standard filters into system calculation SQL - only for tables that exist"""
+        """Enhanced filter injection for complex SQL including CTEs"""
         sql_upper = raw_sql.upper()
         
-        # More precise table detection - check for table references in FROM/JOIN clauses
+        # Enhanced table detection - check for table references in FROM/JOIN clauses
         import re
         
-        # Find all table references in FROM and JOIN clauses
-        from_join_pattern = r'(?:FROM|JOIN)\s+(\w+)'
-        table_matches = re.findall(from_join_pattern, sql_upper)
+        # Parse the SQL structure to understand CTEs vs main query
+        sql_structure = self._parse_sql_structure(raw_sql)
         
-        # Convert to set for easier checking
-        available_tables = set(table_matches)
-        
-        # Build appropriate filters based on available tables
+        # Build appropriate filters based on tables used in the FINAL query OR CTE definitions
         filter_parts = []
         
-        # Only add cycle filter if tranchebal table exists
-        if 'TRANCHEBAL' in available_tables:
+        # Get tables from the final SELECT (after CTEs)
+        final_query_tables = sql_structure.get('final_query_tables', set())
+        all_tables = sql_structure.get('all_tables', set())
+        
+        # For CTEs, we need to check if the underlying CTE uses the standard tables
+        # even if the final SELECT only references the CTE name
+        if sql_structure.get('has_ctes', False):
+            # If we have CTEs, use all tables from the entire SQL (including CTE definitions)
+            # This ensures we add filters even when final SELECT only references CTE names
+            tables_for_filtering = all_tables
+        else:
+            # For simple queries, only use final query tables
+            tables_for_filtering = final_query_tables
+        
+        # Only add cycle filter if tranchebal table exists in any part of the query
+        if 'TRANCHEBAL' in tables_for_filtering:
             filter_parts.append(f"tranchebal.cycle_cde = {filters.cycle_code}")
         
-        # Build deal-tranche conditions based on available tables
+        # Build deal-tranche conditions based on tables used anywhere in the query
         deal_conditions = []
         for deal_id, tranche_ids in filters.deal_tranche_map.items():
-            if 'TRANCHE' in available_tables and 'TRANCHEBAL' in available_tables and tranche_ids:
+            if 'TRANCHE' in tables_for_filtering and 'TRANCHEBAL' in tables_for_filtering and tranche_ids:
                 # We have both tranche and tranchebal tables with specific tranches
                 tranche_list = "', '".join(tranche_ids)
                 deal_conditions.append(f"(deal.dl_nbr = {deal_id} AND tranche.tr_id IN ('{tranche_list}'))")
-            elif 'DEAL' in available_tables:
-                # We only have deal table or want all tranches for this deal
+            elif 'DEAL' in tables_for_filtering:
+                # We have deal table or want all tranches for this deal
                 deal_conditions.append(f"deal.dl_nbr = {deal_id}")
 
         if deal_conditions:
@@ -488,28 +498,151 @@ GROUP BY {', '.join(group_columns)}"""
             
         full_filter = ' AND '.join(filter_parts)
 
-        # FIXED: Proper WHERE clause injection with correct clause ordering
+        # Smart injection based on SQL structure
+        if sql_structure.get('has_ctes', False):
+            # For CTEs, inject filters into the CTE definitions themselves, not the final SELECT
+            return self._inject_filters_into_cte_definitions(raw_sql, full_filter)
+        else:
+            # Simple query - use existing logic
+            return self._inject_filters_into_simple_query(raw_sql, full_filter)
+
+    def _parse_sql_structure(self, sql: str) -> dict:
+        """Parse SQL to understand CTEs, subqueries, and table usage"""
+        import re
+        
+        structure = {
+            'has_ctes': False,
+            'has_subqueries': False,
+            'cte_definitions': [],
+            'final_query_start': 0,
+            'final_query_tables': set(),
+            'all_tables': set()
+        }
+        
+        sql_upper = sql.upper()
+        
+        # Check for CTEs
+        structure['has_ctes'] = sql_upper.strip().startswith('WITH')
+        
+        # Check for subqueries
+        structure['has_subqueries'] = '(SELECT' in sql_upper
+        
+        if structure['has_ctes']:
+            # Find where CTEs end and final query begins
+            # Look for the pattern ") SELECT" that indicates end of CTE and start of main query
+            cte_end_pattern = r'\)\s*SELECT\b'
+            match = re.search(cte_end_pattern, sql, re.IGNORECASE)
+            if match:
+                structure['final_query_start'] = match.start() + 1  # Start after the )
+                final_query = sql[structure['final_query_start']:]
+                structure['final_query_tables'] = self._extract_tables_from_query(final_query)
+            else:
+                # Fallback: assume the entire query
+                structure['final_query_tables'] = self._extract_tables_from_query(sql)
+        else:
+            # No CTEs, analyze the whole query
+            structure['final_query_tables'] = self._extract_tables_from_query(sql)
+        
+        structure['all_tables'] = self._extract_tables_from_query(sql)
+        
+        return structure
+
+    def _extract_tables_from_query(self, sql: str) -> set:
+        """Extract table names from SQL query"""
+        import re
+        
+        # Find all table references in FROM and JOIN clauses
+        from_join_pattern = r'(?:FROM|JOIN)\s+(\w+)'
+        table_matches = re.findall(from_join_pattern, sql.upper())
+        
+        return set(table_matches)
+
+    def _inject_filters_into_cte_query(self, sql: str, filters: str, structure: dict) -> str:
+        """Inject filters into CTE-based queries"""
+        import re
+        
+        # Find the final SELECT statement after CTEs
+        final_query_start = structure.get('final_query_start', 0)
+        
+        if final_query_start > 0:
+            # Split the SQL into CTE part and final query part
+            cte_part = sql[:final_query_start]
+            final_part = sql[final_query_start:]
+            
+            # Inject filters into the final part
+            modified_final = self._inject_filters_into_simple_query(final_part, filters)
+            
+            return cte_part + modified_final
+        else:
+            # Fallback to simple injection
+            return self._inject_filters_into_simple_query(sql, filters)
+
+    def _inject_filters_into_cte_definitions(self, sql: str, filters: str) -> str:
+        """Inject filters into CTE definitions where the actual tables are referenced"""
+        import re
+        
+        # Strategy: Find the CTE definition that contains the actual table joins
+        # and inject filters there, rather than in the final SELECT
+        
+        # Split the SQL into CTE part and final SELECT part
+        cte_end_pattern = r'\)\s*SELECT\b'
+        match = re.search(cte_end_pattern, sql, re.IGNORECASE)
+        
+        if not match:
+            # Fallback to simple injection if we can't parse the CTE structure
+            return self._inject_filters_into_simple_query(sql, filters)
+        
+        cte_part = sql[:match.start() + 1]  # Include the closing )
+        final_part = sql[match.start() + 1:]  # Start from SELECT
+        
+        # Find individual CTE definitions within the CTE part
+        # Look for pattern: CTE_NAME AS (SELECT ... FROM actual_tables ...)
+        cte_def_pattern = r'(\w+)\s+AS\s*\((.*?)\)(?=\s*,\s*\w+\s+AS\s*\(|\s*\)\s*SELECT|\s*$)'
+        
+        def inject_into_cte_def(match):
+            cte_name = match.group(1)
+            cte_body = match.group(2)
+            
+            # Check if this CTE definition contains actual table references
+            if any(table in cte_body.upper() for table in ['DEAL', 'TRANCHE', 'TRANCHEBAL']):
+                # This CTE uses actual tables, inject filters here
+                modified_body = self._inject_filters_into_simple_query(cte_body, filters)
+                return f"{cte_name} AS ({modified_body})"
+            else:
+                # This CTE doesn't use actual tables, leave it unchanged
+                return match.group(0)
+        
+        # Apply the injection to each CTE definition
+        modified_cte_part = re.sub(cte_def_pattern, inject_into_cte_def, cte_part, flags=re.IGNORECASE | re.DOTALL)
+        
+        # Return the complete modified SQL
+        return modified_cte_part + final_part
+
+    def _inject_filters_into_simple_query(self, sql: str, filters: str) -> str:
+        """Inject filters into simple (non-CTE) queries"""
+        import re
+        
+        sql_upper = sql.upper()
+        
         if " WHERE " in sql_upper:
             # Already has WHERE clause, append with AND
-            modified_sql = raw_sql + f" AND {full_filter}"
+            return sql + f" AND {filters}"
         else:
             # Find the correct insertion point using case-insensitive regex
             # WHERE must come before GROUP BY, HAVING, ORDER BY, LIMIT
             insert_keywords = [r'\bGROUP\s+BY\b', r'\bHAVING\b', r'\bORDER\s+BY\b', r'\bLIMIT\b']
-            insert_position = len(raw_sql)
+            insert_position = len(sql)
 
             # Find the earliest clause that should come after WHERE
             for pattern in insert_keywords:
-                match = re.search(pattern, raw_sql, re.IGNORECASE)
+                match = re.search(pattern, sql, re.IGNORECASE)
                 if match and match.start() < insert_position:
                     insert_position = match.start()
 
             # Insert WHERE clause at the correct position
-            where_clause = f" WHERE {full_filter}"
-            modified_sql = raw_sql[:insert_position] + where_clause + raw_sql[insert_position:]
-
-        return modified_sql
-
+            where_clause = f" WHERE {filters}"
+            return sql[:insert_position] + where_clause + sql[insert_position:]
+    
     def _execute_sql(self, sql: str) -> List[Dict[str, Any]]:
         """Execute SQL and return results as list of dictionaries"""
         try:

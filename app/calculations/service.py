@@ -530,32 +530,146 @@ class SystemCalculationService:
         return result
 
     def _validate_system_sql(self, sql: str, group_level: GroupLevel, result_column_name: str):
-        """Basic validation for system SQL"""
-        sql_lower = sql.lower().strip()
+        """Enhanced validation for system SQL with CTE support"""
+        if not sql or not sql.strip():
+            raise InvalidCalculationError("raw_sql cannot be empty")
         
-        if not sql_lower.startswith('select'):
-            raise InvalidCalculationError("System SQL must be a SELECT statement")
+        sql_trimmed = sql.strip()
+        sql_lower = sql_trimmed.lower()
         
-        if 'from' not in sql_lower:
-            raise InvalidCalculationError("System SQL must include a FROM clause")
+        # Check for CTEs first
+        has_ctes = sql_trimmed.upper().strip().startswith('WITH')
         
-        # Check for dangerous operations
+        if has_ctes:
+            # For CTEs, validate the structure but extract the final SELECT for field validation
+            if not self._validate_cte_structure(sql_trimmed):
+                raise InvalidCalculationError("Invalid CTE structure")
+            
+            # Extract final SELECT for field validation
+            final_select = self._extract_final_select_from_cte(sql_trimmed)
+            if not final_select:
+                raise InvalidCalculationError("Could not identify the final SELECT statement in CTE")
+            
+            # Validate the final SELECT
+            final_select_lower = final_select.lower()
+            if not final_select_lower.strip().startswith('select'):
+                raise InvalidCalculationError("Final query in CTE must be a SELECT statement")
+            
+            if 'from' not in final_select_lower:
+                raise InvalidCalculationError("Final SELECT in CTE must include a FROM clause")
+            
+            # Use final SELECT for field validation
+            validation_sql = final_select_lower
+        else:
+            # For simple queries, validate normally
+            if not sql_lower.startswith('select'):
+                raise InvalidCalculationError("System SQL must be a SELECT statement")
+            
+            if 'from' not in sql_lower:
+                raise InvalidCalculationError("System SQL must include a FROM clause")
+            
+            validation_sql = sql_lower
+        
+        # Check for dangerous operations on the entire SQL
         dangerous_keywords = ['drop', 'delete', 'insert', 'update', 'alter', 'truncate']
         for keyword in dangerous_keywords:
             if keyword in sql_lower:
                 raise InvalidCalculationError(f"Dangerous operation '{keyword}' not allowed in system SQL")
 
-        # Check for required fields based on group level
+        # Check for required fields based on group level (use validation_sql which is the final SELECT)
         if group_level == GroupLevel.DEAL:
-            if 'deal.dl_nbr' not in sql_lower and 'dl_nbr' not in sql_lower:
+            if 'deal.dl_nbr' not in validation_sql and 'dl_nbr' not in validation_sql:
                 raise InvalidCalculationError("Deal-level SQL must include deal.dl_nbr for proper grouping")
         
         if group_level == GroupLevel.TRANCHE:
-            if 'deal.dl_nbr' not in sql_lower and 'dl_nbr' not in sql_lower:
+            if 'deal.dl_nbr' not in validation_sql and 'dl_nbr' not in validation_sql:
                 raise InvalidCalculationError("Tranche-level SQL must include deal.dl_nbr for proper grouping")
-            if 'tranche.tr_id' not in sql_lower and 'tr_id' not in sql_lower:
+            if 'tranche.tr_id' not in validation_sql and 'tr_id' not in validation_sql:
                 raise InvalidCalculationError("Tranche-level SQL must include tranche.tr_id for proper grouping")
-
+    
+    def _validate_cte_structure(self, sql: str) -> bool:
+        """Validate CTE structure and syntax"""
+        import re
+        
+        # Check for basic CTE syntax
+        if not re.search(r'WITH\s+\w+\s+AS\s*\(', sql, re.IGNORECASE):
+            return False
+        
+        # Check for balanced parentheses
+        paren_count = 0
+        in_quotes = False
+        quote_char = ''
+        
+        for i, char in enumerate(sql):
+            prev_char = sql[i-1] if i > 0 else ''
+            
+            if (char == '"' or char == "'") and prev_char != '\\':
+                if not in_quotes:
+                    in_quotes = True
+                    quote_char = char
+                elif char == quote_char:
+                    in_quotes = False
+                    quote_char = ''
+            
+            if not in_quotes:
+                if char == '(':
+                    paren_count += 1
+                elif char == ')':
+                    paren_count -= 1
+        
+        return paren_count == 0
+    
+    def _extract_final_select_from_cte(self, sql: str) -> str:
+        """Extract the final SELECT statement from a CTE query"""
+        paren_count = 0
+        in_quotes = False
+        quote_char = ''
+        after_with = False
+        final_select_start = -1
+        
+        for i, char in enumerate(sql):
+            prev_char = sql[i-1] if i > 0 else ''
+            next_few_chars = sql[i:i+6].upper()
+            
+            # Handle quotes
+            if (char == '"' or char == "'") and prev_char != '\\':
+                if not in_quotes:
+                    in_quotes = True
+                    quote_char = char
+                elif char == quote_char:
+                    in_quotes = False
+                    quote_char = ''
+            
+            if not in_quotes:
+                # Track parentheses
+                if char == '(':
+                    paren_count += 1
+                elif char == ')':
+                    paren_count -= 1
+                
+                # Check for WITH keyword
+                if not after_with and next_few_chars.startswith('WITH '):
+                    after_with = True
+                
+                # Look for SELECT after we've closed all CTE parentheses
+                if (after_with and paren_count == 0 and 
+                    next_few_chars.startswith('SELECT') and final_select_start == -1):
+                    final_select_start = i
+                    break
+        
+        # If we found the final SELECT, extract it
+        if final_select_start != -1:
+            return sql[final_select_start:].strip()
+        
+        # Fallback: look for the last SELECT statement
+        import re
+        select_matches = list(re.finditer(r'\bSELECT\b', sql, re.IGNORECASE))
+        if select_matches:
+            last_select_pos = select_matches[-1].start()
+            return sql[last_select_pos:].strip()
+        
+        return None
+        
 
 class StaticFieldService:
     """Service for static field information"""

@@ -175,10 +175,22 @@ class SystemCalculation(Base):
 
     @validates("raw_sql")
     def validate_sql_not_empty(self, key, value):
-        """Validate SQL is not empty."""
+        """Enhanced SQL validation with CTE support"""
         if not value or not value.strip():
             raise ValueError("raw_sql cannot be empty")
-        return value.strip()
+        
+        sql_trimmed = value.strip()
+        
+        # Check for CTEs first - if it's a CTE, don't require it to start with SELECT
+        has_ctes = sql_trimmed.upper().strip().startswith('WITH')
+        
+        if not has_ctes:
+            # For simple queries, validate it starts with SELECT
+            sql_lower = sql_trimmed.lower()
+            if not sql_lower.startswith('select'):
+                raise ValueError("SQL must be a SELECT statement")
+        
+        return sql_trimmed
 
     @validates("result_column_name")
     def validate_result_column_name(self, key, value):

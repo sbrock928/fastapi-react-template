@@ -303,13 +303,14 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
       <>
         <div className="alert alert-info">
           <i className="bi bi-info-circle me-2"></i>
-          <strong>System SQL Calculation:</strong> Advanced custom calculation using validated SQL queries.
+          <strong>System SQL Calculation:</strong> Advanced custom calculation using validated SQL queries including CTEs and complex patterns.
           <div className="mt-2">
-            <strong>Important:</strong> 
+            <strong>Enhanced Capabilities:</strong> 
             <ul className="mb-0 mt-1">
-              <li><strong>WHERE clauses are automatically injected</strong> - Don't include deal/tranche filters or cycle filters</li>
-              <li><strong>GROUP BY clauses are required</strong> - You must include appropriate grouping for your calculation level</li>
-              <li>Must include proper join fields and return exactly one new column</li>
+              <li><strong>CTEs (Common Table Expressions)</strong> - Use WITH clauses for complex logic</li>
+              <li><strong>Subqueries and window functions</strong> - Advanced analytical calculations</li>
+              <li><strong>Smart filter injection</strong> - System automatically adds appropriate WHERE clauses</li>
+              <li><strong>Final result extraction</strong> - Calculation engine extracts value from your final SELECT</li>
             </ul>
           </div>
         </div>
@@ -395,37 +396,100 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
               groupLevel={calculation.level}
               disabled={isSaving}
               placeholder={calculation.level === 'deal' 
-                ? `-- Deal-level example (GROUP BY required for aggregations):
+                ? `-- CTE Example: Deal-level complex calculation
+WITH deal_metrics AS (
+    SELECT 
+        deal.dl_nbr,
+        COUNT(tranche.tr_id) as tranche_count,
+        SUM(tranchebal.tr_end_bal_amt) as total_balance
+    FROM deal
+    JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
+    JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
+        AND tranche.tr_id = tranchebal.tr_id
+    GROUP BY deal.dl_nbr
+)
 SELECT 
-    deal.dl_nbr,
+    dl_nbr,
     CASE 
-        WHEN deal.issr_cde LIKE '%FHLMC%' THEN 'GSE'
-        WHEN deal.issr_cde LIKE '%GNMA%' THEN 'Government'
-        ELSE 'Private'
+        WHEN total_balance >= 100000000 THEN 'Large Deal'
+        WHEN tranche_count > 5 THEN 'Complex'
+        ELSE 'Standard'
     END AS ${calculation.weight_field || 'result_column'}
-FROM deal
--- WHERE clauses will be injected automatically
-
--- For aggregations, include GROUP BY:
--- GROUP BY deal.dl_nbr`
-                : `-- Tranche-level example (GROUP BY required for aggregations):
+FROM deal_metrics`
+                : `-- CTE Example: Tranche-level with window functions
+WITH tranche_rankings AS (
+    SELECT 
+        deal.dl_nbr,
+        tranche.tr_id,
+        tranchebal.tr_end_bal_amt,
+        ROW_NUMBER() OVER (
+            PARTITION BY deal.dl_nbr 
+            ORDER BY tranchebal.tr_end_bal_amt DESC
+        ) as size_rank
+    FROM deal
+    JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
+    JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
+        AND tranche.tr_id = tranchebal.tr_id
+)
 SELECT 
-    deal.dl_nbr,
-    tranche.tr_id,
+    dl_nbr,
+    tr_id,
     CASE 
-        WHEN tranchebal.tr_end_bal_amt >= 25000000 THEN 'Large'
-        WHEN tranchebal.tr_end_bal_amt >= 10000000 THEN 'Medium'
-        ELSE 'Small'
+        WHEN size_rank = 1 THEN 'Senior'
+        WHEN tr_end_bal_amt > 10000000 THEN 'Major'
+        ELSE 'Minor'
     END AS ${calculation.weight_field || 'result_column'}
-FROM deal
-JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
-JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
-    AND tranche.tr_id = tranchebal.tr_id
--- WHERE clauses will be injected automatically
-
--- For aggregations, include GROUP BY:
--- GROUP BY deal.dl_nbr, tranche.tr_id`}
+FROM tranche_rankings`}
             />
+          </div>
+
+          {/* CTE Examples Section */}
+          <div className="col-12">
+            <div className="card bg-light border-info">
+              <div className="card-header bg-info text-white">
+                <h6 className="mb-0">
+                  <i className="bi bi-lightbulb me-2"></i>
+                  Advanced SQL Examples
+                </h6>
+              </div>
+              <div className="card-body">
+                <div className="row">
+                  <div className="col-md-4">
+                    <h6 className="text-info">CTEs & Window Functions</h6>
+                    <ul className="small mb-0">
+                      <li>WITH clauses for complex logic</li>
+                      <li>ROW_NUMBER(), RANK(), LAG()</li>
+                      <li>Multiple CTE definitions</li>
+                      <li>PARTITION BY for grouping</li>
+                    </ul>
+                  </div>
+                  <div className="col-md-4">
+                    <h6 className="text-info">Subqueries & Joins</h6>
+                    <ul className="small mb-0">
+                      <li>Correlated subqueries</li>
+                      <li>EXISTS and NOT EXISTS</li>
+                      <li>Complex JOIN conditions</li>
+                      <li>Self-joins on same table</li>
+                    </ul>
+                  </div>
+                  <div className="col-md-4">
+                    <h6 className="text-info">Analytical Functions</h6>
+                    <ul className="small mb-0">
+                      <li>FIRST_VALUE(), LAST_VALUE()</li>
+                      <li>STDDEV(), VARIANCE()</li>
+                      <li>NTILE() for percentiles</li>
+                      <li>CASE WHEN for logic</li>
+                    </ul>
+                  </div>
+                </div>
+                <div className="alert alert-info mt-3 mb-0">
+                  <small>
+                    <strong>💡 Pro Tip:</strong> The calculation engine will extract the final result from your outermost SELECT. 
+                    You can use any number of CTEs and subqueries - just ensure your final SELECT returns the required columns.
+                  </small>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Preview of what the final SQL will look like */}

@@ -209,8 +209,320 @@ const validateSystemFieldCalculation = (calculation: CalculationForm): string | 
 };
 
 /**
- * Validate system SQL calculation
+ * Enhanced SQL parsing and validation utilities for complex queries
  */
+
+interface SQLParseResult {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+  hasCTEs: boolean;
+  hasSubqueries: boolean;
+  finalSelectColumns: string[];
+  usedTables: string[];
+}
+
+/**
+ * Parse and validate complex SQL including CTEs
+ */
+export const parseAndValidateComplexSQL = (sql: string, groupLevel: string, resultColumn: string): SQLParseResult => {
+  const result: SQLParseResult = {
+    isValid: true,
+    errors: [],
+    warnings: [],
+    hasCTEs: false,
+    hasSubqueries: false,
+    finalSelectColumns: [],
+    usedTables: []
+  };
+
+  if (!sql?.trim()) {
+    result.isValid = false;
+    result.errors.push('SQL query cannot be empty');
+    return result;
+  }
+
+  const sqlTrimmed = sql.trim();
+
+  // Security validation - dangerous operations
+  const dangerousPatterns = [
+    /\bDROP\b/i, /\bDELETE\s+FROM\b/i, /\bTRUNCATE\b/i,
+    /\bINSERT\s+INTO\b/i, /\bUPDATE\s+.*\bSET\b/i, /\bALTER\b/i,
+    /\bCREATE\b/i, /\bEXEC\b/i, /\bEXECUTE\b/i,
+    /\bxp_\w+/i, /\bsp_\w+/i, /\bGRANT\b/i, /\bREVOKE\b/i
+  ];
+
+  for (const pattern of dangerousPatterns) {
+    if (pattern.test(sqlTrimmed)) {
+      result.isValid = false;
+      result.errors.push('SQL contains dangerous operations that are not allowed');
+      return result;
+    }
+  }
+
+  // Check for CTEs
+  result.hasCTEs = /^\s*WITH\b/i.test(sqlTrimmed);
+  
+  // Check for subqueries
+  result.hasSubqueries = /\(\s*SELECT\b/i.test(sqlTrimmed);
+
+  try {
+    // Extract final SELECT statement
+    const finalSelect = extractFinalSelect(sqlTrimmed);
+    if (!finalSelect) {
+      result.isValid = false;
+      result.errors.push('Could not identify the final SELECT statement');
+      return result;
+    }
+
+    // Validate final SELECT structure
+    const selectValidation = validateFinalSelect(finalSelect, groupLevel, resultColumn);
+    result.errors.push(...selectValidation.errors);
+    result.warnings.push(...selectValidation.warnings);
+    result.finalSelectColumns = selectValidation.columns;
+    result.usedTables = selectValidation.tables;
+
+    if (selectValidation.errors.length > 0) {
+      result.isValid = false;
+    }
+
+    // Additional validation for complex queries
+    if (result.hasCTEs) {
+      const cteValidation = validateCTEStructure(sqlTrimmed);
+      result.warnings.push(...cteValidation.warnings);
+      if (cteValidation.errors.length > 0) {
+        result.errors.push(...cteValidation.errors);
+        result.isValid = false;
+      }
+    }
+
+  } catch (error) {
+    result.isValid = false;
+    result.errors.push(`SQL parsing error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+
+  return result;
+};
+
+/**
+ * Extract the final SELECT statement from complex SQL
+ */
+function extractFinalSelect(sql: string): string | null {
+  const sqlTrimmed = sql.trim();
+  
+  // If it starts with WITH, find the final SELECT after all CTEs
+  if (/^\s*WITH\b/i.test(sqlTrimmed)) {
+    // More sophisticated CTE parsing
+    return extractFinalSelectFromCTE(sqlTrimmed);
+  }
+  
+  // For simple queries, return the whole query if it starts with SELECT
+  if (/^\s*SELECT\b/i.test(sqlTrimmed)) {
+    return sqlTrimmed;
+  }
+  
+  return null;
+}
+
+/**
+ * Extract final SELECT from CTE query using proper parsing
+ */
+function extractFinalSelectFromCTE(sql: string): string | null {
+  // Find all top-level parentheses groups that are part of CTE definitions
+  let parenCount = 0;
+  let inQuotes = false;
+  let quoteChar = '';
+  let cteEndPosition = -1;
+  
+  // Track if we're inside a CTE definition or the final query
+  let afterWith = false;
+  let finalSelectStart = -1;
+  
+  for (let i = 0; i < sql.length; i++) {
+    const char = sql[i];
+    const prevChar = i > 0 ? sql[i - 1] : '';
+    const nextFewChars = sql.substring(i, i + 6).toUpperCase();
+    
+    // Handle quotes
+    if ((char === '"' || char === "'") && prevChar !== '\\') {
+      if (!inQuotes) {
+        inQuotes = true;
+        quoteChar = char;
+      } else if (char === quoteChar) {
+        inQuotes = false;
+        quoteChar = '';
+      }
+    }
+    
+    if (!inQuotes) {
+      // Track parentheses
+      if (char === '(') {
+        parenCount++;
+      } else if (char === ')') {
+        parenCount--;
+        
+        // If we're back to 0 parentheses after WITH, we might be at the end of CTEs
+        if (parenCount === 0 && afterWith && cteEndPosition === -1) {
+          cteEndPosition = i;
+        }
+      }
+      
+      // Check for WITH keyword at the start
+      if (!afterWith && nextFewChars === 'WITH ') {
+        afterWith = true;
+      }
+      
+      // Look for SELECT after we've closed all CTE parentheses
+      if (afterWith && parenCount === 0 && cteEndPosition !== -1 && finalSelectStart === -1) {
+        if (nextFewChars.startsWith('SELECT')) {
+          finalSelectStart = i;
+          break;
+        }
+      }
+    }
+  }
+  
+  // If we found the final SELECT, extract it
+  if (finalSelectStart !== -1) {
+    return sql.substring(finalSelectStart).trim();
+  }
+  
+  // Fallback: look for the last SELECT statement
+  const selectMatches = [...sql.matchAll(/\bSELECT\b/gi)];
+  if (selectMatches.length > 0) {
+    const lastSelectIndex = selectMatches[selectMatches.length - 1].index;
+    if (lastSelectIndex !== undefined) {
+      return sql.substring(lastSelectIndex).trim();
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Validate the final SELECT statement structure
+ */
+function validateFinalSelect(selectSql: string, groupLevel: string, resultColumn: string): {
+  errors: string[];
+  warnings: string[];
+  columns: string[];
+  tables: string[];
+} {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const columns: string[] = [];
+  const tables: string[] = [];
+
+  // Extract SELECT clause
+  const selectMatch = selectSql.match(/SELECT\s+(.*?)\s+FROM/is);
+  if (!selectMatch) {
+    errors.push('Could not parse SELECT clause');
+    return { errors, warnings, columns, tables };
+  }
+
+  const selectClause = selectMatch[1];
+  
+  // Extract basic column info (simplified parsing)
+  const columnPattern = /(?:(\w+\.)?(\w+)(?:\s+AS\s+(\w+))?)|(?:AS\s+(\w+))/gi;
+  let match;
+  while ((match = columnPattern.exec(selectClause)) !== null) {
+    const columnName = match[4] || match[3] || match[2];
+    if (columnName) columns.push(columnName);
+  }
+
+  // Extract table names from FROM and JOIN clauses
+  const tablePattern = /(?:FROM|JOIN)\s+(\w+)/gi;
+  let tableMatch;
+  while ((tableMatch = tablePattern.exec(selectSql)) !== null) {
+    tables.push(tableMatch[1].toLowerCase());
+  }
+
+  // Validate required columns based on group level
+  const hasRequiredDeal = /\b(?:deal\.dl_nbr|dl_nbr)\b/i.test(selectClause);
+  const hasRequiredTranche = /\b(?:tranche\.tr_id|tr_id)\b/i.test(selectClause);
+  const hasResultColumn = new RegExp(`\\b${resultColumn}\\b`, 'i').test(selectClause);
+
+  if (groupLevel === 'deal') {
+    if (!hasRequiredDeal) {
+      errors.push('Deal-level calculations must include deal.dl_nbr or dl_nbr in the final SELECT');
+    }
+  } else if (groupLevel === 'tranche') {
+    if (!hasRequiredDeal) {
+      errors.push('Tranche-level calculations must include deal.dl_nbr or dl_nbr in the final SELECT');
+    }
+    if (!hasRequiredTranche) {
+      errors.push('Tranche-level calculations must include tranche.tr_id or tr_id in the final SELECT');
+    }
+  }
+
+  if (!hasResultColumn && resultColumn) {
+    errors.push(`Final SELECT must include the result column: ${resultColumn}`);
+  }
+
+  // Validate result column name format
+  if (resultColumn && !/^[a-zA-Z][a-zA-Z0-9_]*$/.test(resultColumn)) {
+    errors.push('Result column name must be a valid SQL identifier (letters, numbers, underscores, starting with letter)');
+  }
+
+  return { errors, warnings, columns, tables };
+}
+
+/**
+ * Validate CTE structure
+ */
+function validateCTEStructure(sql: string): { errors: string[]; warnings: string[] } {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  // Check for basic CTE syntax
+  if (!/WITH\s+\w+\s+AS\s*\(/i.test(sql)) {
+    errors.push('Invalid CTE syntax. Use: WITH cte_name AS (SELECT ...)');
+    return { errors, warnings };
+  }
+
+  // Check for balanced parentheses
+  let parenCount = 0;
+  let inQuotes = false;
+  let quoteChar = '';
+  
+  for (let i = 0; i < sql.length; i++) {
+    const char = sql[i];
+    const prevChar = i > 0 ? sql[i - 1] : '';
+    
+    if ((char === '"' || char === "'") && prevChar !== '\\') {
+      if (!inQuotes) {
+        inQuotes = true;
+        quoteChar = char;
+      } else if (char === quoteChar) {
+        inQuotes = false;
+        quoteChar = '';
+      }
+    }
+    
+    if (!inQuotes) {
+      if (char === '(') parenCount++;
+      if (char === ')') parenCount--;
+    }
+  }
+
+  if (parenCount !== 0) {
+    errors.push('Unbalanced parentheses in CTE structure');
+  }
+
+  // Performance warnings
+  const cteCount = (sql.match(/WITH\s+\w+\s+AS/gi) || []).length;
+  if (cteCount > 5) {
+    warnings.push(`High number of CTEs (${cteCount}) may impact performance`);
+  }
+
+  if (/RECURSIVE/i.test(sql)) {
+    warnings.push('Recursive CTEs may have performance implications');
+  }
+
+  return { errors, warnings };
+}
+
+// Update the existing validateSystemSqlCalculation function
 const validateSystemSqlCalculation = (calculation: CalculationForm): string | null => {
   if (!calculation.source_field?.trim()) {
     return 'SQL query is required';
@@ -220,91 +532,22 @@ const validateSystemSqlCalculation = (calculation: CalculationForm): string | nu
     return 'Result column name is required';
   }
   
-  // Enhanced basic SQL validation
-  const sql = calculation.source_field.trim().toLowerCase();
-  
-  if (!sql.startsWith('select')) {
-    return 'SQL must be a SELECT statement';
+  // Use the enhanced validation
+  const parseResult = parseAndValidateComplexSQL(
+    calculation.source_field.trim(),
+    calculation.level,
+    calculation.weight_field.trim()
+  );
+
+  if (!parseResult.isValid) {
+    return parseResult.errors[0] || 'SQL validation failed';
   }
-  
-  if (!sql.includes('from')) {
-    return 'SQL must include a FROM clause';
+
+  // Return warnings as info (not blocking)
+  if (parseResult.warnings.length > 0) {
+    console.warn('SQL Warnings:', parseResult.warnings);
   }
-  
-  // Check for dangerous operations - enhanced patterns
-  const dangerousPatterns = [
-    /\bdrop\b/i,  // Any DROP statement
-    /\bdelete\s+from\b/i,
-    /\binsert\s+into\b/i,
-    /\bupdate\s+.*\bset\b/i,
-    /\balter\s+table\b/i,
-    /\btruncate\s+table\b/i,
-    /\bcreate\s+table\b/i,
-    /\bexec\s*\(/i,
-    /\bexecute\s*\(/i,
-    /\bunion\s+select\b/i,
-    /\bxp_cmdshell\b/i,
-    /\bsp_\w+/i,  // Stored procedures
-    /\bxp_\w+/i,  // Extended procedures
-    /\bgrant\b/i,
-    /\brevoke\b/i,
-    /\bshutdown\b/i,
-    /--/,  // SQL comments
-    /\/\*.*\*\//  // Block comments
-  ];
-  
-  for (const pattern of dangerousPatterns) {
-    if (pattern.test(sql)) {
-      return 'SQL contains dangerous operations or patterns that are not allowed';
-    }
-  }
-  
-  // Enhanced required fields validation - now check SELECT clause specifically
-  const selectMatch = sql.match(/select\s+(.*?)\s+from/is);
-  if (!selectMatch) {
-    return 'Could not parse SELECT clause properly';
-  }
-  
-  const selectClause = selectMatch[1].toLowerCase();
-  
-  // Check for required fields based on level - must be in SELECT clause
-  if (calculation.level === 'deal') {
-    if (!selectClause.includes('deal.dl_nbr') && !selectClause.includes('dl_nbr')) {
-      return 'Deal-level SQL must include deal.dl_nbr in SELECT clause for proper grouping';
-    }
-  }
-  
-  if (calculation.level === 'tranche') {
-    const hasDealNumber = selectClause.includes('deal.dl_nbr') || selectClause.includes('dl_nbr');
-    const hasTrancheId = selectClause.includes('tranche.tr_id') || selectClause.includes('tr_id');
-    
-    if (!hasDealNumber) {
-      return 'Tranche-level SQL must include deal.dl_nbr in SELECT clause for proper grouping';
-    }
-    
-    if (!hasTrancheId) {
-      return 'Tranche-level SQL must include tranche.tr_id in SELECT clause for proper grouping';
-    }
-  }
-  
-  // Validate result column name format
-  const resultColumnName = calculation.weight_field.trim();
-  if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(resultColumnName)) {
-    return 'Result column name must be a valid SQL identifier (letters, numbers, underscores, starting with letter)';
-  }
-  
-  // Check for multiple statements
-  const statements = sql.split(';').filter(s => s.trim());
-  if (statements.length > 1) {
-    return 'Multiple SQL statements are not allowed - only single SELECT statements permitted';
-  }
-  
-  // Basic structure validation
-  const columnCount = (selectClause.match(/,/g) || []).length + 1;
-  if (columnCount < 2) {
-    return 'SQL must select at least the required grouping fields plus one result column';
-  }
-  
+
   return null;
 };
 
@@ -405,102 +648,189 @@ WHERE deal.dl_nbr IN (101, 102, 103)
 };
 
 /**
- * Get field type icon for UI display
+ * Enhanced SQL templates for complex queries including CTEs
  */
-export const getFieldTypeIcon = (fieldType: string): string => {
-  switch (fieldType.toLowerCase()) {
-    case 'string':
-    case 'text':
-      return 'bi-type';
-    case 'number':
-    case 'integer':
-      return 'bi-123';
-    case 'currency':
-    case 'money':
-      return 'bi-currency-dollar';
-    case 'percentage':
-    case 'rate':
-      return 'bi-percent';
-    case 'date':
-    case 'datetime':
-      return 'bi-calendar';
-    case 'boolean':
-      return 'bi-toggle-on';
-    default:
-      return 'bi-question-circle';
+export const getCTESqlTemplate = (groupLevel: string, resultColumn: string = 'result_column'): string => {
+  if (groupLevel === 'deal') {
+    return `-- CTE Example: Deal-level with complex business logic
+WITH deal_metrics AS (
+    SELECT 
+        deal.dl_nbr,
+        COUNT(tranche.tr_id) as tranche_count,
+        SUM(tranchebal.tr_end_bal_amt) as total_balance
+    FROM deal
+    JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
+    JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
+        AND tranche.tr_id = tranchebal.tr_id
+    GROUP BY deal.dl_nbr
+),
+issuer_categories AS (
+    SELECT 
+        dl_nbr,
+        CASE 
+            WHEN issr_cde LIKE '%FHLMC%' THEN 'GSE'
+            WHEN issr_cde LIKE '%GNMA%' THEN 'Government'
+            ELSE 'Private'
+        END as issuer_type
+    FROM deal
+)
+SELECT 
+    dm.dl_nbr,
+    CASE 
+        WHEN dm.total_balance >= 100000000 AND ic.issuer_type = 'GSE' THEN 'Large GSE'
+        WHEN dm.total_balance >= 50000000 AND ic.issuer_type = 'Government' THEN 'Large Gov'
+        WHEN dm.tranche_count > 5 THEN 'Complex Structure'
+        ELSE 'Standard'
+    END AS ${resultColumn}
+FROM deal_metrics dm
+JOIN issuer_categories ic ON dm.dl_nbr = ic.dl_nbr`;
+  } else {
+    return `-- CTE Example: Tranche-level with window functions
+WITH tranche_rankings AS (
+    SELECT 
+        deal.dl_nbr,
+        tranche.tr_id,
+        tranchebal.tr_end_bal_amt,
+        ROW_NUMBER() OVER (
+            PARTITION BY deal.dl_nbr 
+            ORDER BY tranchebal.tr_end_bal_amt DESC
+        ) as size_rank
+    FROM deal
+    JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
+    JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
+        AND tranche.tr_id = tranchebal.tr_id
+),
+deal_totals AS (
+    SELECT 
+        dl_nbr,
+        SUM(tr_end_bal_amt) as deal_total
+    FROM tranche_rankings
+    GROUP BY dl_nbr
+)
+SELECT 
+    tr.dl_nbr,
+    tr.tr_id,
+    CASE 
+        WHEN tr.size_rank = 1 THEN 'Senior'
+        WHEN tr.tr_end_bal_amt / dt.deal_total > 0.3 THEN 'Major'
+        WHEN tr.tr_end_bal_amt / dt.deal_total > 0.1 THEN 'Minor'
+        ELSE 'Residual'
+    END AS ${resultColumn}
+FROM tranche_rankings tr
+JOIN deal_totals dt ON tr.dl_nbr = dt.dl_nbr`;
   }
 };
 
 /**
- * Get aggregation function icon for UI display
+ * Get advanced SQL example templates
  */
-export const getAggregationFunctionIcon = (functionType: string): string => {
-  switch (functionType.toUpperCase()) {
-    case 'SUM':
-      return 'bi-plus-circle';
-    case 'AVG':
-    case 'WEIGHTED_AVG':
-      return 'bi-bar-chart';
-    case 'COUNT':
-      return 'bi-hash';
-    case 'MIN':
-      return 'bi-arrow-down-circle';
-    case 'MAX':
-      return 'bi-arrow-up-circle';
-    case 'SYSTEM_FIELD':
-      return 'bi-database';
-    case 'SYSTEM_SQL':
-      return 'bi-code-square';
-    default:
-      return 'bi-calculator';
-  }
+export const getAdvancedSqlExamples = (): { [key: string]: string } => {
+  return {
+    'Recursive CTE': `-- Recursive CTE example (use with caution)
+WITH RECURSIVE hierarchy AS (
+    -- Base case
+    SELECT dl_nbr, tr_id, 1 as level
+    FROM tranche 
+    WHERE tr_id = 'A'
+    
+    UNION ALL
+    
+    -- Recursive case
+    SELECT t.dl_nbr, t.tr_id, h.level + 1
+    FROM tranche t
+    JOIN hierarchy h ON t.dl_nbr = h.dl_nbr
+    WHERE t.tr_id > h.tr_id AND h.level < 5
+)
+SELECT 
+    dl_nbr,
+    tr_id,
+    CASE 
+        WHEN level = 1 THEN 'Senior'
+        WHEN level <= 3 THEN 'Mezzanine'
+        ELSE 'Subordinate'
+    END AS tranche_level
+FROM hierarchy`,
+
+    'Multiple CTEs with Joins': `-- Complex multi-CTE analysis
+WITH performance_metrics AS (
+    SELECT 
+        deal.dl_nbr,
+        AVG(tranchebal.tr_pass_thru_rte) as avg_rate,
+        STDDEV(tranchebal.tr_pass_thru_rte) as rate_volatility
+    FROM deal
+    JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
+    JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
+        AND tranche.tr_id = tranchebal.tr_id
+    GROUP BY deal.dl_nbr
+),
+size_categories AS (
+    SELECT 
+        dl_nbr,
+        CASE 
+            WHEN SUM(tr_end_bal_amt) >= 100000000 THEN 'Large'
+            WHEN SUM(tr_end_bal_amt) >= 25000000 THEN 'Medium'
+            ELSE 'Small'
+        END as size_category
+    FROM tranchebal
+    GROUP BY dl_nbr
+)
+SELECT 
+    pm.dl_nbr,
+    CASE 
+        WHEN pm.avg_rate > 0.05 AND pm.rate_volatility < 0.01 AND sc.size_category = 'Large' THEN 'Premium'
+        WHEN pm.avg_rate > 0.03 AND sc.size_category IN ('Large', 'Medium') THEN 'Standard'
+        WHEN pm.rate_volatility > 0.02 THEN 'High Risk'
+        ELSE 'Basic'
+    END AS risk_rating
+FROM performance_metrics pm
+JOIN size_categories sc ON pm.dl_nbr = sc.dl_nbr`,
+
+    'Window Functions': `-- Advanced window function example
+WITH ranked_tranches AS (
+    SELECT 
+        deal.dl_nbr,
+        tranche.tr_id,
+        tranchebal.tr_end_bal_amt,
+        RANK() OVER (PARTITION BY deal.dl_nbr ORDER BY tranchebal.tr_end_bal_amt DESC) as balance_rank,
+        LAG(tranchebal.tr_end_bal_amt) OVER (PARTITION BY deal.dl_nbr ORDER BY tranche.tr_id) as prev_balance,
+        FIRST_VALUE(tranchebal.tr_end_bal_amt) OVER (
+            PARTITION BY deal.dl_nbr 
+            ORDER BY tranchebal.tr_end_bal_amt DESC
+            ROWS UNBOUNDED PRECEDING
+        ) as largest_balance
+    FROM deal
+    JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
+    JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
+        AND tranche.tr_id = tranchebal.tr_id
+)
+SELECT 
+    dl_nbr,
+    tr_id,
+    CASE 
+        WHEN balance_rank = 1 THEN 'Dominant'
+        WHEN tr_end_bal_amt / largest_balance > 0.5 THEN 'Significant'
+        WHEN prev_balance IS NOT NULL AND tr_end_bal_amt < prev_balance * 0.5 THEN 'Step Down'
+        ELSE 'Standard'
+    END AS tranche_profile
+FROM ranked_tranches`
+  };
 };
 
 /**
- * Get source model icon for UI display
+ * Enhanced SQL syntax validation for the editor
  */
-export const getSourceModelIcon = (sourceModel: string): string => {
-  switch (sourceModel) {
-    case 'Deal':
-      return 'bi-building';
-    case 'Tranche':
-      return 'bi-layers';
-    case 'TrancheBal':
-      return 'bi-graph-up';
-    default:
-      return 'bi-table';
-  }
-};
-
-/**
- * Check if calculation has unsaved changes
- */
-export const hasUnsavedChanges = (
-  current: CalculationForm, 
-  original: CalculationForm | null
-): boolean => {
-  if (!original) {
-    // New calculation - check if any meaningful data is entered
-    return !!(
-      current.name?.trim() ||
-      current.description?.trim() ||
-      (current.function_type && current.function_type !== 'SUM') ||
-      current.source ||
-      current.source_field ||
-      current.weight_field?.trim()
-    );
+export const validateSqlSyntax = (sql: string): { isValid: boolean; errors: string[]; warnings?: string[] } => {
+  if (!sql?.trim()) {
+    return { isValid: false, errors: ['SQL query cannot be empty'] };
   }
 
-  // Compare with original
-  return (
-    current.name !== original.name ||
-    current.description !== original.description ||
-    current.function_type !== original.function_type ||
-    current.source !== original.source ||
-    current.source_field !== original.source_field ||
-    current.level !== original.level ||
-    current.weight_field !== original.weight_field
-  );
+  const parseResult = parseAndValidateComplexSQL(sql, 'deal', 'result_column');
+  
+  return {
+    isValid: parseResult.isValid,
+    errors: parseResult.errors,
+    warnings: parseResult.warnings
+  };
 };
 
 /**
@@ -577,45 +907,64 @@ export const suggestCalculationName = (calculation: CalculationForm): string => 
 };
 
 /**
- * Validate SQL syntax (basic check)
+ * Check if calculation has unsaved changes
  */
-export const validateSqlSyntax = (sql: string): { isValid: boolean; errors: string[] } => {
-  const errors: string[] = [];
-  const trimmedSql = sql.trim().toLowerCase();
-  
-  if (!trimmedSql) {
-    errors.push('SQL query cannot be empty');
-    return { isValid: false, errors };
+export const hasUnsavedChanges = (
+  current: CalculationForm, 
+  original: CalculationForm | null
+): boolean => {
+  if (!original) {
+    // New calculation - check if any meaningful data is entered
+    return !!(
+      current.name?.trim() ||
+      current.description?.trim() ||
+      (current.function_type && current.function_type !== 'SUM') ||
+      current.source ||
+      current.source_field ||
+      current.weight_field?.trim()
+    );
   }
-  
-  // Must start with SELECT
-  if (!trimmedSql.startsWith('select')) {
-    errors.push('SQL must start with SELECT');
+
+  // Compare with original
+  return (
+    current.name !== original.name ||
+    current.description !== original.description ||
+    current.function_type !== original.function_type ||
+    current.source !== original.source ||
+    current.source_field !== original.source_field ||
+    current.level !== original.level ||
+    current.weight_field !== original.weight_field
+  );
+};
+
+/**
+ * Get SQL template for editor based on group level
+ */
+export const getSqlTemplateForEditor = (groupLevel: string): string => {
+  if (groupLevel === 'deal') {
+    return `-- SQL Template: Deal-level
+SELECT 
+    deal.dl_nbr,
+    deal.issr_cde,
+    SUM(tranchebal.tr_end_bal_amt) AS total_balance
+FROM deal
+JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
+JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
+    AND tranche.tr_id = tranchebal.tr_id
+GROUP BY deal.dl_nbr, deal.issr_cde
+ORDER BY deal.dl_nbr`;
+  } else {
+    return `-- SQL Template: Tranche-level
+SELECT 
+    deal.dl_nbr,
+    tranche.tr_id,
+    tranchebal.tr_end_bal_amt,
+    tranchebal.tr_pass_thru_rte
+FROM deal
+JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
+JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
+    AND tranche.tr_id = tranchebal.tr_id
+WHERE tranchebal.cycle_cde = 202404
+ORDER BY deal.dl_nbr, tranche.tr_id`;
   }
-  
-  // Must have FROM clause
-  if (!trimmedSql.includes('from')) {
-    errors.push('SQL must include a FROM clause');
-  }
-  
-  // Check for dangerous operations
-  const dangerousKeywords = ['drop', 'delete', 'insert', 'update', 'alter', 'truncate'];
-  for (const keyword of dangerousKeywords) {
-    if (trimmedSql.includes(keyword)) {
-      errors.push(`Dangerous operation detected: ${keyword.toUpperCase()}`);
-    }
-  }
-  
-  // Check for basic SQL structure issues
-  const selectCount = (trimmedSql.match(/\bselect\b/g) || []).length;
-  const fromCount = (trimmedSql.match(/\bfrom\b/g) || []).length;
-  
-  if (selectCount > fromCount) {
-    errors.push('Each SELECT must have a corresponding FROM clause');
-  }
-  
-  return {
-    isValid: errors.length === 0,
-    errors
-  };
 };

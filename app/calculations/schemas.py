@@ -118,18 +118,69 @@ class SystemCalculationCreate(SystemCalculationBase):
     @field_validator("raw_sql")
     @classmethod
     def validate_sql_basic(cls, v):
-        """Basic SQL validation"""
+        """Enhanced SQL validation with CTE support"""
         if not v or not v.strip():
             raise ValueError("raw_sql cannot be empty")
         
-        sql_lower = v.lower().strip()
-        if not sql_lower.startswith('select'):
-            raise ValueError("SQL must be a SELECT statement")
+        sql_trimmed = v.strip()
         
-        if 'from' not in sql_lower:
-            raise ValueError("SQL must include a FROM clause")
+        # Check for CTEs first
+        has_ctes = sql_trimmed.upper().strip().startswith('WITH')
         
-        return v.strip()
+        if has_ctes:
+            # For CTEs, validate the structure but don't require it to start with SELECT
+            if not cls._validate_cte_structure(sql_trimmed):
+                raise ValueError("Invalid CTE structure")
+        else:
+            # For simple queries, require SELECT start
+            sql_lower = sql_trimmed.lower()
+            if not sql_lower.startswith('select'):
+                raise ValueError("SQL must be a SELECT statement")
+            
+            if 'from' not in sql_lower:
+                raise ValueError("SQL must include a FROM clause")
+        
+        # Check for dangerous operations
+        dangerous_keywords = ['drop', 'delete', 'insert', 'update', 'alter', 'truncate', 'create']
+        sql_lower = sql_trimmed.lower()
+        for keyword in dangerous_keywords:
+            if keyword in sql_lower:
+                raise ValueError(f"Dangerous operation '{keyword.upper()}' not allowed")
+        
+        return sql_trimmed
+    
+    @staticmethod
+    def _validate_cte_structure(sql: str) -> bool:
+        """Basic CTE structure validation"""
+        import re
+        
+        # Check for basic CTE syntax
+        if not re.search(r'WITH\s+\w+\s+AS\s*\(', sql, re.IGNORECASE):
+            return False
+        
+        # Check for balanced parentheses
+        paren_count = 0
+        in_quotes = False
+        quote_char = ''
+        
+        for i, char in enumerate(sql):
+            prev_char = sql[i-1] if i > 0 else ''
+            
+            if (char == '"' or char == "'") and prev_char != '\\':
+                if not in_quotes:
+                    in_quotes = True
+                    quote_char = char
+                elif char == quote_char:
+                    in_quotes = False
+                    quote_char = ''
+            
+            if not in_quotes:
+                if char == '(':
+                    paren_count += 1
+                elif char == ')':
+                    paren_count -= 1
+        
+        return paren_count == 0
 
     class Config:
         json_schema_extra = {
