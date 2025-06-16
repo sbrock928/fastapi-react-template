@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { reportingApi } from '@/services/api';
 import { useToast } from '@/context/ToastContext';
 import { 
@@ -76,12 +76,14 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
         [dlNbr]: dealTranches
       }));
       
-      // Auto-select all tranches by default
-      const allTrancheIds = dealTranches.map(t => t.tr_id);
-      setSelectedTranches(prev => ({
-        ...prev,
-        [dlNbr]: allTrancheIds
-      }));
+      // Auto-select all tranches by default (only for new deals, not when editing)
+      if (!isEditMode) {
+        const allTrancheIds = dealTranches.map(t => t.tr_id);
+        setSelectedTranches(prev => ({
+          ...prev,
+          [dlNbr]: allTrancheIds
+        }));
+      }
       
     } catch (error: any) {
       console.error('Error loading tranches for deal:', dlNbr, error);
@@ -90,6 +92,46 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
       setTranchesLoading(false);
     }
   };
+
+  // NEW: Load tranches for existing deals when editing
+  useEffect(() => {
+    if (isEditMode && editingReport && selectedDeals.length > 0) {
+      const loadAllTranches = async () => {
+        try {
+          setTranchesLoading(true);
+          
+          // Load tranches for all selected deals
+          const tranchePromises = selectedDeals.map(async (dlNbr) => {
+            try {
+              const response = await reportingApi.getDealTranches(dlNbr);
+              return { dlNbr, tranches: response.data };
+            } catch (error) {
+              console.error(`Error loading tranches for deal ${dlNbr}:`, error);
+              return { dlNbr, tranches: [] };
+            }
+          });
+          
+          const results = await Promise.all(tranchePromises);
+          
+          // Update tranches state with all loaded data
+          const newTranches: Record<number, TrancheReportSummary[]> = {};
+          results.forEach(({ dlNbr, tranches }) => {
+            newTranches[dlNbr] = tranches;
+          });
+          
+          setTranches(newTranches);
+          
+        } catch (error) {
+          console.error('Error loading tranches for editing:', error);
+          showToast('Failed to load tranche data for editing', 'error');
+        } finally {
+          setTranchesLoading(false);
+        }
+      };
+      
+      loadAllTranches();
+    }
+  }, [isEditMode, editingReport, selectedDeals, showToast]);
 
   // Validation and navigation
   const formState = {
