@@ -91,8 +91,40 @@ const SQLPreviewModal: React.FC<SQLPreviewModalProps> = ({
                   </div>
                 </div>
 
-                {/* Individual SQL Queries */}
-                {previewData.sql_previews && Object.keys(previewData.sql_previews).length > 0 ? (
+                {/* SQL Display - Handle both unified and individual formats */}
+                {previewData.unified_sql ? (
+                  // NEW: Unified SQL format
+                  <div className="mb-3">
+                    <div className="d-flex justify-content-between align-items-center mb-2">
+                      <h6 className={styles.sqlSectionTitle}>
+                        <i className="bi bi-code me-2"></i>
+                        Unified SQL Query
+                      </h6>
+                      <button
+                        className={`btn btn-sm btn-outline-secondary ${styles.copyButton}`}
+                        onClick={() => navigator.clipboard.writeText(previewData.unified_sql)}
+                        title="Copy SQL to clipboard"
+                      >
+                        <i className="bi bi-clipboard me-1"></i>
+                        Copy
+                      </button>
+                    </div>
+                    
+                    <div 
+                      className={styles['sql-code-enhanced']}
+                      dangerouslySetInnerHTML={{
+                        __html: highlightSQL(formatSQL(previewData.unified_sql))
+                      }}
+                    />
+                    
+                    <div className={`alert ${styles.previewInfoAlert} mt-3`}>
+                      <i className={`bi bi-info-circle ${styles.previewInfoIcon}`}></i>
+                      <strong>Preview Note:</strong> This is the optimized unified SQL query with CTEs that will be executed when the report runs. 
+                      All calculations are combined into a single, efficient query.
+                    </div>
+                  </div>
+                ) : previewData.sql_previews && Object.keys(previewData.sql_previews).length > 0 ? (
+                  // LEGACY: Individual SQL queries format
                   <div className="mb-3">
                     <h6 className={styles.sqlSectionTitle}>Generated SQL Queries</h6>
                     <p className="text-muted mb-3">
@@ -138,6 +170,12 @@ const SQLPreviewModal: React.FC<SQLPreviewModalProps> = ({
                         </div>
                       </div>
                     ))}
+                    
+                    <div className={`alert ${styles.previewInfoAlert}`}>
+                      <i className={`bi bi-info-circle ${styles.previewInfoIcon}`}></i>
+                      <strong>Preview Note:</strong> These are the individual SQL queries that will be executed and merged when the report runs. 
+                      Each calculation is optimized separately for performance.
+                    </div>
                   </div>
                 ) : (
                   <div className={styles.previewEmptyState}>

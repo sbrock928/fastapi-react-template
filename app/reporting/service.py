@@ -481,12 +481,31 @@ class ReportService:
             calculation_requests, deal_tranche_map, cycle_code, report.scope
         )
 
-        return {
-            "template_name": report.name,
-            "sql_previews": result['sql_previews'],
-            "parameters": result['parameters'],
-            "summary": result['summary']
-        }
+        # Handle both unified and individual SQL preview formats
+        if 'unified_sql' in result:
+            # New unified approach - return the single SQL query
+            return {
+                "template_name": report.name,
+                "unified_sql": result['unified_sql'],
+                "parameters": result['parameters'],
+                "summary": result['summary']
+            }
+        elif 'sql_previews' in result:
+            # Legacy individual approach - return multiple SQL queries
+            return {
+                "template_name": report.name,
+                "sql_previews": result['sql_previews'],
+                "parameters": result['parameters'],
+                "summary": result['summary']
+            }
+        else:
+            # Fallback for unexpected result structure
+            return {
+                "template_name": report.name,
+                "unified_sql": "-- Error: Unable to generate SQL preview",
+                "parameters": result.get('parameters', {}),
+                "summary": result.get('summary', {})
+            }
 
     async def _log_execution(self, report_id: int, cycle_code: int, executed_by: str,
                             execution_time_ms: float, row_count: int, success: bool,
