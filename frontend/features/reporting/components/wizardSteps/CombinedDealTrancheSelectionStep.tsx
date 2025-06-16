@@ -18,6 +18,7 @@ interface CombinedDealTrancheSelectionStepProps {
   selectedDeals: number[];
   selectedTranches: Record<number, string[]>;
   tranches: Record<number, TrancheReportSummary[]>;
+  dealsBeingAdded: Set<number>;
   onDealAdd: (dlNbr: number) => void;
   onDealRemove: (dlNbr: number) => void;
   onTrancheToggle: (dlNbr: number, trId: string) => void;
@@ -31,12 +32,13 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
   selectedDeals,
   selectedTranches,
   tranches,
+  dealsBeingAdded,
   onDealAdd,
   onDealRemove,
   onTrancheToggle,
   onSelectAllTranches,
   onDeselectAllTranches,
-  loading
+  loading,
 }) => {
   const { showToast } = useToast();
 
@@ -166,7 +168,7 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
     });
   }, [dealSearchResults, selectedDeals]);
 
-  // NEW: Load deal information for selected deals that aren't in cache
+  // Load deal information for selected deals that aren't in cache
   useEffect(() => {
     const loadMissingDealInfo = async () => {
       const missingDeals = selectedDeals.filter(dlNbr => !dealInfoCache[dlNbr]);
@@ -174,8 +176,8 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
       if (missingDeals.length === 0) return;
 
       try {
-        // NEW EFFICIENT APPROACH: Use the new API endpoint to fetch deals by numbers directly
-        console.log(`Loading deal info for ${missingDeals.length} deals: ${missingDeals.join(', ')}`);
+        // Use the API endpoint to fetch deals by numbers directly
+        console.log(`🔄 Loading deal info for ${missingDeals.length} deals: ${missingDeals.join(', ')}`);
         const response = await reportingApi.getDealsByNumbers(missingDeals);
         const foundDeals = response.data;
 
@@ -197,11 +199,11 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
       }
     };
 
-    // Only run if there are selected deals missing from cache
+    // Load deal info whenever there are selected deals missing from cache
     if (selectedDeals.length > 0) {
       loadMissingDealInfo();
     }
-  }, [selectedDeals]); // FIXED: Removed dealInfoCache from dependencies to prevent infinite loops
+  }, [selectedDeals]); // Run when selectedDeals changes
 
   // Handle deal addition
   const handleAddDeal = (deal: Deal) => {
@@ -209,9 +211,9 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
       onDealAdd(deal.dl_nbr);
       // Don't auto-expand newly added deals - keep them collapsed by default
       // setExpandedDeals(prev => new Set([...prev, deal.dl_nbr])); // REMOVED
-      // Clear search
-      setDealSearchTerm('');
-      setDealSearchResults([]);
+      // REMOVED: Clear search - this was annoying for users selecting multiple deals
+      // setDealSearchTerm('');
+      // setDealSearchResults([]);
     }
   };
 
@@ -285,10 +287,10 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
       <div className="alert alert-info mb-4">
         <i className="bi bi-info-circle me-2"></i>
         <span>
-          <strong>Smart Tranche Selection:</strong> All tranches are selected by default when you add a deal. 
-          For both deal-level and tranche-level reports, only excluded tranches are stored to optimize performance.
+          <strong>Manual Tranche Selection:</strong> When you add a deal, no tranches are selected by default. 
+          You'll need to expand each deal and manually select the tranches you want to include in your report.
           <br />
-          <em>Tip: Expand deals below to deselect specific tranches if needed.</em>
+          <em>Tip: Use the "Select All" button to quickly select all tranches for a deal, or choose individual tranches as needed.</em>
         </span>
       </div>
 
@@ -366,15 +368,24 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
                       className={`btn btn-sm ${
                         selectedDeals.includes(deal.dl_nbr) 
                           ? 'btn-outline-success disabled' 
+                          : dealsBeingAdded.has(deal.dl_nbr)
+                          ? 'btn-outline-warning disabled'
                           : 'btn-primary'
                       }`}
                       onClick={() => handleAddDeal(deal)}
-                      disabled={selectedDeals.includes(deal.dl_nbr)}
+                      disabled={selectedDeals.includes(deal.dl_nbr) || dealsBeingAdded.has(deal.dl_nbr)}
                     >
                       {selectedDeals.includes(deal.dl_nbr) ? (
                         <>
                           <i className="bi bi-check-circle me-1"></i>
                           Added
+                        </>
+                      ) : dealsBeingAdded.has(deal.dl_nbr) ? (
+                        <>
+                          <div className="spinner-border spinner-border-sm me-1" role="status">
+                            <span className="visually-hidden">Loading...</span>
+                          </div>
+                          Adding...
                         </>
                       ) : (
                         'Add to Report'

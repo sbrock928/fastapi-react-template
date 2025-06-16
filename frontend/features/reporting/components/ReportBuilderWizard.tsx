@@ -38,6 +38,9 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
   const [tranches, setTranches] = useState<Record<number, TrancheReportSummary[]>>({});
   const [tranchesLoading, setTranchesLoading] = useState<boolean>(false);
   
+  // NEW: Add loading state for individual deals being added to prevent race conditions
+  const [dealsBeingAdded, setDealsBeingAdded] = useState<Set<number>>(new Set());
+  
   // Form state management
   const {
     reportName,
@@ -137,12 +140,16 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
 
   // Handle deal addition - now loads tranches automatically
   const handleDealAdd = async (dlNbr: number) => {
-    // Check if deal is already selected
-    if (selectedDeals.includes(dlNbr)) {
+    // Check if deal is already selected or currently being added
+    if (selectedDeals.includes(dlNbr) || dealsBeingAdded.has(dlNbr)) {
+      console.log(`🚫 Deal ${dlNbr} is already selected or being added, skipping...`);
       return;
     }
 
     console.log(`🎯 Adding deal ${dlNbr} to selected deals...`);
+    
+    // Mark deal as being added to prevent race conditions
+    setDealsBeingAdded(prev => new Set([...prev, dlNbr]));
     
     try {
       // Load tranches FIRST, then update state all at once to prevent race conditions
@@ -169,23 +176,25 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
         return updated;
       });
       
-      // Auto-select all tranches by default (only for new deals, not when editing)
-      if (!isEditMode && dealTranches.length > 0) {
-        const allTrancheIds = dealTranches.map(t => t.tr_id);
-        console.log(`🎯 Auto-selecting ${allTrancheIds.length} tranches for deal ${dlNbr}:`, allTrancheIds);
-        setSelectedTranches(prev => ({
-          ...prev,
-          [dlNbr]: allTrancheIds
-        }));
-      }
+      // Initialize with no tranches selected by default
+      setSelectedTranches(prev => ({
+        ...prev,
+        [dlNbr]: [] // Start with empty array - no tranches selected
+      }));
       
-      console.log(`✅ Finished adding deal ${dlNbr}`);
+      console.log(`✅ Finished adding deal ${dlNbr} with no tranches selected by default`);
       
     } catch (error: any) {
       console.error('❌ Error adding deal:', dlNbr, error);
       showToast(`Failed to load tranches for deal ${dlNbr}`, 'error');
     } finally {
       setTranchesLoading(false);
+      // Remove deal from being added set
+      setDealsBeingAdded(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(dlNbr);
+        return newSet;
+      });
     }
   };
 
@@ -340,6 +349,7 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
             selectedDeals={selectedDeals}
             selectedTranches={selectedTranches}
             tranches={tranches}
+            dealsBeingAdded={dealsBeingAdded}
             onDealAdd={handleDealAdd}
             onDealRemove={handleDealRemove}
             onTrancheToggle={handleTrancheToggle}

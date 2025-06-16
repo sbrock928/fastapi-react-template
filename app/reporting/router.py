@@ -86,6 +86,16 @@ async def create_report(
     report_data: ReportCreate, service: ReportService = Depends(get_report_service)
 ) -> ReportRead:
     """Create a new report configuration."""
+    # Check if a report with the same name already exists
+    existing_reports = await service.get_all()
+    existing_names = [report.name for report in existing_reports]
+    
+    if report_data.name in existing_names:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"A report with the name '{report_data.name}' already exists. Please choose a different name."
+        )
+    
     return await service.create(report_data)  # FIXED: added await
 
 
@@ -94,6 +104,18 @@ async def update_report(
     report_id: int, report_data: ReportUpdate, service: ReportService = Depends(get_report_service)
 ) -> ReportRead:
     """Update an existing report configuration."""
+    # If name is being updated, check for uniqueness
+    if report_data.name is not None:
+        existing_reports = await service.get_all()
+        # Exclude the current report from the uniqueness check
+        existing_names = [report.name for report in existing_reports if report.id != report_id]
+        
+        if report_data.name in existing_names:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"A report with the name '{report_data.name}' already exists. Please choose a different name."
+            )
+    
     report = await service.update(report_id, report_data)  # FIXED: added await
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
