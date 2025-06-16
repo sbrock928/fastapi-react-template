@@ -1,5 +1,5 @@
 // frontend/features/calculations/components/index.ts
-// Export all calculation components - updated for system calculations
+// Export all calculation components - updated for system calculations and CDI variables
 
 export { default as CalculationCard } from './CalculationCard';
 export { default as CalculationModal } from './CalculationModal';
@@ -11,10 +11,15 @@ export { default as UsageModal } from './UsageModal';
 export { default as SystemCalculationsTab } from './SystemCalculationsTab';
 export { default as SqlEditor } from './SqlEditor';
 
+// CDI Variable components
+export { default as CDIVariablesTab } from './CDIVariablesTab';
+export { default as CDIVariableModal } from './CDIVariableModal';
+
 // Type definitions for component props
 export interface CalculationCardProps {
   calculation: any;
-  usage: any;
+  usage?: any;
+  usageScope?: 'DEAL' | 'TRANCHE' | 'ALL';
   onEdit: (calc: any) => void;
   onDelete: (id: number, name: string) => void;
   onPreviewSQL: (id: number) => void;
@@ -23,7 +28,7 @@ export interface CalculationCardProps {
 
 export interface CalculationModalProps {
   isOpen: boolean;
-  modalType: 'user-defined' | 'system-field' | 'system-sql';
+  modalType: 'user-defined' | 'system-sql';
   editingCalculation: any;
   calculation: any;
   error: string | null;

@@ -16,6 +16,17 @@ import type {
   SystemSqlValidationResponse,
   CalculationUsage
 } from '@/types/calculations';
+import type {
+  CDIVariableCreate,
+  CDIVariableUpdate,
+  CDIVariableResponse,
+  CDIVariableSummary,
+  CDIVariableConfig,
+  CDIVariableValidationRequest,
+  CDIVariableValidationResponse,
+  CDIVariableExecutionRequest,
+  CDIVariableExecutionResponse
+} from '@/types/cdi';
 import { parseCalculationId } from '@/types/calculations';
 
 // Add the PreviewData type for individual calculation previews
@@ -360,6 +371,66 @@ export const calculationsApi = {
   }
 };
 
+// ===== CDI VARIABLE API =====
+export const cdiVariableApi = {
+  // ===== CDI CONFIGURATION =====
+  async getCDIConfig(): Promise<AxiosResponse<CDIVariableConfig>> {
+    return apiClient.get('/calculations/cdi-variables/config');
+  },
+
+  // ===== CDI VARIABLE CRUD =====
+  async getAllCDIVariables(): Promise<AxiosResponse<CDIVariableResponse[]>> {
+    return apiClient.get('/calculations/cdi-variables');
+  },
+
+  async getCDIVariablesSummary(): Promise<AxiosResponse<CDIVariableSummary[]>> {
+    return apiClient.get('/calculations/cdi-variables/summary');
+  },
+
+  async getCDIVariableById(id: number): Promise<AxiosResponse<CDIVariableResponse>> {
+    return apiClient.get(`/calculations/cdi-variables/${id}`);
+  },
+
+  async createCDIVariable(data: CDIVariableCreate): Promise<AxiosResponse<CDIVariableResponse>> {
+    return apiClient.post('/calculations/cdi-variables', data);
+  },
+
+  async updateCDIVariable(id: number, data: CDIVariableUpdate): Promise<AxiosResponse<CDIVariableResponse>> {
+    return apiClient.patch(`/calculations/cdi-variables/${id}`, data);
+  },
+
+  async deleteCDIVariable(id: number): Promise<AxiosResponse<{message: string}>> {
+    return apiClient.delete(`/calculations/cdi-variables/${id}`);
+  },
+
+  // ===== CDI VALIDATION =====
+  async validateCDIVariable(data: CDIVariableValidationRequest): Promise<AxiosResponse<CDIVariableValidationResponse>> {
+    return apiClient.post('/calculations/cdi-variables/validate', data);
+  },
+
+  // ===== CDI EXECUTION =====
+  async executeCDIVariable(data: CDIVariableExecutionRequest): Promise<AxiosResponse<CDIVariableExecutionResponse>> {
+    return apiClient.post('/calculations/cdi-variables/execute', data);
+  },
+
+  // ===== VALIDATION HELPERS =====
+  async validateResultColumn(resultColumn: string): Promise<AxiosResponse<{
+    result_column: string;
+    is_available: boolean;
+    existing_calculation?: string;
+  }>> {
+    return apiClient.post('/calculations/system/validate-result-column', {
+      result_column: resultColumn
+    });
+  }
+};
+
+// Updated calculationsApi export with CDI methods included
+export const calculationsApiWithCDI = {
+  ...calculationsApi,
+  cdi: cdiVariableApi
+};
+
 // Error handling wrapper
 export const withErrorHandling = <T extends any[], R>(
   fn: (...args: T) => Promise<R>
@@ -398,6 +469,13 @@ export const safeCalculationsApi = {
   getStaticFields: withErrorHandling(calculationsApi.getStaticFields),
   getAvailableCalculations: withErrorHandling(calculationsApi.getAvailableCalculations),
   getAllCalculations: withErrorHandling(calculationsApi.getAllCalculations),
+  // CDI methods
+  getCDIConfig: withErrorHandling(cdiVariableApi.getCDIConfig),
+  createCDIVariable: withErrorHandling(cdiVariableApi.createCDIVariable),
+  updateCDIVariable: withErrorHandling(cdiVariableApi.updateCDIVariable),
+  deleteCDIVariable: withErrorHandling(cdiVariableApi.deleteCDIVariable),
+  validateCDIVariable: withErrorHandling(cdiVariableApi.validateCDIVariable),
+  executeCDIVariable: withErrorHandling(cdiVariableApi.executeCDIVariable),
 };
 
 export default calculationsApi;

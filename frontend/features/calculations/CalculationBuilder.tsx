@@ -13,9 +13,10 @@ import FilterSection from './components/FilterSection';
 import CalculationCard from './components/CalculationCard';
 import CalculationModal from './components/CalculationModal';
 import SystemCalculationsTab from './components/SystemCalculationsTab';
+import CDIVariablesTab from './components/CDIVariablesTab';
 import UsageModal from './components/UsageModal';
 
-type CalculationTab = 'user-defined' | 'system-defined';
+type CalculationTab = 'user-defined' | 'system-defined' | 'cdi-variables';
 
 const CalculationBuilder: React.FC = () => {
   const { showToast } = useToast();
@@ -285,8 +286,18 @@ const CalculationBuilder: React.FC = () => {
     }
   };
 
+  // Define tab data interface
+  interface TabData {
+    calculations?: UserCalculation[] | SystemCalculation[];
+    filteredCalculations?: UserCalculation[] | SystemCalculation[];
+    selectedFilter?: string;
+    setSelectedFilter?: React.Dispatch<React.SetStateAction<string>>;
+    loading: boolean;
+    deleteCalculation?: () => void;
+  }
+
   // Get current tab data
-  const getCurrentTabData = () => {
+  const getCurrentTabData = (): TabData => {
     if (activeTab === 'user-defined') {
       return {
         calculations: userCalculations,
@@ -295,6 +306,10 @@ const CalculationBuilder: React.FC = () => {
         setSelectedFilter: setUserFilter,
         loading: calculationsLoading,
         deleteCalculation: () => showToast('Delete functionality will be implemented', 'info')
+      };
+    } else if (activeTab === 'cdi-variables') {
+      return {
+        loading: calculationsLoading
       };
     } else {
       return {
@@ -309,6 +324,11 @@ const CalculationBuilder: React.FC = () => {
   };
 
   const tabData = getCurrentTabData();
+
+  // Get CDI variable count safely
+  const getCDIVariableCount = () => {
+    return (summary as any)?.cdi_variable_count || 0;
+  };
 
   return (
     <div className="container-fluid">
@@ -329,21 +349,29 @@ const CalculationBuilder: React.FC = () => {
               Calculation Statistics
             </h6>
             <div className="row text-center">
-              <div className="col-md-3">
+              <div className="col-md-2">
                 <div className="h4 mb-0 text-primary">{summary.user_calculation_count}</div>
-                <small className="text-muted">Total User Calculations</small>
+                <small className="text-muted">User Calculations</small>
               </div>
-              <div className="col-md-3">
+              <div className="col-md-2">
                 <div className="h4 mb-0 text-info">{summary.user_in_use_count}</div>
-                <small className="text-muted">User Calcs In Use</small>
+                <small className="text-muted">User In Use</small>
               </div>
-              <div className="col-md-3">
+              <div className="col-md-2">
                 <div className="h4 mb-0 text-success">{summary.system_calculation_count}</div>
-                <small className="text-muted">Total System Calculations</small>
+                <small className="text-muted">System Calculations</small>
               </div>
-              <div className="col-md-3">
+              <div className="col-md-2">
                 <div className="h4 mb-0 text-warning">{summary.system_in_use_count}</div>
-                <small className="text-muted">System Calcs In Use</small>
+                <small className="text-muted">System In Use</small>
+              </div>
+              <div className="col-md-2">
+                <div className="h4 mb-0 text-secondary">{getCDIVariableCount()}</div>
+                <small className="text-muted">CDI Variables</small>
+              </div>
+              <div className="col-md-2">
+                <div className="h4 mb-0 text-dark">{summary.total_calculations}</div>
+                <small className="text-muted">Total</small>
               </div>
             </div>
           </div>
@@ -424,6 +452,16 @@ const CalculationBuilder: React.FC = () => {
                     System Defined Calculations
                     <span className="badge bg-primary ms-2">{systemCalculations.length}</span>
                   </button>
+                  <button
+                    className={`nav-link ${activeTab === 'cdi-variables' ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => handleTabSwitch('cdi-variables')}
+                    disabled={hasUnsavedChanges}
+                  >
+                    <i className="bi bi-diagram-3 me-2"></i>
+                    CDI Variables
+                    <span className="badge bg-secondary ms-2">{getCDIVariableCount()}</span>
+                  </button>
                 </div>
               </nav>
             </div>
@@ -454,11 +492,13 @@ const CalculationBuilder: React.FC = () => {
                       </button>
                     </div>
 
-                    <FilterSection
-                      selectedFilter={tabData.selectedFilter}
-                      onFilterChange={tabData.setSelectedFilter}
-                      fieldsLoading={fieldsLoading}
-                    />
+                    {tabData.selectedFilter !== undefined && tabData.setSelectedFilter && (
+                      <FilterSection
+                        selectedFilter={tabData.selectedFilter}
+                        onFilterChange={tabData.setSelectedFilter}
+                        fieldsLoading={fieldsLoading}
+                      />
+                    )}
 
                     {/* User Calculations List */}
                     <div className="card">
@@ -475,20 +515,20 @@ const CalculationBuilder: React.FC = () => {
                           </div>
                         ) : (
                           <div className="row g-3">
-                            {tabData.filteredCalculations.map((calc) => (
+                            {tabData.filteredCalculations && tabData.filteredCalculations.map((calc: any) => (
                               <div key={calc.id} className="col-12">
                                 <CalculationCard
                                   calculation={calc}
                                   usageScope={usageScope}
                                   onEdit={(calc) => handleOpenModal('user-defined', calc)}
-                                  onDelete={tabData.deleteCalculation}
+                                  onDelete={tabData.deleteCalculation || (() => {})}
                                   onShowUsage={handleShowUsage}
-                                  onPreviewSQL={() => handlePreviewSQL(calc.id)} // Add preview handler
+                                  onPreviewSQL={() => handlePreviewSQL(calc.id)}
                                 />
                               </div>
                             ))}
                             
-                            {tabData.filteredCalculations.length === 0 && !tabData.loading && (
+                            {tabData.filteredCalculations && tabData.filteredCalculations.length === 0 && !tabData.loading && (
                               <div className="col-12">
                                 <div className="text-center py-4 text-muted">
                                   No user calculations available. Create your first calculation above.
@@ -509,19 +549,22 @@ const CalculationBuilder: React.FC = () => {
                     selectedFilter={systemFilter}
                     setSelectedFilter={setSystemFilter}
                     loading={calculationsLoading}
-                    usage={{}} // Pass empty object since usage is now embedded in calculations
+                    usage={{}}
                     usageScope={usageScope}
                     onCreateSystemSql={() => handleOpenModal('system-sql')}
                     onEditSystemSql={(calc) => handleOpenModal('system-sql', calc)}
                     onShowUsage={handleShowUsage}
-                    onPreviewSQL={(calcId) => handlePreviewSQL(calcId)} // Add the missing preview handler
+                    onPreviewSQL={(calcId) => handlePreviewSQL(calcId)}
                   />
+                )}
+
+                {/* CDI Variables Tab */}
+                {activeTab === 'cdi-variables' && (
+                  <CDIVariablesTab onRefreshNeeded={refetchCalculations} />
                 )}
               </div>
             </div>
           </div>
-
-          
         </>
       )}
 
