@@ -3,8 +3,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { useToast } from '@/context/ToastContext';
-import { cdiVariableApi } from '@/services/calculationsApi';
+import { cdiVariableApi, calculationsApi } from '@/services/calculationsApi';
 import CDIVariableModal from './CDIVariableModal';
+import UsageModal from './UsageModal';
 import type { 
   CDIVariableResponse
 } from '@/types/cdi';
@@ -24,6 +25,12 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
   const [showModal, setShowModal] = useState(false);
   const [editingVariable, setEditingVariable] = useState<CDIVariableResponse | null>(null);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
+  const [variableUsage, setVariableUsage] = useState<Record<number, any>>({});
+
+  // Usage modal states
+  const [showUsageModal, setShowUsageModal] = useState<boolean>(false);
+  const [selectedUsageData, setSelectedUsageData] = useState<any>(null);
+  const [usageLoading, setUsageLoading] = useState<boolean>(false);
 
   // Load CDI variables on mount
   useEffect(() => {
@@ -34,6 +41,13 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
   useEffect(() => {
     filterVariables();
   }, [cdiVariables, searchTerm]);
+
+  // Load usage information when variables change
+  useEffect(() => {
+    if (cdiVariables.length > 0) {
+      loadVariableUsage();
+    }
+  }, [cdiVariables]);
 
   const loadCDIVariables = async () => {
     try {
@@ -46,6 +60,23 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadVariableUsage = async () => {
+    const usageMap: Record<number, any> = {};
+    
+    for (const variable of cdiVariables) {
+      try {
+        // CDI variables are system calculations, so use system calculation usage endpoint
+        const response = await calculationsApi.getSystemCalculationUsage(variable.id);
+        usageMap[variable.id] = response.data;
+      } catch (error) {
+        console.error(`Error fetching usage for CDI variable ${variable.id}:`, error);
+        usageMap[variable.id] = { is_in_use: false, report_count: 0, reports: [] };
+      }
+    }
+    
+    setVariableUsage(usageMap);
   };
 
   const filterVariables = () => {
@@ -78,6 +109,18 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
   };
 
   const handleDeleteVariable = async (variable: CDIVariableResponse) => {
+    // Check if variable is in use before allowing deletion
+    const usage = variableUsage[variable.id];
+    
+    if (usage?.is_in_use) {
+      const reportNames = usage.reports.map((r: any) => r.report_name).join(', ');
+      showToast(
+        `Cannot delete CDI variable "${variable.name}" because it is currently being used in the following report templates: ${reportNames}. Please remove the variable from these reports before deleting it.`,
+        'error'
+      );
+      return;
+    }
+
     if (!window.confirm(`Are you sure you want to delete "${variable.name}"?`)) {
       return;
     }
@@ -87,9 +130,18 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
       showToast('CDI variable deleted successfully', 'success');
       loadCDIVariables();
       onRefreshNeeded?.();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to delete CDI variable:', error);
-      showToast('Failed to delete CDI variable', 'error');
+      
+      // Extract detailed error message from API response
+      let errorMessage = 'Failed to delete CDI variable';
+      if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      showToast(errorMessage, 'error');
     }
   };
 
@@ -97,6 +149,23 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
     loadCDIVariables();
     onRefreshNeeded?.();
     setShowModal(false);
+  };
+
+  const handleShowUsage = async (variable: CDIVariableResponse) => {
+    setSelectedUsageData(null);
+    setUsageLoading(true);
+    setShowUsageModal(true);
+
+    try {
+      // Load detailed usage data for the selected variable
+      const response = await calculationsApi.getSystemCalculationUsage(variable.id);
+      setSelectedUsageData(response.data);
+    } catch (error) {
+      console.error('Failed to load usage data:', error);
+      showToast('Failed to load usage data', 'error');
+    } finally {
+      setUsageLoading(false);
+    }
   };
 
   return (
@@ -171,90 +240,140 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
             <>
               {filteredVariables.length > 0 ? (
                 <div className="row g-3">
-                  {filteredVariables.map((variable) => (
-                    <div key={variable.id} className="col-12">
-                      <div className="card border">
-                        <div className="card-body">
-                          <div className="d-flex justify-content-between align-items-start">
-                            <div className="flex-grow-1">
-                              <div className="d-flex align-items-center gap-2 mb-2">
-                                <h6 className="card-title mb-0 d-flex align-items-center">
-                                  <i className="bi bi-diagram-3 me-2"></i>
-                                  {variable.name}
-                                </h6>
-                                <span className={`badge ${variable.group_level === 'deal' ? 'bg-info' : 'bg-success'}`}>
-                                  {variable.group_level === 'deal' ? 'Deal Level' : 'Tranche Level'}
-                                </span>
-                                {variable.group_level === 'tranche' && (
-                                  <span className="badge bg-light text-dark">
-                                    {Object.keys(variable.tranche_mappings).length} tranche types
+                  {filteredVariables.map((variable) => {
+                    const usage = variableUsage[variable.id];
+                    return (
+                      <div key={variable.id} className="col-12">
+                        <div className="card border">
+                          <div className="card-body">
+                            <div className="d-flex justify-content-between align-items-start">
+                              <div className="flex-grow-1">
+                                <div className="d-flex align-items-center gap-2 mb-2">
+                                  <h6 className="card-title mb-0 d-flex align-items-center">
+                                    <i className="bi bi-diagram-3 me-2"></i>
+                                    {variable.name}
+                                  </h6>
+                                  <span className={`badge ${variable.group_level === 'deal' ? 'bg-info' : 'bg-success'}`}>
+                                    {variable.group_level === 'deal' ? 'Deal Level' : 'Tranche Level'}
                                   </span>
+                                  {variable.group_level === 'tranche' && (
+                                    <span className="badge bg-light text-dark">
+                                      {Object.keys(variable.tranche_mappings).length} tranche types
+                                    </span>
+                                  )}
+                                </div>
+                                
+                                {variable.description && (
+                                  <p className="card-text text-muted mb-2">{variable.description}</p>
+                                )}
+                                
+                                <div className="bg-light rounded p-2 mb-2">
+                                  <small className="text-muted">
+                                    <strong>Pattern:</strong> {variable.variable_pattern}
+                                    <span className="ms-3">
+                                      <strong>Result Column:</strong> {variable.result_column_name}
+                                    </span>
+                                  </small>
+                                </div>
+
+                                {/* Usage Information */}
+                                {usage && (
+                                  <div className="mt-2">
+                                    {usage.is_in_use ? (
+                                      <div className="alert alert-warning py-2 mb-2">
+                                        <i className="bi bi-exclamation-triangle me-1"></i>
+                                        <small>
+                                          <strong>In Use:</strong> Currently used in {usage.report_count} report template(s):
+                                          <span className="ms-1">
+                                            {usage.reports.slice(0, 3).map((report: any, index: number) => (
+                                              <span key={report.report_id}>
+                                                {index > 0 && ', '}
+                                                <strong>{report.report_name}</strong>
+                                              </span>
+                                            ))}
+                                            {usage.reports.length > 3 && <span>, and {usage.reports.length - 3} more...</span>}
+                                          </span>
+                                        </small>
+                                      </div>
+                                    ) : (
+                                      <div className="text-muted">
+                                        <small>
+                                          <i className="bi bi-check-circle me-1"></i>
+                                          Not currently used in any report templates
+                                        </small>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Tranche Mappings - Only show for tranche-level calculations */}
+                                {variable.group_level === 'tranche' && Object.keys(variable.tranche_mappings).length > 0 && (
+                                  <div className="mb-2">
+                                    <small className="text-muted">
+                                      <strong>Tranche Mappings:</strong>
+                                    </small>
+                                    <div className="mt-1">
+                                      {Object.entries(variable.tranche_mappings).map(([suffix, trancheIds]) => (
+                                        <span key={suffix} className="badge bg-secondary me-1 mb-1">
+                                          {suffix}: {trancheIds.join(', ')}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                {variable.created_at && (
+                                  <div className="text-muted mt-2">
+                                    <small>
+                                      Created: {new Date(variable.created_at).toLocaleString()}
+                                      {variable.created_by && (
+                                        <span className="ms-3">by {variable.created_by}</span>
+                                      )}
+                                    </small>
+                                  </div>
                                 )}
                               </div>
                               
-                              {variable.description && (
-                                <p className="card-text text-muted mb-2">{variable.description}</p>
-                              )}
-                              
-                              <div className="bg-light rounded p-2 mb-2">
-                                <small className="text-muted">
-                                  <strong>Pattern:</strong> {variable.variable_pattern}
-                                  <span className="ms-3">
-                                    <strong>Result Column:</strong> {variable.result_column_name}
-                                  </span>
-                                </small>
-                              </div>
+                              <div className="btn-group-vertical">
+                                <button
+                                  onClick={() => handleEditVariable(variable)}
+                                  className="btn btn-outline-warning btn-sm"
+                                  title="Edit CDI variable"
+                                >
+                                  <i className="bi bi-pencil"></i> Edit
+                                </button>
+                                
+                                <button
+                                  onClick={() => handleDeleteVariable(variable)}
+                                  className={`btn btn-sm ${usage?.is_in_use ? 'btn-outline-secondary' : 'btn-outline-danger'}`}
+                                  title={usage?.is_in_use ? 'Cannot delete - variable is in use' : 'Delete CDI variable'}
+                                  disabled={usage?.is_in_use}
+                                >
+                                  <i className="bi bi-trash"></i> {usage?.is_in_use ? 'In Use' : 'Delete'}
+                                </button>
 
-                              {/* Tranche Mappings - Only show for tranche-level calculations */}
-                              {variable.group_level === 'tranche' && Object.keys(variable.tranche_mappings).length > 0 && (
-                                <div className="mb-2">
-                                  <small className="text-muted">
-                                    <strong>Tranche Mappings:</strong>
-                                  </small>
-                                  <div className="mt-1">
-                                    {Object.entries(variable.tranche_mappings).map(([suffix, trancheIds]) => (
-                                      <span key={suffix} className="badge bg-secondary me-1 mb-1">
-                                        {suffix}: {trancheIds.join(', ')}
-                                      </span>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                              
-                              {variable.created_at && (
-                                <div className="text-muted mt-2">
-                                  <small>
-                                    Created: {new Date(variable.created_at).toLocaleString()}
-                                    {variable.created_by && (
-                                      <span className="ms-3">by {variable.created_by}</span>
-                                    )}
-                                  </small>
-                                </div>
-                              )}
-                            </div>
-                            
-                            <div className="btn-group-vertical">
-                              <button
-                                onClick={() => handleEditVariable(variable)}
-                                className="btn btn-outline-warning btn-sm"
-                                title="Edit CDI variable"
-                              >
-                                <i className="bi bi-pencil"></i> Edit
-                              </button>
-                              
-                              <button
-                                onClick={() => handleDeleteVariable(variable)}
-                                className="btn btn-outline-danger btn-sm"
-                                title="Delete CDI variable"
-                              >
-                                <i className="bi bi-trash"></i> Delete
-                              </button>
+                                {/* Usage Button - Only show for tranche-level calculations */}
+                                {variable.group_level === 'tranche' && (
+                                  <button
+                                  onClick={() => handleShowUsage(variable)}
+                                  className="btn btn-outline-secondary btn-sm"
+                                  title="View Usage Details"
+                                >
+                                  <i className="bi bi-bar-chart"></i>
+                                  {usage?.report_count > 0 && (
+                                    <span className="badge bg-warning text-dark ms-1">
+                                      {usage.report_count}
+                                    </span>
+                                  )}
+                                </button>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="text-center py-4 text-muted">
@@ -286,6 +405,14 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
         onSave={handleVariableSaved}
         editingVariable={editingVariable}
         mode={modalMode}
+      />
+
+      {/* Usage Modal */}
+      <UsageModal
+        isOpen={showUsageModal}
+        onClose={() => setShowUsageModal(false)}
+        selectedUsageData={selectedUsageData}
+        usageLoading={usageLoading}
       />
     </div>
   );

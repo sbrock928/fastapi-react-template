@@ -13,6 +13,34 @@ import {
 } from '@/types/reporting';
 import { parseCalculationId } from '@/types/calculations';
 
+// Helper function to get display type for AvailableCalculation
+const getAvailableCalculationDisplayType = (calc: AvailableCalculation): string => {
+  if (isUserDefinedCalculation(calc)) {
+    return `User Defined (${calc.aggregation_function})`;
+  } else if (isSystemSqlCalculation(calc)) {
+    // Enhanced CDI variable detection - check multiple indicators for consistency
+    const isCDIVariable = (
+      // Check calculation name/description patterns
+      calc.name.toLowerCase().includes('cdi') ||
+      calc.description?.toLowerCase().includes('cdi variable') ||
+      calc.description?.toLowerCase().includes('cdi calculation') ||
+      calc.category?.toLowerCase().includes('cdi') ||
+      // Check if ID suggests CDI variable
+      calc.id.toLowerCase().includes('cdi') ||
+      // Check result column patterns that suggest CDI variables
+      (calc.name.toLowerCase().includes('investment_income') ||
+       calc.name.toLowerCase().includes('excess_interest') ||
+       calc.name.toLowerCase().includes('principal_payments') ||
+       calc.name.toLowerCase().includes('interest_payments'))
+    );
+    
+    return isCDIVariable ? 'CDI Var' : 'System SQL';
+  } else if (isStaticFieldCalculation(calc)) {
+    return 'Raw Field';
+  }
+  return 'Unknown';
+};
+
 interface CalculationSelectorProps {
   scope: 'DEAL' | 'TRANCHE';
   availableCalculations: AvailableCalculation[];
@@ -307,15 +335,32 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
             {selectedCalculations.map(calc => {
               const availableCalc = availableCalculations.find(ac => ac.id === calc.calculation_id);
               const displayName = calc.display_name || availableCalc?.name || `Calculation ${calc.calculation_id}`;
-              const calcType = calc.calculation_type || 'unknown';
-              const badgeClass = calcType === 'static' ? 'bg-info' : calcType === 'system' ? 'bg-warning text-dark' : 'bg-primary';
-              const icon = calcType === 'static' ? 'bi-file-text' : calcType === 'system' ? 'bi-code-square' : 'bi-person-gear';
+              
+              // Use the helper function for consistent badge display
+              let badgeClass = 'bg-secondary';
+              let icon = 'bi-question-circle';
+              if (availableCalc) {
+                const displayType = getAvailableCalculationDisplayType(availableCalc);
+                if (displayType.includes('User Defined')) {
+                  badgeClass = 'bg-primary';
+                  icon = 'bi-person-gear';
+                } else if (displayType === 'CDI Var') {
+                  badgeClass = 'bg-info text-dark';
+                  icon = 'bi-database';
+                } else if (displayType === 'System SQL') {
+                  badgeClass = 'bg-warning text-dark';
+                  icon = 'bi-code-square';
+                } else if (displayType === 'Raw Field') {
+                  badgeClass = 'bg-info';
+                  icon = 'bi-file-text';
+                }
+              }
               
               return (
                 <span 
                   key={calc.calculation_id}
                   className={`badge ${badgeClass} me-1 mb-1`}
-                  title={`${calcType} calculation`}
+                  title={availableCalc ? getAvailableCalculationDisplayType(availableCalc) : 'Unknown calculation type'}
                 >
                   <i className={`bi ${icon} me-1`}></i>
                   {displayName}
@@ -375,7 +420,14 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
               if (isUser) {
                 calcTypeInfo = { icon: 'bi-person-gear', label: 'User Calculation', badgeClass: 'bg-primary' };
               } else if (isSystem) {
-                calcTypeInfo = { icon: 'bi-code-square', label: 'System SQL', badgeClass: 'bg-warning text-dark' };
+                // Use the helper function to correctly show "CDI Var" for CDI variables
+                const displayType = getAvailableCalculationDisplayType(calc);
+                const isCDIVar = displayType === 'CDI Var';
+                calcTypeInfo = { 
+                  icon: isCDIVar ? 'bi-database' : 'bi-code-square', 
+                  label: displayType, 
+                  badgeClass: isCDIVar ? 'bg-info text-dark' : 'bg-warning text-dark' 
+                };
               } else if (isStatic) {
                 calcTypeInfo = { icon: 'bi-file-text', label: 'Raw Field', badgeClass: 'bg-info' };
               }
@@ -474,7 +526,13 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
               if (isUser) {
                 calcTypeInfo = { icon: 'bi-person-gear', label: 'User Calculation' };
               } else if (isSystem) {
-                calcTypeInfo = { icon: 'bi-code-square', label: 'System SQL' };
+                // Use the helper function to correctly show "CDI Var" for CDI variables
+                const displayType = getAvailableCalculationDisplayType(calc);
+                const isCDIVar = displayType === 'CDI Var';
+                calcTypeInfo = { 
+                  icon: isCDIVar ? 'bi-database' : 'bi-code-square', 
+                  label: displayType
+                };
               } else if (isStatic) {
                 calcTypeInfo = { icon: 'bi-file-text', label: 'Raw Field' };
               }

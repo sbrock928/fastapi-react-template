@@ -11,9 +11,8 @@ import type {
 import { 
   getPreviewFormula, 
   getScopeCompatibilityWarning, 
-  getRecommendedLevel, 
-  getAvailableFields,
-  validateSqlSyntax
+  validateSqlSyntax,
+  getAvailableFields
 } from '../utils/calculationUtils';
 import { getFullSQLPreview } from '../utils/sqlPreviewUtils';
 import SqlEditor from './SqlEditor';
@@ -120,7 +119,6 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
 
   const renderUserDefinedForm = () => {
     const scopeWarning = getScopeCompatibilityWarning(calculation);
-    const recommendedLevel = getRecommendedLevel(calculation);
     const availableFields = getAvailableFields(calculation.source, allAvailableFields);
 
     return (
@@ -260,23 +258,6 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
               <div className="alert alert-warning">
                 <i className="bi bi-exclamation-triangle me-2"></i>
                 <strong>Compatibility Notice:</strong> {scopeWarning}
-              </div>
-            </div>
-          )}
-
-          {/* Recommendations */}
-          {recommendedLevel && recommendedLevel !== calculation.level && (
-            <div className="col-12">
-              <div className="alert alert-info">
-                <i className="bi bi-lightbulb me-2"></i>
-                <strong>Recommendation:</strong> Consider setting the group level to <strong>{recommendedLevel}</strong> for optimal compatibility.
-                <button
-                  type="button"
-                  className="btn btn-sm btn-outline-info ms-2"
-                  onClick={() => onUpdateCalculation({ level: recommendedLevel })}
-                >
-                  Apply Recommendation
-                </button>
               </div>
             </div>
           )}

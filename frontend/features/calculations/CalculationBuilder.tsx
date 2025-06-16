@@ -265,7 +265,17 @@ const CalculationBuilder: React.FC = () => {
     setShowPreviewModal(true); // Show modal first with loading state
     
     try {
-      const response = await calculationsApi.previewSQL(calcId, SAMPLE_PREVIEW_PARAMS);
+      let response;
+      
+      // Determine which API to call based on the current tab
+      if (activeTab === 'user-defined') {
+        response = await calculationsApi.previewUserSQL(calcId, SAMPLE_PREVIEW_PARAMS);
+      } else if (activeTab === 'system-defined') {
+        response = await calculationsApi.previewSystemSql(calcId, SAMPLE_PREVIEW_PARAMS);
+      } else {
+        // Default to user calculation for other tabs
+        response = await calculationsApi.previewSQL(calcId, SAMPLE_PREVIEW_PARAMS);
+      }
       
       // Validate response data
       if (response.data && response.data.sql) {

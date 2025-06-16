@@ -262,7 +262,23 @@ export function getCalculationDisplayType(calc: Calculation): string {
   if (isUserDefinedCalculation(calc)) {
     return `User Defined (${calc.aggregation_function})`;
   } else if (isSystemSqlCalculation(calc)) {
-    return 'System SQL';
+    // Enhanced CDI variable detection - check multiple indicators
+    const isCDIVariable = (
+      // Primary check: metadata_config
+      (calc.metadata_config && calc.metadata_config.calculation_type === 'cdi_variable') ||
+      // Fallback checks: name/description patterns
+      calc.name.toLowerCase().includes('cdi') ||
+      calc.description?.toLowerCase().includes('cdi variable') ||
+      calc.description?.toLowerCase().includes('cdi calculation') ||
+      // Check if result column suggests CDI variable
+      (calc.result_column_name && (
+        calc.result_column_name.toLowerCase().includes('investment_income') ||
+        calc.result_column_name.toLowerCase().includes('excess_interest') ||
+        calc.result_column_name.toLowerCase().includes('principal_payments')
+      ))
+    );
+    
+    return isCDIVariable ? 'CDI Var' : 'System SQL';
   }
   return 'Unknown';
 }

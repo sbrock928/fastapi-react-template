@@ -116,10 +116,23 @@ export const calculationsApi = {
 
   // ===== SQL PREVIEW ENDPOINTS =====
   async previewSQL(calculationId: number, sampleParams: any): Promise<AxiosResponse<PreviewData>> {
-    // For individual calculation preview
+    // Default to user calculation for backward compatibility
     const requestData = {
       calculation_request: {
-        calc_type: 'user_calculation', // This will be determined dynamically
+        calc_type: 'user_calculation',
+        calc_id: calculationId
+      },
+      deal_tranche_map: sampleParams.deal_tranche_mapping || { 101: ['A', 'B'], 102: [], 103: [] },
+      cycle_code: sampleParams.cycle || 202404
+    };
+    
+    return apiClient.post('/calculations/preview-single', requestData);
+  },
+
+  async previewUserSQL(calculationId: number, sampleParams: any): Promise<AxiosResponse<PreviewData>> {
+    const requestData = {
+      calculation_request: {
+        calc_type: 'user_calculation',
         calc_id: calculationId
       },
       deal_tranche_map: sampleParams.deal_tranche_mapping || { 101: ['A', 'B'], 102: [], 103: [] },
