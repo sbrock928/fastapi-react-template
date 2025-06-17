@@ -1,11 +1,20 @@
 import React, { useState, useCallback } from 'react';
-import { Eye, EyeOff, GripVertical } from 'lucide-react';
+import { Eye, EyeOff, GripVertical, ArrowUp, ArrowDown } from 'lucide-react';
 import type { 
   ReportColumnPreferences,
   ReportCalculation,
   ReportScope
 } from '@/types/reporting';
-import { ColumnFormat, getColumnFormatLabel, getDefaultColumnPreferences } from '@/types/reporting';
+import { 
+  ColumnFormat, 
+  SortDirection,
+  getColumnFormatLabel, 
+  getDefaultColumnPreferences,
+  addColumnSort,
+  removeColumnSort,
+  updateColumnSortDirection,
+  getColumnSortInfo
+} from '@/types/reporting';
 
 interface ColumnManagementProps {
   calculations: ReportCalculation[];
@@ -121,6 +130,31 @@ const ColumnManagement: React.FC<ColumnManagementProps> = ({
     });
   };
 
+  // Add or remove column sort
+  const toggleColumnSort = (columnId: string) => {
+    const sortInfo = getColumnSortInfo(preferences, columnId);
+    
+    if (sortInfo.isSorted) {
+      // If already sorted, remove sort
+      const updatedPreferences = removeColumnSort(preferences, columnId);
+      updatePreferences(updatedPreferences);
+    } else {
+      // Otherwise, add sort (default to ascending)
+      const updatedPreferences = addColumnSort(preferences, columnId, SortDirection.ASC);
+      updatePreferences(updatedPreferences);
+    }
+  };
+
+  // Update sort direction
+  const changeSortDirection = (columnId: string) => {
+    const sortInfo = getColumnSortInfo(preferences, columnId);
+    if (sortInfo.isSorted) {
+      const newDirection = sortInfo.direction === SortDirection.ASC ? SortDirection.DESC : SortDirection.ASC;
+      const updatedPreferences = updateColumnSortDirection(preferences, columnId, newDirection);
+      updatePreferences(updatedPreferences);
+    }
+  };
+
   return (
     <div className="column-management">
       <div className="d-flex align-items-center justify-content-between mb-3">
@@ -136,6 +170,7 @@ const ColumnManagement: React.FC<ColumnManagementProps> = ({
           const isDragging = draggedIndex === index;
           const isDragOver = dragOverIndex === index;
           const isDefaultColumn = ['deal_number', 'tranche_id', 'cycle_code'].includes(column.column_id);
+          const sortInfo = getColumnSortInfo(preferences, column.column_id);
           
           return (
             <div
@@ -162,7 +197,7 @@ const ColumnManagement: React.FC<ColumnManagementProps> = ({
                   {/* Column Info */}
                   <div className="col">
                     <div className="row align-items-center">
-                      <div className="col-md-4">
+                      <div className="col-md-3">
                         <input
                           type="text"
                           className="form-control form-control-sm"
@@ -175,7 +210,7 @@ const ColumnManagement: React.FC<ColumnManagementProps> = ({
                         )}
                       </div>
                       
-                      <div className="col-md-3">
+                      <div className="col-md-2">
                         <select
                           className="form-select form-select-sm"
                           value={column.format_type}
@@ -189,13 +224,13 @@ const ColumnManagement: React.FC<ColumnManagementProps> = ({
                         </select>
                       </div>
                       
-                      <div className="col-md-2 text-center">
+                      <div className="col-md-1 text-center">
                         <span className="badge bg-secondary">
                           #{column.display_order + 1}
                         </span>
                       </div>
                       
-                      <div className="col-md-2 text-center">
+                      <div className="col-md-1 text-center">
                         <button
                           type="button"
                           className={`btn btn-sm ${column.is_visible ? 'btn-success' : 'btn-outline-secondary'}`}
@@ -206,7 +241,55 @@ const ColumnManagement: React.FC<ColumnManagementProps> = ({
                         </button>
                       </div>
                       
-                      <div className="col-md-1 text-center">
+                      {/* Sort Controls - FIXED DESIGN */}
+                      <div className="col-md-2">
+                        <div className="d-flex align-items-center gap-1">
+                          {/* Single Sort Button with Direction Indicator */}
+                          <button
+                            type="button"
+                            className={`btn btn-sm ${sortInfo.isSorted ? 'btn-primary' : 'btn-outline-secondary'}`}
+                            onClick={() => {
+                              if (sortInfo.isSorted) {
+                                // If already sorted, cycle through: ASC → DESC → REMOVE
+                                if (sortInfo.direction === SortDirection.ASC) {
+                                  changeSortDirection(column.column_id);
+                                } else {
+                                  toggleColumnSort(column.column_id); // Remove sort
+                                }
+                              } else {
+                                // Add new sort (ASC)
+                                toggleColumnSort(column.column_id);
+                              }
+                            }}
+                            title={
+                              sortInfo.isSorted 
+                                ? (sortInfo.direction === SortDirection.ASC 
+                                    ? 'Click to sort descending' 
+                                    : 'Click to remove sort')
+                                : 'Click to sort ascending'
+                            }
+                          >
+                            {sortInfo.isSorted ? (
+                              sortInfo.direction === SortDirection.ASC ? (
+                                <ArrowUp size={14} />
+                              ) : (
+                                <ArrowDown size={14} />
+                              )
+                            ) : (
+                              '⇅'
+                            )}
+                          </button>
+                          
+                          {/* Sort Order Badge */}
+                          {sortInfo.isSorted && (
+                            <span className="badge bg-info" style={{ fontSize: '0.7rem' }}>
+                              {sortInfo.sortOrder !== undefined ? sortInfo.sortOrder + 1 : ''}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="col-md-2">
                         <small className="text-muted">
                           {column.column_id}
                         </small>
@@ -220,18 +303,63 @@ const ColumnManagement: React.FC<ColumnManagementProps> = ({
         })}
       </div>
 
+      {/* Sorting Summary */}
+      {preferences.sort_config && preferences.sort_config.length > 0 && (
+        <div className="mt-3 p-3 bg-primary bg-opacity-10 rounded">
+          <h6 className="mb-2 text-primary">
+            <i className="bi bi-sort-alpha-down me-2"></i>
+            Sort Configuration
+          </h6>
+          <div className="d-flex flex-wrap gap-2">
+            {preferences.sort_config
+              .sort((a, b) => a.sort_order - b.sort_order)
+              .map((sort, index) => {
+                const column = preferences.columns.find(c => c.column_id === sort.column_id);
+                return (
+                  <span key={sort.column_id} className="badge bg-primary d-flex align-items-center gap-1">
+                    {index + 1}. {column?.display_name || sort.column_id}
+                    {sort.direction === SortDirection.ASC ? (
+                      <ArrowUp size={12} />
+                    ) : (
+                      <ArrowDown size={12} />
+                    )}
+                    <button
+                      type="button"
+                      className="btn-close btn-close-white"
+                      style={{ fontSize: '0.6rem' }}
+                      onClick={() => {
+                        const updatedPreferences = removeColumnSort(preferences, sort.column_id);
+                        updatePreferences(updatedPreferences);
+                      }}
+                      title="Remove sort"
+                    ></button>
+                  </span>
+                );
+              })}
+          </div>
+          <small className="text-muted mt-2 d-block">
+            Results will be sorted by these columns in order. Click the × to remove a sort.
+          </small>
+        </div>
+      )}
+
       {/* Summary */}
       <div className="mt-3 p-3 bg-light rounded">
         <div className="row text-center">
-          <div className="col-6">
+          <div className="col-4">
             <strong>{preferences.columns.filter(c => c.is_visible).length}</strong>
             <br />
             <small className="text-muted">Visible Columns</small>
           </div>
-          <div className="col-6">
+          <div className="col-4">
             <strong>{preferences.columns.length}</strong>
             <br />
             <small className="text-muted">Total Columns</small>
+          </div>
+          <div className="col-4">
+            <strong>{preferences.sort_config?.length || 0}</strong>
+            <br />
+            <small className="text-muted">Sort Columns</small>
           </div>
         </div>
       </div>

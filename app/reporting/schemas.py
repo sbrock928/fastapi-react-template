@@ -23,6 +23,21 @@ class ColumnFormat(str, Enum):
     DATE_DMY = "date_dmy"  # DD/MM/YYYY
 
 
+class SortDirection(str, Enum):
+    """Sort direction options."""
+    ASC = "asc"
+    DESC = "desc"
+
+
+class ColumnSort(BaseModel):
+    """Sort configuration for a column."""
+    column_id: str  # Column to sort by
+    direction: SortDirection = SortDirection.ASC  # Sort direction
+    sort_order: int = 0  # Priority for multi-column sorts (lower = higher priority)
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ColumnPreference(BaseModel):
     """Individual column preference configuration."""
     column_id: str  # Matches calculation_id or static field name
@@ -37,6 +52,7 @@ class ColumnPreference(BaseModel):
 class ReportColumnPreferences(BaseModel):
     """Complete column preferences for a report."""
     columns: List[ColumnPreference] = []
+    sort_config: Optional[List[ColumnSort]] = []  # NEW: Sorting configuration
     
     model_config = ConfigDict(from_attributes=True)
 

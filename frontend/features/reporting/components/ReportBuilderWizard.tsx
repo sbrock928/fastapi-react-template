@@ -224,7 +224,8 @@ const ReportBuilderWizard: React.FC<ReportBuilderWizardProps> = ({
   // Handle select all tranches for a deal
   const handleSelectAllTranches = (dlNbr: number) => {
     const dealTranches = tranches[dlNbr] || [];
-    const allTrancheIds = dealTranches.map(t => t.tr_id);
+    // Normalize tranche IDs to handle database padding
+    const allTrancheIds = dealTranches.map(t => t.tr_id?.trim() || '');
     
     setSelectedTranches((prev: Record<number, string[]>) => ({
       ...prev,

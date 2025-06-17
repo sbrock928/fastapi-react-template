@@ -135,7 +135,6 @@ class ReportExecutionService:
                     else:
                         calc_id = int(calc_id_str)
                 else:
-                    print(f"Warning: Could not extract calc_id from CDI request: {request}")
                     continue
                 
                 result_df = self.cdi_service.execute_cdi_variable_calculation(
@@ -164,11 +163,8 @@ class ReportExecutionService:
                     if cdi_value is not None:
                         cdi_data_by_key[key][field_alias] = cdi_value
                 
-                print(f"CDI calculation {calc_id} ({field_alias}) processed: {len(result_data)} records")
-                
             except Exception as e:
                 # Log error but continue with other calculations
-                print(f"Error executing CDI calculation {getattr(request, 'calc_id', 'unknown')}: {str(e)}")
                 continue
         
         # Convert to the expected format for merging
@@ -192,10 +188,12 @@ class ReportExecutionService:
     def _merge_calculation_results(self, regular_data: List[Dict], cdi_data: List[Dict]) -> List[Dict]:
         """Merge regular calculation results with CDI variable results"""
         
-        # Debug: Print what we're trying to merge
-        print("=== CDI MERGE DEBUG ===")
-        print(f"Regular data sample: {regular_data[0] if regular_data else 'None'}")
-        print(f"CDI data sample: {cdi_data[0] if cdi_data else 'None'}")
+        # Get all unique CDI field names from the CDI data
+        cdi_field_names = set()
+        for record in cdi_data:
+            for field_name in record.keys():
+                if field_name not in ['dl_nbr', 'tr_id', 'cycle_cde', 'variable_name', 'tranche_type']:
+                    cdi_field_names.add(field_name)
         
         # Create a lookup for CDI data by (dl_nbr, tr_id, cycle_cde)
         cdi_lookup = {}
@@ -204,29 +202,23 @@ class ReportExecutionService:
             if key not in cdi_lookup:
                 cdi_lookup[key] = {}
             
-            # FIXED: Use the calculation alias as the key, not the CDI field names
+            # Store all CDI field values
             for field_name, field_value in record.items():
                 if field_name not in ['dl_nbr', 'tr_id', 'cycle_cde', 'variable_name', 'tranche_type']:
-                    # Map CDI fields to their proper display names
-                    # The CDI service returns fields like 'investment_income', but we need the alias
                     cdi_lookup[key][field_name] = field_value
         
-        print(f"CDI lookup keys: {list(cdi_lookup.keys())}")
-        print(f"CDI lookup sample content: {list(cdi_lookup.values())[0] if cdi_lookup else 'None'}")
-        
-        # Merge CDI data into regular data
-        merged_count = 0
+        # Merge CDI data into regular data with defaults
         for record in regular_data:
             key = (record.get('dl_nbr'), record.get('tr_id'), record.get('cycle_cde'))
-            if key in cdi_lookup:
-                # Merge CDI fields into the regular record
-                cdi_fields = cdi_lookup[key]
-                for field_name, field_value in cdi_fields.items():
-                    record[field_name] = field_value
-                    merged_count += 1
-        
-        print(f"Successfully merged {merged_count} CDI field values")
-        print(f"Final merged record sample: {regular_data[0] if regular_data else 'None'}")
+            
+            # For each CDI field, either use the actual value or default to 0.0
+            for field_name in cdi_field_names:
+                if key in cdi_lookup and field_name in cdi_lookup[key]:
+                    # Use actual CDI value
+                    record[field_name] = cdi_lookup[key][field_name]
+                else:
+                    # Use default value of 0.0 for missing CDI mappings
+                    record[field_name] = 0.0
         
         return regular_data
 
@@ -276,7 +268,7 @@ class ReportExecutionService:
                 'total_calculations': len(calculation_requests),
                 'static_fields': len([r for r in regular_requests if r.calc_type == 'static_field']),
                 'user_calculations': len([r for r in regular_requests if r.calc_type == 'user_calculation']),
-                'system_calculations': len([r for r in regular_requests if r.calc_type == 'system_calculation']),
+                'system_calculations': len([r for r in calculation_requests if r.calc_type == 'system_calculation']),  # FIXED: Count ALL system calculations
                 'cdi_calculations': len(cdi_requests),
                 'query_approach': 'unified'
             }

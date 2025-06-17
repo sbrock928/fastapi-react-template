@@ -204,7 +204,7 @@ class CDIVariableCalculationService:
     
     def _execute_tranche_level(self, variable_pattern: str, tranche_mappings: Dict[str, List[str]], 
                              cycle_code: int, deal_numbers: List[int]) -> List[Dict]:
-        """Execute tranche-level CDI variable calculation (EXISTING LOGIC)"""
+        """Execute tranche-level CDI variable calculation with clean trimmed matching"""
         
         all_results = []
         
@@ -224,15 +224,15 @@ class CDIVariableCalculationService:
                 .all()
             )
             
-            # For each CDI variable found, match it with corresponding tranches
+            # For each CDI variable found, match it with corresponding tranches using TRIM
             for cdi_var in cdi_vars:
-                # Find matching tranches for this deal/cycle with the correct tr_id
+                from sqlalchemy import func
                 matching_tranches = (
                     self.dw_db.query(TrancheBal)
                     .filter(
                         TrancheBal.dl_nbr == cdi_var.dl_nbr,
                         TrancheBal.cycle_cde == cdi_var.cycle_cde,
-                        TrancheBal.tr_id.in_(tr_id_list)
+                        func.trim(TrancheBal.tr_id).in_(tr_id_list)  # CLEAN: Always use trimmed matching
                     )
                     .all()
                 )
@@ -241,7 +241,7 @@ class CDIVariableCalculationService:
                 for tranche in matching_tranches:
                     all_results.append({
                         'dl_nbr': cdi_var.dl_nbr,
-                        'tr_id': tranche.tr_id,
+                        'tr_id': tranche.tr_id,  # Keep the original padded tr_id from database
                         'cycle_cde': cdi_var.cycle_cde,
                         'variable_value': cdi_var.numeric_value,
                         'tranche_type': tranche_suffix,
@@ -627,7 +627,7 @@ ORDER BY cdi.dl_nbr"""
         TRIM(cdi.dl_cdi_var_nme) as variable_name,
         '{tranche_suffix}' as tranche_type
     FROM dbo.deal_cdi_var_rpt cdi
-    INNER JOIN dbo.tranche_bal tb ON cdi.dl_nbr = tb.dl_nbr 
+    INNER JOIN dbo.tranchebal tb ON cdi.dl_nbr = tb.dl_nbr 
         AND cdi.cycle_cde = tb.cycle_cde
     WHERE cdi.dl_nbr IN ({', '.join(map(str, deal_numbers))})
         AND cdi.cycle_cde = {cycle_code}

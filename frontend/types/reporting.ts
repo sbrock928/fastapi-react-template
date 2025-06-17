@@ -36,6 +36,19 @@ export enum ColumnFormat {
   DATE_DMY = "date_dmy"   // DD/MM/YYYY
 }
 
+// NEW: Column sorting options
+export enum SortDirection {
+  ASC = "asc",
+  DESC = "desc"
+}
+
+// NEW: Sort configuration for a column
+export interface ColumnSort {
+  column_id: string;      // Column to sort by
+  direction: SortDirection; // Sort direction
+  sort_order: number;     // Priority for multi-column sorts (lower = higher priority)
+}
+
 // NEW: Individual column preference
 export interface ColumnPreference {
   column_id: string;           // Matches calculation_id or static field name
@@ -48,6 +61,7 @@ export interface ColumnPreference {
 // NEW: Complete column preferences for a report
 export interface ReportColumnPreferences {
   columns: ColumnPreference[];
+  sort_config?: ColumnSort[]; // NEW: Sorting configuration
 }
 
 // Updated calculation reference for reports
@@ -357,4 +371,101 @@ export function getCalculationCompatibilityInfo(
   }
   
   return { isCompatible: true };
+}
+
+// NEW: Helper functions for sorting
+export function createColumnSort(
+  columnId: string,
+  direction: SortDirection = SortDirection.ASC,
+  sortOrder: number = 0
+): ColumnSort {
+  return {
+    column_id: columnId,
+    direction,
+    sort_order: sortOrder
+  };
+}
+
+export function getSortDirectionLabel(direction: SortDirection): string {
+  switch (direction) {
+    case SortDirection.ASC:
+      return 'Ascending (A-Z, 1-9)';
+    case SortDirection.DESC:
+      return 'Descending (Z-A, 9-1)';
+    default:
+      return 'Ascending';
+  }
+}
+
+export function addColumnSort(
+  preferences: ReportColumnPreferences,
+  columnId: string,
+  direction: SortDirection = SortDirection.ASC
+): ReportColumnPreferences {
+  const existingSorts = preferences.sort_config || [];
+  const maxSortOrder = existingSorts.length > 0 ? Math.max(...existingSorts.map(s => s.sort_order)) : -1;
+  
+  // Remove existing sort for this column if it exists
+  const filteredSorts = existingSorts.filter(sort => sort.column_id !== columnId);
+  
+  // Add new sort configuration
+  const newSort = createColumnSort(columnId, direction, maxSortOrder + 1);
+  
+  return {
+    ...preferences,
+    sort_config: [...filteredSorts, newSort]
+  };
+}
+
+export function removeColumnSort(
+  preferences: ReportColumnPreferences,
+  columnId: string
+): ReportColumnPreferences {
+  if (!preferences.sort_config) return preferences;
+  
+  const filteredSorts = preferences.sort_config.filter(sort => sort.column_id !== columnId);
+  
+  // Reorder the remaining sorts to maintain sequence
+  const reorderedSorts = filteredSorts
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((sort, index) => ({ ...sort, sort_order: index }));
+  
+  return {
+    ...preferences,
+    sort_config: reorderedSorts
+  };
+}
+
+export function updateColumnSortDirection(
+  preferences: ReportColumnPreferences,
+  columnId: string,
+  direction: SortDirection
+): ReportColumnPreferences {
+  if (!preferences.sort_config) return preferences;
+  
+  const updatedSorts = preferences.sort_config.map(sort =>
+    sort.column_id === columnId ? { ...sort, direction } : sort
+  );
+  
+  return {
+    ...preferences,
+    sort_config: updatedSorts
+  };
+}
+
+export function getColumnSortInfo(
+  preferences: ReportColumnPreferences,
+  columnId: string
+): { isSorted: boolean; direction?: SortDirection; sortOrder?: number } {
+  if (!preferences.sort_config) return { isSorted: false };
+  
+  const sortConfig = preferences.sort_config.find(sort => sort.column_id === columnId);
+  
+  if (!sortConfig) return { isSorted: false };
+  
+  return {
+    isSorted: true,
+    direction: sortConfig.direction,
+    sortOrder: sortConfig.sort_order
+  };
 }

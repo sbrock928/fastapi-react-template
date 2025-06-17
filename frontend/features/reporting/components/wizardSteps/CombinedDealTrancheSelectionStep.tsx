@@ -4,6 +4,16 @@ import reportingApi from '@/services/reportingApi';
 import { useToast } from '@/context/ToastContext';
 import type { Deal, TrancheReportSummary } from '@/types/reporting';
 
+// Utility function to handle tranche ID trimming consistently
+const normalizeTrancheId = (trId: string): string => {
+  return trId?.trim() || '';
+};
+
+// Utility function to check if two tranche IDs match (handling padding)
+const trancheIdsMatch = (trId1: string, trId2: string): boolean => {
+  return normalizeTrancheId(trId1) === normalizeTrancheId(trId2);
+};
+
 interface DealTrancheTreeItem {
   dlNbr: number;
   deal: Deal;
@@ -486,22 +496,28 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
                     {/* Tranche List */}
                     <div className="row">
                       {getFilteredTranches(item.dlNbr, item.tranches).map(tranche => {
-                        const isSelected = (selectedTranches[item.dlNbr] || []).includes(tranche.tr_id);
+                        // Use trimmed comparison to handle database padding
+                        const normalizedTrancheId = normalizeTrancheId(tranche.tr_id);
+                        const selectedTrancheIds = selectedTranches[item.dlNbr] || [];
+                        const isSelected = selectedTrancheIds.some(selectedId => 
+                          trancheIdsMatch(selectedId, tranche.tr_id)
+                        );
+                        
                         return (
-                          <div key={tranche.tr_id} className="col-md-6 col-lg-4 mb-2">
+                          <div key={normalizedTrancheId} className="col-md-6 col-lg-4 mb-2">
                             <div className="form-check">
                               <input
                                 className="form-check-input"
                                 type="checkbox"
-                                id={`tranche-${item.dlNbr}-${tranche.tr_id}`}
+                                id={`tranche-${item.dlNbr}-${normalizedTrancheId}`}
                                 checked={isSelected}
                                 onChange={() => onTrancheToggle(item.dlNbr, tranche.tr_id)}
                               />
                               <label
                                 className="form-check-label"
-                                htmlFor={`tranche-${item.dlNbr}-${tranche.tr_id}`}
+                                htmlFor={`tranche-${item.dlNbr}-${normalizedTrancheId}`}
                               >
-                                {tranche.tr_id}
+                                {normalizedTrancheId}
                               </label>
                             </div>
                           </div>

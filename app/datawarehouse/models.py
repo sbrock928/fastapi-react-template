@@ -144,11 +144,14 @@ class DealCdiVarRpt(Base):
     def numeric_value(self) -> float:
         """
         Convert the variable value to a numeric value.
+        Handles comma-separated numbers like '1,055,732.79'.
         Returns 0.0 if conversion fails.
         """
         try:
-            return float(self.variable_value)
-        except (ValueError, TypeError):
+            # Remove commas and trim whitespace before converting to float
+            clean_value = self.variable_value.replace(',', '').strip()
+            return float(clean_value)
+        except (ValueError, TypeError, AttributeError):
             return 0.0
 
     def matches_pattern(self, pattern: str, tranche_suffix: str) -> bool:

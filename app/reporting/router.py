@@ -42,8 +42,19 @@ def get_report_service(
     dw_dao: DatawarehouseDAO = Depends(get_dw_dao),
     user_calc_service: UserCalculationService = Depends(get_user_calculation_service),
     system_calc_service: SystemCalculationService = Depends(get_system_calculation_service),
-    report_execution_service: ReportExecutionService = Depends(get_report_execution_service)
+    report_execution_service: ReportExecutionService = Depends(get_report_execution_service),
+    cdi_service: CDIVariableCalculationService = Depends(get_cdi_calculation_service)  # ADD CDI SERVICE
 ) -> ReportService:
+    # DEBUG: Check if CDI service is properly initialized
+    print(f"=== ROUTER DEBUG ===")
+    print(f"ReportExecutionService CDI service: {report_execution_service.cdi_service}")
+    print(f"Standalone CDI service: {cdi_service}")
+    
+    # ENSURE CDI service is set on the ReportExecutionService
+    if report_execution_service.cdi_service is None:
+        print("🔧 FIXING: Setting CDI service on ReportExecutionService")
+        report_execution_service.set_cdi_service(cdi_service)
+    
     return ReportService(
         report_dao, 
         dw_dao, 
