@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { reportingApi } from '@/services/api';
 import { useToast } from '@/context/ToastContext';
 import { useReportContext } from '@/context/ReportContext';
-import ExecutionLogsModal from './ExecutionLogsModal';
 import type { ReportConfig } from '@/types';
 
 interface SavedReportsManagerProps {
@@ -11,6 +10,7 @@ interface SavedReportsManagerProps {
   onCreateNew: () => void;
   onReportsUpdated: () => void;
   onEditReport: (report: ReportConfig) => void;
+  onShowExecutionLogs: (reportId: number, reportName: string) => void;
 }
 
 const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
@@ -18,13 +18,13 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
   onReportSelect,
   onCreateNew,
   onReportsUpdated,
-  onEditReport
+  onEditReport,
+  onShowExecutionLogs
 }) => {
   const { showToast } = useToast();
   const { savedReports, loading, refreshReports } = useReportContext();
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
   const [editLoading, setEditLoading] = useState<string | null>(null);
-  const [showExecutionLogs, setShowExecutionLogs] = useState(false);
 
   // Handle edit report (fetch full details and trigger edit mode)
   const handleEditReport = async (reportId: number) => {
@@ -274,22 +274,19 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
             type="button"
             className="btn btn-outline-info w-100"
             disabled={!selectedReportId}
-            onClick={() => setShowExecutionLogs(true)}
+            onClick={() => {
+              if (selectedReportId) {
+                const report = savedReports.find(r => r.id.toString() === selectedReportId);
+                if (report) {
+                  onShowExecutionLogs(report.id, report.name);
+                }
+              }
+            }}
           >
             <i className="bi bi-clock-history"></i> View Execution Logs
           </button>
         </div>
       </div>
-      
-      {/* Execution Logs Modal */}
-      {showExecutionLogs && selectedReportId && (
-        <ExecutionLogsModal
-          reportId={parseInt(selectedReportId)}
-          reportName={savedReports.find(r => r.id.toString() === selectedReportId)?.name || 'Unknown Report'}
-          isOpen={showExecutionLogs}
-          onClose={() => setShowExecutionLogs(false)}
-        />
-      )}
     </div>
   );
 };

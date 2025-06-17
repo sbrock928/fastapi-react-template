@@ -14,15 +14,6 @@ const trancheIdsMatch = (trId1: string, trId2: string): boolean => {
   return normalizeTrancheId(trId1) === normalizeTrancheId(trId2);
 };
 
-interface DealTrancheTreeItem {
-  dlNbr: number;
-  deal: Deal;
-  totalTranches: number;
-  selectedTranches: number;
-  isExpanded: boolean;
-  tranches: TrancheReportSummary[];
-}
-
 interface CombinedDealTrancheSelectionStepProps {
   reportScope: 'DEAL' | 'TRANCHE' | '';
   selectedDeals: number[];
@@ -58,7 +49,11 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
   const [dealSearchResults, setDealSearchResults] = useState<Deal[]>([]);
   const [isSearching, setIsSearching] = useState<boolean>(false);
   
-  // State for tree view management
+  // State for table view management
+  const [trancheFilter, setTrancheFilter] = useState<string>('');
+  const [selectedDealFilter, setSelectedDealFilter] = useState<number | 'all'>('all');
+
+  // State for hybrid card-table view management
   const [expandedDeals, setExpandedDeals] = useState<Set<number>>(new Set());
   const [trancheSearchTerms, setTrancheSearchTerms] = useState<Record<number, string>>({});
 
@@ -124,20 +119,12 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
     return () => clearTimeout(timeoutId);
   }, [searchDeals]);
 
-  // Create tree items from selected deals
-  const treeItems = useMemo<DealTrancheTreeItem[]>(() => {
-    console.log(`🔍 Creating tree items for ${selectedDeals.length} selected deals:`, selectedDeals);
-    console.log(`📊 Tranches data:`, tranches);
-    console.log(`🎯 Selected tranches:`, selectedTranches);
-    
+  // Create hybrid card-table data from selected deals
+  const cardTableData = useMemo(() => {
     return selectedDeals.map(dlNbr => {
       const dealTranches = tranches[dlNbr] || [];
       const selectedTrancheIds = selectedTranches[dlNbr] || [];
-      
-      console.log(`  - Deal ${dlNbr}: ${dealTranches.length} tranches, ${selectedTrancheIds.length} selected`);
-      
-      // First try to get deal info from cache, then from search results, then create placeholder
-      const deal: Deal = dealInfoCache[dlNbr] || 
+      const deal = dealInfoCache[dlNbr] || 
         dealSearchResults.find(d => d.dl_nbr === dlNbr) || {
           dl_nbr: dlNbr,
           issr_cde: 'Loading...',
@@ -145,26 +132,51 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
           CDB_cdi_file_nme: null
         };
 
+      // Filter tranches based on search term for this specific deal
+      const searchTerm = trancheSearchTerms[dlNbr];
+      const filteredTranches = searchTerm?.trim() 
+        ? dealTranches.filter(tranche => 
+            tranche.tr_id.toLowerCase().includes(searchTerm.toLowerCase())
+          )
+        : dealTranches;
+
+      // Sort tranches within the deal
+      const sortedTranches = [...filteredTranches].sort((a, b) => {
+        return a.tr_id.localeCompare(b.tr_id);
+      });
+
       return {
         dlNbr,
         deal,
         totalTranches: dealTranches.length,
+        filteredTranches: sortedTranches,
         selectedTranches: selectedTrancheIds.length,
-        isExpanded: expandedDeals.has(dlNbr),
-        tranches: dealTranches
+        isExpanded: expandedDeals.has(dlNbr)
       };
     });
-  }, [selectedDeals, tranches, selectedTranches, expandedDeals, dealSearchResults, dealInfoCache]);
+  }, [selectedDeals, tranches, selectedTranches, dealInfoCache, dealSearchResults, expandedDeals, trancheSearchTerms]);
 
-  // DEBUG: Add an effect to log when tranches prop changes
-  useEffect(() => {
-    console.log(`🔄 Tranches prop updated:`, tranches);
-  }, [tranches]);
+  // Get summary statistics
+  const summaryStats = useMemo(() => {
+    const totalTranches = cardTableData.reduce((sum, row) => sum + row.totalTranches, 0);
+    const selectedCount = cardTableData.reduce((sum, row) => sum + row.selectedTranches, 0);
+    const dealCount = cardTableData.length;
 
-  // DEBUG: Add an effect to log when selectedTranches prop changes  
-  useEffect(() => {
-    console.log(`🎯 SelectedTranches prop updated:`, selectedTranches);
-  }, [selectedTranches]);
+    return {
+      totalTranches,
+      selectedCount,
+      dealCount
+    };
+  }, [cardTableData]);
+
+  // Handle deal-specific bulk operations
+  const handleSelectAllForDeal = (dlNbr: number) => {
+    onSelectAllTranches(dlNbr);
+  };
+
+  const handleDeselectAllForDeal = (dlNbr: number) => {
+    onDeselectAllTranches(dlNbr);
+  };
 
   // Update deal info cache when search results change
   useEffect(() => {
@@ -230,17 +242,10 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
   // Handle deal removal
   const handleRemoveDeal = (dlNbr: number) => {
     onDealRemove(dlNbr);
-    // Clean up expanded state and tranche search
-    setExpandedDeals(prev => {
-      const newSet = new Set(prev);
-      newSet.delete(dlNbr);
-      return newSet;
-    });
-    setTrancheSearchTerms(prev => {
-      const newTerms = { ...prev };
-      delete newTerms[dlNbr];
-      return newTerms;
-    });
+    // Reset filters if removing the currently filtered deal
+    if (selectedDealFilter === dlNbr) {
+      setSelectedDealFilter('all');
+    }
   };
 
   // Handle tree expansion toggle
@@ -254,25 +259,6 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
       }
       return newSet;
     });
-  };
-
-  // Filter tranches for a deal based on search term
-  const getFilteredTranches = (dlNbr: number, tranches: TrancheReportSummary[]) => {
-    const searchTerm = trancheSearchTerms[dlNbr];
-    if (!searchTerm?.trim()) return tranches;
-    
-    const searchLower = searchTerm.toLowerCase();
-    return tranches.filter(tranche => 
-      tranche.tr_id.toLowerCase().includes(searchLower)
-    );
-  };
-
-  // Handle tranche search term change
-  const handleTrancheSearchChange = (dlNbr: number, searchTerm: string) => {
-    setTrancheSearchTerms(prev => ({
-      ...prev,
-      [dlNbr]: searchTerm
-    }));
   };
 
   // Check if any deals/tranches are selected
@@ -306,7 +292,7 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
 
       {/* Deal Search Section */}
       <div className="card mb-4">
-        <div className="card-header">
+        <div className="card-header" style={{ backgroundColor: '#93186c', color: 'white' }}>
           <h6 className="mb-0">Add Deals to Report</h6>
         </div>
         <div className="card-body">
@@ -409,134 +395,204 @@ const CombinedDealTrancheSelectionStep: React.FC<CombinedDealTrancheSelectionSte
         </div>
       </div>
 
-      {/* Selected Deals Tree View */}
+      {/* Selected Deals Hybrid Card-Table View */}
       {hasSelections && (
         <div className="card">
-          <div className="card-header">
+          <div className="card-header" style={{ backgroundColor: '#93186c', color: 'white' }}>
             <h6 className="mb-0">Selected Deals ({selectedDeals.length})</h6>
           </div>
           <div className="card-body">
-            {treeItems.map(item => (
-              <div key={item.dlNbr} className="border rounded mb-3 p-3">
-                {/* Deal Header */}
-                <div className="d-flex justify-content-between align-items-center">
-                  <div className="d-flex align-items-center">
+            {/* Filter and Sort Controls */}
+            <div className="row g-3 mb-3">
+              {/* Tranche Search */}
+              <div className="col-md-6">
+                <div className="input-group input-group-sm">
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="Search tranches by tr_id..."
+                    value={trancheFilter}
+                    onChange={(e) => setTrancheFilter(e.target.value)}
+                  />
+                  {trancheFilter && (
                     <button
-                      className="btn btn-sm btn-outline-secondary me-2"
-                      onClick={() => toggleExpansion(item.dlNbr)}
+                      className="btn btn-outline-secondary"
+                      type="button"
+                      onClick={() => setTrancheFilter('')}
+                      title="Clear search"
                     >
-                      <i className={`bi bi-chevron-${item.isExpanded ? 'down' : 'right'}`}></i>
+                      <i className="bi bi-x"></i>
                     </button>
-                    <div>
-                      <strong>Deal {item.dlNbr}</strong>
-                      <span className="badge bg-primary ms-2">
-                        {item.selectedTranches}/{item.totalTranches} tranches selected
-                      </span>
-                      <br />
-                      <small className="text-muted">
-                        {item.deal.issr_cde} | {item.deal.cdi_file_nme}
-                      </small>
+                  )}
+                </div>
+              </div>
+              
+              {/* Deal Filter */}
+              <div className="col-md-6">
+                <select
+                  className="form-select form-select-sm"
+                  value={selectedDealFilter}
+                  onChange={(e) => setSelectedDealFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                >
+                  <option value="all">All Deals</option>
+                  {selectedDeals.map(dlNbr => (
+                    <option key={dlNbr} value={dlNbr}>Deal {dlNbr}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Tranche Card-Table */}
+            <div className="row g-3">
+              {cardTableData.length === 0 && (
+                <div className="col-12 text-center text-muted py-3">
+                  No deals match your search criteria.
+                </div>
+              )}
+              {cardTableData.map(row => (
+                <div key={row.dlNbr} className="card mb-3">
+                  <div className="card-header bg-light">
+                    <div className="d-flex justify-content-between align-items-center">
+                      <div>
+                        <h6 className="mb-0">Deal {row.dlNbr}</h6>
+                        <span className="badge bg-primary ms-2">
+                          {row.selectedTranches}/{row.totalTranches} tranches selected
+                        </span>
+                      </div>
+                      <button
+                        className="btn btn-sm btn-outline-secondary"
+                        onClick={() => toggleExpansion(row.dlNbr)}
+                      >
+                        <i className={`bi bi-chevron-${row.isExpanded ? 'down' : 'right'}`}></i>
+                      </button>
                     </div>
                   </div>
-                  <button
-                    className="btn btn-sm btn-outline-danger"
-                    onClick={() => handleRemoveDeal(item.dlNbr)}
-                    title="Remove deal from report"
-                  >
-                    <i className="bi bi-trash"></i>
-                  </button>
-                </div>
-
-                {/* Expanded Tranche Selection */}
-                {item.isExpanded && (
-                  <div className="mt-3 ps-4">
-                    <div className="row g-3 mb-3">
-                      {/* Tranche Search */}
-                      <div className="col-md-6">
-                        <div className="input-group input-group-sm">
-                          <input
-                            type="text"
-                            className="form-control"
-                            placeholder="Search tranches by tr_id..."
-                            value={trancheSearchTerms[item.dlNbr] || ''}
-                            onChange={(e) => handleTrancheSearchChange(item.dlNbr, e.target.value)}
-                          />
-                          {trancheSearchTerms[item.dlNbr] && (
-                            <button
-                              className="btn btn-outline-secondary"
-                              type="button"
-                              onClick={() => handleTrancheSearchChange(item.dlNbr, '')}
-                              title="Clear search"
-                            >
-                              <i className="bi bi-x"></i>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      
-                      {/* Bulk Actions */}
-                      <div className="col-md-6">
-                        <div className="btn-group" role="group">
-                          <button
-                            className="btn btn-sm btn-outline-primary"
-                            onClick={() => onSelectAllTranches(item.dlNbr)}
-                          >
-                            Select All
-                          </button>
-                          <button
-                            className="btn btn-sm btn-outline-secondary"
-                            onClick={() => onDeselectAllTranches(item.dlNbr)}
-                          >
-                            Deselect All
-                          </button>
-                        </div>
-                      </div>
+                  <div className="card-body">
+                    {/* Deal details */}
+                    <div className="text-muted mb-2">
+                      {row.deal.issr_cde} | {row.deal.cdi_file_nme}
+                      {row.deal.CDB_cdi_file_nme && ` | ${row.deal.CDB_cdi_file_nme}`}
                     </div>
 
-                    {/* Tranche List */}
-                    <div className="row">
-                      {getFilteredTranches(item.dlNbr, item.tranches).map(tranche => {
-                        // Use trimmed comparison to handle database padding
-                        const normalizedTrancheId = normalizeTrancheId(tranche.tr_id);
-                        const selectedTrancheIds = selectedTranches[item.dlNbr] || [];
-                        const isSelected = selectedTrancheIds.some(selectedId => 
-                          trancheIdsMatch(selectedId, tranche.tr_id)
-                        );
-                        
-                        return (
-                          <div key={normalizedTrancheId} className="col-md-6 col-lg-4 mb-2">
-                            <div className="form-check">
+                    {/* Expanded tranche selection */}
+                    {row.isExpanded && (
+                      <>
+                        {/* Tranche search and bulk actions */}
+                        <div className="row g-3 mb-3">
+                          <div className="col-md-6">
+                            <div className="input-group input-group-sm">
                               <input
-                                className="form-check-input"
-                                type="checkbox"
-                                id={`tranche-${item.dlNbr}-${normalizedTrancheId}`}
-                                checked={isSelected}
-                                onChange={() => onTrancheToggle(item.dlNbr, tranche.tr_id)}
+                                type="text"
+                                className="form-control"
+                                placeholder="Search tranches..."
+                                value={trancheSearchTerms[row.dlNbr] || ''}
+                                onChange={(e) => setTrancheSearchTerms(prev => ({
+                                  ...prev,
+                                  [row.dlNbr]: e.target.value
+                                }))}
                               />
-                              <label
-                                className="form-check-label"
-                                htmlFor={`tranche-${item.dlNbr}-${normalizedTrancheId}`}
-                              >
-                                {normalizedTrancheId}
-                              </label>
+                              {trancheSearchTerms[row.dlNbr] && (
+                                <button
+                                  className="btn btn-outline-secondary"
+                                  type="button"
+                                  onClick={() => setTrancheSearchTerms(prev => ({
+                                    ...prev,
+                                    [row.dlNbr]: ''
+                                  }))}
+                                  title="Clear search"
+                                >
+                                  <i className="bi bi-x"></i>
+                                </button>
+                              )}
                             </div>
                           </div>
-                        );
-                      })}
-                    </div>
+                          
+                          {/* Bulk Actions for this deal */}
+                          <div className="col-md-6">
+                            <div className="btn-group" role="group">
+                              <button
+                                className="btn btn-sm btn-outline-primary"
+                                onClick={() => handleSelectAllForDeal(row.dlNbr)}
+                              >
+                                Select All
+                              </button>
+                              <button
+                                className="btn btn-sm btn-outline-secondary"
+                                onClick={() => handleDeselectAllForDeal(row.dlNbr)}
+                              >
+                                Deselect All
+                              </button>
+                              <button
+                                className="btn btn-sm btn-outline-danger"
+                                onClick={() => handleRemoveDeal(row.dlNbr)}
+                                title="Remove deal from report"
+                              >
+                                <i className="bi bi-trash"></i>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
 
-                    {getFilteredTranches(item.dlNbr, item.tranches).length === 0 && (
-                      <div className="text-muted text-center py-3">
-                        {trancheSearchTerms[item.dlNbr] 
-                          ? 'No tranches match your search'
-                          : 'No tranches available for this deal'
-                        }
-                      </div>
+                        {/* Tranche Table */}
+                        <div className="table-responsive">
+                          <table className="table table-sm table-striped">
+                            <thead>
+                              <tr>
+                                <th style={{ width: '60px' }}>Select</th>
+                                <th>Tranche ID</th>
+                                <th>CUSIP</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {row.filteredTranches.length === 0 && (
+                                <tr>
+                                  <td colSpan={3} className="text-center text-muted py-3">
+                                    {trancheSearchTerms[row.dlNbr] 
+                                      ? 'No tranches match your search'
+                                      : 'No tranches available for this deal'
+                                    }
+                                  </td>
+                                </tr>
+                              )}
+                              {row.filteredTranches.map(tranche => {
+                                const selectedTrancheIds = selectedTranches[row.dlNbr] || [];
+                                const isSelected = selectedTrancheIds.some(selectedId => 
+                                  trancheIdsMatch(selectedId, tranche.tr_id)
+                                );
+
+                                return (
+                                  <tr key={`${row.dlNbr}-${tranche.tr_id}`} className={isSelected ? 'table-active' : ''}>
+                                    <td className="text-center">
+                                      <input
+                                        type="checkbox"
+                                        className="form-check-input"
+                                        checked={isSelected}
+                                        onChange={() => onTrancheToggle(row.dlNbr, tranche.tr_id)}
+                                      />
+                                    </td>
+                                    <td>{normalizeTrancheId(tranche.tr_id)}</td>
+                                    <td>{tranche.tr_cusip_id || '-'}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
                     )}
                   </div>
-                )}
-              </div>
-            ))}
+                </div>
+              ))}
+            </div>
+
+            {/* Summary Stats */}
+            <div className="mt-3">
+              <strong>Summary:</strong> {summaryStats.dealCount} deals, {summaryStats.totalTranches} tranches total. 
+              <br />
+              <small className="text-muted">
+                {summaryStats.selectedCount} tranches selected.
+              </small>
+            </div>
           </div>
         </div>
       )}

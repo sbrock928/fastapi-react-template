@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { reportingApi } from '@/services/api';
 import { useToast } from '@/context/ToastContext';
+import useModal from '@/hooks/useModal';
 import type { ReportExecutionLog } from '@/types/reporting';
+import styles from '@/styles/components/ExecutionLogsModal.module.css';
 
 interface ExecutionLogsModalProps {
   reportId: number;
@@ -19,12 +21,34 @@ const ExecutionLogsModal: React.FC<ExecutionLogsModalProps> = ({
   const [logs, setLogs] = useState<ReportExecutionLog[]>([]);
   const [loading, setLoading] = useState(false);
   const { showToast } = useToast();
+  const modalMounted = useRef(false);
+  const { modalRef, closeModal } = useModal(isOpen, onClose);
+
+  // Mark when modal is mounted
+  useEffect(() => {
+    modalMounted.current = true;
+    return () => {
+      modalMounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (isOpen && reportId) {
       fetchExecutionLogs();
     }
   }, [isOpen, reportId]);
+
+  // Handle modal container click to isolate its event bubble
+  const handleModalClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+  }, []);
+
+  // Handle manual close of the modal
+  const handleClose = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    closeModal();
+  }, [closeModal]);
 
   const fetchExecutionLogs = async () => {
     setLoading(true);
@@ -49,20 +73,34 @@ const ExecutionLogsModal: React.FC<ExecutionLogsModalProps> = ({
     return `${(milliseconds / 1000).toFixed(2)}s`;
   };
 
-  if (!isOpen) return null;
+  if (!reportId) return null;
 
   return (
-    <div className="modal fade show d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-      <div className="modal-dialog modal-xl">
-        <div className="modal-content">
-          <div className="modal-header">
-            <h5 className="modal-title">
+    <div 
+      className={`modal fade ${styles.modal}`}
+      tabIndex={-1}
+      aria-labelledby="executionLogsModalLabel"
+      aria-hidden="true"
+      ref={modalRef}
+      onClick={handleModalClick}
+      data-bs-backdrop="static"
+      data-bs-keyboard="false"
+    >
+      <div className={`modal-dialog modal-xl ${styles.modalDialog}`}>
+        <div className={`modal-content ${styles.modalContent}`}>
+          <div className={`modal-header ${styles.modalHeader}`}>
+            <h5 className="modal-title" id="executionLogsModalLabel">
               <i className="bi bi-clock-history me-2"></i>
               Execution Logs - {reportName}
             </h5>
-            <button type="button" className="btn-close" onClick={onClose}></button>
+            <button 
+              type="button" 
+              className={`btn-close ${styles.closeButton}`}
+              onClick={handleClose}
+              aria-label="Close"
+            ></button>
           </div>
-          <div className="modal-body">
+          <div className={`modal-body ${styles.modalBody}`}>
             {loading ? (
               <div className="text-center py-4">
                 <div className="spinner-border text-primary" role="status">
@@ -76,7 +114,7 @@ const ExecutionLogsModal: React.FC<ExecutionLogsModalProps> = ({
                 No execution logs found for this report. Run the report to see execution history.
               </div>
             ) : (
-              <div className="table-responsive">
+              <div className={`table-responsive ${styles.tableContainer}`}>
                 <table className="table table-striped table-hover">
                   <thead className="table-dark">
                     <tr>
@@ -136,12 +174,12 @@ const ExecutionLogsModal: React.FC<ExecutionLogsModalProps> = ({
             )}
           </div>
           <div className="modal-footer">
-            <button type="button" className="btn btn-secondary" onClick={onClose}>
+            <button type="button" className="btn btn-secondary" onClick={handleClose}>
               Close
             </button>
             <button 
               type="button" 
-              className="btn btn-primary" 
+              className={`btn btn-primary ${styles.refreshButton}`}
               onClick={fetchExecutionLogs}
               disabled={loading}
             >

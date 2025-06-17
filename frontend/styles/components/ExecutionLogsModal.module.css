@@ -1,0 +1,46 @@
+/* Modal styles */
+.modal {
+  backdrop-filter: blur(4px);
+}
+
+.modalHeader {
+  background-color: #93186c !important;
+  color: white;
+  border-bottom: none;
+}
+
+.modalDialog {
+  max-width: 1200px;
+}
+
+.modalContent {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.modalBody {
+  padding: 1.5rem;
+}
+
+.closeButton {
+  color: white;
+  opacity: 0.8;
+}
+
+.closeButton:hover {
+  opacity: 1;
+}
+
+/* Table styles */
+.tableContainer {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.refreshButton {
+  transition: all 0.2s ease;
+}
+
+.refreshButton:disabled {
+  opacity: 0.6;
+}
