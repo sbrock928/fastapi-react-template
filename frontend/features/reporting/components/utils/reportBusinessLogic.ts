@@ -248,7 +248,7 @@ export const validateCalculationCompatibility = (
   calc: AvailableCalculation,
   reportScope: 'DEAL' | 'TRANCHE'
 ): { isCompatible: boolean; reason?: string } => {
-  // Deal-level reports
+  // Deal-level reports - only allow deal-level calculations
   if (reportScope === 'DEAL') {
     if (calc.calculation_type === 'STATIC_FIELD' && calc.group_level === 'tranche') {
       return {
@@ -265,14 +265,12 @@ export const validateCalculationCompatibility = (
     }
   }
   
-  // Tranche-level reports
+  // Tranche-level reports - allow BOTH deal and tranche level calculations
   if (reportScope === 'TRANCHE') {
-    if (calc.group_level === 'deal' && calc.calculation_type !== 'STATIC_FIELD') {
-      return {
-        isCompatible: false,
-        reason: 'Deal-level calculations are designed for deal-level aggregation only'
-      };
-    }
+    // CHANGED: Allow deal-level calculations in tranche reports
+    // Deal-level static fields, CDI variables, and system SQL are all compatible
+    // They will be repeated across tranches within each deal
+    return { isCompatible: true };
   }
   
   return { isCompatible: true };

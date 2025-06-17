@@ -63,6 +63,7 @@ class CDIVariableUpdate(BaseModel):
     description: Optional[str] = Field(None, max_length=500)
     variable_pattern: Optional[str] = Field(None)
     result_column_name: Optional[str] = Field(None, pattern=r"^[a-zA-Z][a-zA-Z0-9_]*$")
+    group_level: Optional[str] = Field(None, description="Calculation level: 'deal' or 'tranche'")
     tranche_mappings: Optional[Dict[str, List[str]]] = Field(None)
     
     @field_validator("variable_pattern")
@@ -72,9 +73,18 @@ class CDIVariableUpdate(BaseModel):
         if v is not None:
             if not v.strip():
                 raise ValueError("variable_pattern cannot be empty")
-            if "{tranche_suffix}" not in v:
-                raise ValueError("variable_pattern must contain '{tranche_suffix}' placeholder")
+            # Note: We can't validate tranche_suffix requirement here because
+            # we don't have access to group_level in field validation
+            # This validation will be done at the service layer
             return v.strip()
+        return v
+    
+    @field_validator("group_level")
+    @classmethod
+    def validate_group_level(cls, v):
+        """Validate group level if provided"""
+        if v is not None and v not in ['deal', 'tranche']:
+            raise ValueError("group_level must be 'deal' or 'tranche'")
         return v
 
 
