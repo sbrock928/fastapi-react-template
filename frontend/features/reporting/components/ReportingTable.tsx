@@ -227,29 +227,62 @@ const ReportingTable: React.FC<ReportingTableProps> = ({
         </div>
       </div>
       <div className="card-body">
-        {/* Search bar for filtering report results - disabled in skeleton mode */}
+        {/* Search bar and rows per page selector */}
         <div className="mb-3">
-          <div className="input-group">
-            <span className="input-group-text"><i className="bi bi-search"></i></span>
-            <input 
-              type="text" 
-              id="reportFilterInput" 
-              className={`form-control ${styles.filterInput}`} 
-              placeholder="Filter results..."
-              value={filterText}
-              onChange={filterReportData}
-              disabled={isSkeletonMode}
-            />
-            {filterText && (
-              <button 
-                className="btn btn-outline-secondary" 
-                type="button"
-                onClick={clearFilter}
-                title="Clear filter"
-              >
-                <i className="bi bi-x"></i>
-              </button>
-            )}
+          <div className="row g-2">
+            <div className="col-md-8">
+              <div className="input-group">
+                <span className="input-group-text"><i className="bi bi-search"></i></span>
+                <input 
+                  type="text" 
+                  id="reportFilterInput" 
+                  className={`form-control ${styles.filterInput}`} 
+                  placeholder="Filter results..."
+                  value={filterText}
+                  onChange={filterReportData}
+                  disabled={isSkeletonMode}
+                />
+                {filterText && (
+                  <button 
+                    className="btn btn-outline-secondary" 
+                    type="button"
+                    onClick={clearFilter}
+                    title="Clear filter"
+                  >
+                    <i className="bi bi-x"></i>
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="col-md-4">
+              <div className="d-flex align-items-center">
+                <label htmlFor="rowsPerPageSelect" className="form-label me-2 mb-0 text-nowrap">
+                  Rows per page:
+                </label>
+                <select 
+                  id="rowsPerPageSelect"
+                  className="form-select"
+                  value={pagination.itemsPerPage}
+                  onChange={(e) => {
+                    const newItemsPerPage = parseInt(e.target.value);
+                    pagination.setItemsPerPage(newItemsPerPage);
+                    // Reset to first page on items per page change
+                    pagination.goToFirstPage();
+                  }}
+                  disabled={isSkeletonMode}
+                >
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={250}>250</option>
+                  <option value={500}>500</option>
+                  <option value={1000}>1000</option>
+                  <option value={filteredReportData.length || reportData.length}>All ({filteredReportData.length || reportData.length})</option>
+                </select>
+              </div>
+            </div>
           </div>
         </div>
         
