@@ -1,7 +1,7 @@
 // frontend/features/calculations/CalculationBuilder.tsx
 // Main component for managing both user and system calculations
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useToast } from '@/context/ToastContext';
 import { useModal } from '@/context/ModalContext';
 import { calculationsApi } from '@/services/calculationsApi';
@@ -15,7 +15,7 @@ import FilterSection from './components/FilterSection';
 import CalculationCard from './components/CalculationCard';
 import CalculationModal from './components/CalculationModal';
 import SystemCalculationsTab from './components/SystemCalculationsTab';
-import CDIVariablesTab from './components/CDIVariablesTab';
+import CDIVariablesTab, { CDIVariablesTabRef } from './components/CDIVariablesTab';
 import UsageModal from './components/UsageModal';
 
 type CalculationTab = 'user-defined' | 'system-defined' | 'cdi-variables';
@@ -86,9 +86,16 @@ const CalculationBuilder: React.FC = () => {
     fetchCalculationConfig();
   }, []);
 
-  // Set up the callback for CDI variable saves
+  // Set up the callback for CDI variable saves - FIXED to refresh both unified data and CDI tab
   useEffect(() => {
-    setOnCDIVariableSaved(() => refetchCalculations);
+    setOnCDIVariableSaved(() => {
+      // Refresh the unified calculations data (for tab badges)
+      refetchCalculations();
+      // Also refresh the CDI Variables tab's own data
+      if (cdiVariablesTabRef.current?.refreshCDIVariables) {
+        cdiVariablesTabRef.current.refreshCDIVariables();
+      }
+    });
   }, [setOnCDIVariableSaved, refetchCalculations]);
 
   // Tab switching with unsaved changes protection
@@ -374,6 +381,9 @@ const CalculationBuilder: React.FC = () => {
     openCDIModal(variable);
   };
 
+  // Add ref for CDIVariablesTab to access its refresh function
+  const cdiVariablesTabRef = useRef<CDIVariablesTabRef | null>(null);
+
   return (
     <div className="container-fluid">
       {/* Header */}
@@ -568,6 +578,7 @@ const CalculationBuilder: React.FC = () => {
                 {/* CDI Variables Tab */}
                 {activeTab === 'cdi-variables' && (
                   <CDIVariablesTab 
+                    ref={cdiVariablesTabRef}
                     onRefreshNeeded={refetchCalculations}
                     onCreateVariable={handleCreateCDIVariable}
                     onEditVariable={handleEditCDIVariable}

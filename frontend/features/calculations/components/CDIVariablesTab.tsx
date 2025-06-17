@@ -1,7 +1,7 @@
 // frontend/features/calculations/components/CDIVariablesTab.tsx
 // Tab component for managing CDI Variable calculations
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useToast } from '@/context/ToastContext';
 import { cdiVariableApi, calculationsApi } from '@/services/calculationsApi';
 import UsageModal from './UsageModal';
@@ -15,11 +15,16 @@ interface CDIVariablesTabProps {
   onEditVariable?: (variable: CDIVariableResponse) => void;
 }
 
-const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ 
+// Define the ref interface
+export interface CDIVariablesTabRef {
+  refreshCDIVariables: () => void;
+}
+
+const CDIVariablesTab = forwardRef<CDIVariablesTabRef, CDIVariablesTabProps>(({ 
   onRefreshNeeded,
   onCreateVariable,
   onEditVariable
-}) => {
+}, ref) => {
   const { showToast } = useToast();
 
   // State management
@@ -63,6 +68,11 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({
       setLoading(false);
     }
   };
+
+  // Expose the refresh function through the ref
+  useImperativeHandle(ref, () => ({
+    refreshCDIVariables: loadCDIVariables
+  }));
 
   const loadVariableUsage = async () => {
     const usageMap: Record<number, any> = {};
@@ -399,6 +409,6 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({
       />
     </div>
   );
-};
+});
 
 export default CDIVariablesTab;
