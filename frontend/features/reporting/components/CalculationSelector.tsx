@@ -1,6 +1,3 @@
-// frontend/features/reporting/components/CalculationSelector.tsx
-// Updated to work with the new separated calculation system
-
 import React, { useState, useMemo } from 'react';
 import { 
   AvailableCalculation, 
@@ -18,16 +15,13 @@ const getAvailableCalculationDisplayType = (calc: AvailableCalculation): string 
   if (isUserDefinedCalculation(calc)) {
     return `User Defined (${calc.aggregation_function})`;
   } else if (isSystemSqlCalculation(calc)) {
-    // Enhanced CDI variable detection - check multiple indicators for consistency
+    // Enhanced CDI variable detection
     const isCDIVariable = (
-      // Check calculation name/description patterns
       calc.name.toLowerCase().includes('cdi') ||
       calc.description?.toLowerCase().includes('cdi variable') ||
       calc.description?.toLowerCase().includes('cdi calculation') ||
       calc.category?.toLowerCase().includes('cdi') ||
-      // Check if ID suggests CDI variable
       calc.id.toLowerCase().includes('cdi') ||
-      // Check result column patterns that suggest CDI variables
       (calc.name.toLowerCase().includes('investment_income') ||
        calc.name.toLowerCase().includes('excess_interest') ||
        calc.name.toLowerCase().includes('principal_payments') ||
@@ -59,6 +53,8 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [calculationType, setCalculationType] = useState<'all' | 'user' | 'system' | 'static'>('all');
+  const [sortBy, setSortBy] = useState<'name' | 'type' | 'category'>('name');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   // Group calculations by category and type
   const calculationsByCategory = useMemo(() => {
@@ -120,11 +116,10 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
     // Filter out static fields that duplicate default columns
     calculations = calculations.filter(calc => {
       if (isStaticFieldCalculation(calc)) {
-        // These static fields duplicate the default columns, so exclude them
         const duplicateStaticFields = [
-          'static_deal.dl_nbr',      // Duplicates "Deal Number" default column
-          'static_tranche.tr_id',    // Duplicates "Tranche ID" default column  
-          'static_tranchebal.cycle_cde' // Duplicates "Cycle Code" default column
+          'static_deal.dl_nbr',
+          'static_tranche.tr_id',
+          'static_tranchebal.cycle_cde'
         ];
         return !duplicateStaticFields.includes(calc.id);
       }
@@ -136,79 +131,100 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
       const { isCompatible } = getCalculationCompatibilityInfo(calc, scope);
       return isCompatible;
     });
+
     const incompatible = calculations.filter(calc => {
       const { isCompatible } = getCalculationCompatibilityInfo(calc, scope);
       return !isCompatible;
     });
 
-    return { compatibleCalculations: compatible, incompatibleCalculations: incompatible };
-  }, [availableCalculations, selectedCategory, searchTerm, calculationType, scope]);
+    // Sort calculations
+    const sortFunction = (a: AvailableCalculation, b: AvailableCalculation) => {
+      let aValue: string, bValue: string;
+      
+      switch (sortBy) {
+        case 'type':
+          aValue = getAvailableCalculationDisplayType(a);
+          bValue = getAvailableCalculationDisplayType(b);
+          break;
+        case 'category':
+          aValue = a.category;
+          bValue = b.category;
+          break;
+        case 'name':
+        default:
+          aValue = a.name;
+          bValue = b.name;
+          break;
+      }
+      
+      const result = aValue.localeCompare(bValue);
+      return sortDirection === 'desc' ? -result : result;
+    };
 
-  // Check if a calculation is selected - UPDATED for string IDs
+    return { 
+      compatibleCalculations: compatible.sort(sortFunction), 
+      incompatibleCalculations: incompatible.sort(sortFunction) 
+    };
+  }, [availableCalculations, calculationType, selectedCategory, searchTerm, scope, sortBy, sortDirection]);
+
+  // Check if calculation is selected
   const isCalculationSelected = (calc: AvailableCalculation): boolean => {
     return selectedCalculations.some(selected => selected.calculation_id === calc.id);
   };
 
-  // Handle calculation toggle - UPDATED for string IDs
-  const handleCalculationToggle = (availableCalc: AvailableCalculation) => {
-    const isSelected = isCalculationSelected(availableCalc);
-
+  // Handle calculation toggle
+  const handleCalculationToggle = (calc: AvailableCalculation) => {
+    const isSelected = isCalculationSelected(calc);
+    
     if (isSelected) {
       // Remove calculation
-      const updatedCalculations = selectedCalculations.filter(selected => 
-        selected.calculation_id !== availableCalc.id
+      const updatedCalculations = selectedCalculations.filter(
+        selected => selected.calculation_id !== calc.id
       );
       onCalculationsChange(updatedCalculations);
     } else {
       // Check compatibility before adding
-      const { isCompatible, reason } = getCalculationCompatibilityInfo(availableCalc, scope);
+      const { isCompatible, reason } = getCalculationCompatibilityInfo(calc, scope);
       if (!isCompatible && reason) {
-        // Could show a toast message here
         console.warn(`Cannot add incompatible calculation: ${reason}`);
         return;
       }
       
-      // Add calculation using the helper function
-      const newCalculation = createReportCalculation(availableCalc, selectedCalculations.length);
+      // Add calculation
+      const newCalculation = createReportCalculation(calc, selectedCalculations.length);
       onCalculationsChange([...selectedCalculations, newCalculation]);
     }
   };
 
-  // Handle select all with validation and type filtering
-  const handleSelectAllByType = (type: 'user' | 'system' | 'static') => {
-    let targetCalculations: AvailableCalculation[] = [];
-    
-    if (type === 'user') {
-      targetCalculations = userCalculations;
-    } else if (type === 'system') {
-      targetCalculations = systemCalculations;
-    } else if (type === 'static') {
-      targetCalculations = staticFields;
-    }
-
-    // Filter for compatible calculations
-    const compatibleTargets = targetCalculations.filter(calc => {
-      const { isCompatible } = getCalculationCompatibilityInfo(calc, scope);
-      return isCompatible;
-    });
-
-    const newCalculations = compatibleTargets.map((calc, index) => 
-      createReportCalculation(calc, selectedCalculations.length + index)
-    );
+  // Handle bulk selections
+  const handleSelectAllCompatible = () => {
+    const newCalculations = compatibleCalculations
+      .filter(calc => !isCalculationSelected(calc))
+      .map((calc, index) => createReportCalculation(calc, selectedCalculations.length + index));
     
     onCalculationsChange([...selectedCalculations, ...newCalculations]);
   };
 
-  const handleSelectAll = () => {
-    const compatibleCalcs = compatibleCalculations.map((calc, index) => 
-      createReportCalculation(calc, index)
-    );
-    onCalculationsChange(compatibleCalcs);
-  };
-
-  // Handle clear all
   const handleClearAll = () => {
     onCalculationsChange([]);
+  };
+
+  const handleSelectByType = (type: 'user' | 'system' | 'static') => {
+    let targetCalculations: AvailableCalculation[] = [];
+    
+    if (type === 'user') {
+      targetCalculations = compatibleCalculations.filter(calc => isUserDefinedCalculation(calc));
+    } else if (type === 'system') {
+      targetCalculations = compatibleCalculations.filter(calc => isSystemSqlCalculation(calc));
+    } else if (type === 'static') {
+      targetCalculations = compatibleCalculations.filter(calc => isStaticFieldCalculation(calc));
+    }
+
+    const newCalculations = targetCalculations
+      .filter(calc => !isCalculationSelected(calc))
+      .map((calc, index) => createReportCalculation(calc, selectedCalculations.length + index));
+    
+    onCalculationsChange([...selectedCalculations, ...newCalculations]);
   };
 
   if (loading) {
@@ -223,111 +239,144 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
 
   return (
     <div>
-      {/* Header and Controls */}
-      <div className="row mb-3">
+      {/* Header */}
+      <div className="row mb-4">
         <div className="col-md-6">
           <h5>Select Calculations for {scope} Report</h5>
           <p className="text-muted">
-            Choose from user calculations, system calculations, and raw fields to include in your report.
+            Browse and select from {availableCalculations.length} available calculations.
           </p>
         </div>
-        <div className="col-md-6">
-          <div className="d-flex gap-2 justify-content-end flex-wrap">
+        <div className="col-md-6 text-end">
+          <div className="btn-group" role="group">
             <button
               className="btn btn-outline-primary btn-sm"
-              onClick={() => handleSelectAllByType('user')}
+              onClick={() => handleSelectByType('user')}
               disabled={userCalculations.length === 0}
             >
-              <i className="bi bi-person-gear"></i> All User Calcs
+              <i className="bi bi-person-gear me-1"></i>
+              All User ({userCalculations.length})
             </button>
             <button
               className="btn btn-outline-warning btn-sm"
-              onClick={() => handleSelectAllByType('system')}
+              onClick={() => handleSelectByType('system')}
               disabled={systemCalculations.length === 0}
             >
-              <i className="bi bi-code-square"></i> All System Calcs
+              <i className="bi bi-code-square me-1"></i>
+              All System ({systemCalculations.length})
             </button>
             <button
               className="btn btn-outline-info btn-sm"
-              onClick={() => handleSelectAllByType('static')}
+              onClick={() => handleSelectByType('static')}
               disabled={staticFields.length === 0}
             >
-              <i className="bi bi-file-text"></i> All Raw Fields
-            </button>
-            <button
-              className="btn btn-outline-secondary btn-sm"
-              onClick={handleSelectAll}
-              disabled={availableCalculations.length === 0}
-            >
-              Select All
-            </button>
-            <button
-              className="btn btn-outline-danger btn-sm"
-              onClick={handleClearAll}
-              disabled={selectedCalculations.length === 0}
-            >
-              Clear All
+              <i className="bi bi-file-text me-1"></i>
+              All Raw Fields ({staticFields.length})
             </button>
           </div>
         </div>
       </div>
 
-      {/* Search and Filter Controls */}
-      <div className="row mb-3">
-        <div className="col-md-3">
-          <input
-            type="text"
-            className="form-control"
-            placeholder="Search calculations..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-        <div className="col-md-3">
-          <select
-            className="form-select"
-            value={calculationType}
-            onChange={(e) => setCalculationType(e.target.value as 'all' | 'user' | 'system' | 'static')}
-          >
-            <option value="all">All Types</option>
-            <option value="user">User Calculations</option>
-            <option value="system">System Calculations</option>
-            <option value="static">Raw Fields</option>
-          </select>
-        </div>
-        <div className="col-md-3">
-          <select
-            className="form-select"
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-          >
-            <option value="all">All Categories</option>
-            {categories.map(category => (
-              <option key={category} value={category}>{category}</option>
-            ))}
-          </select>
-        </div>
-        <div className="col-md-3">
-          <div className="text-muted small">
-            {compatibleCalculations.length} compatible, {incompatibleCalculations.length} incompatible
+      {/* Filters and Search */}
+      <div className="card mb-4">
+        <div className="card-body">
+          <div className="row g-3">
+            <div className="col-md-3">
+              <label className="form-label">Search</label>
+              <input
+                type="text"
+                className="form-control"
+                placeholder="Search calculations..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            <div className="col-md-2">
+              <label className="form-label">Type</label>
+              <select
+                className="form-select"
+                value={calculationType}
+                onChange={(e) => setCalculationType(e.target.value as 'all' | 'user' | 'system' | 'static')}
+              >
+                <option value="all">All Types</option>
+                <option value="user">User Calculations</option>
+                <option value="system">System Calculations</option>
+                <option value="static">Raw Fields</option>
+              </select>
+            </div>
+            <div className="col-md-2">
+              <label className="form-label">Category</label>
+              <select
+                className="form-select"
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+              >
+                <option value="all">All Categories</option>
+                {categories.map(category => (
+                  <option key={category} value={category}>{category}</option>
+                ))}
+              </select>
+            </div>
+            <div className="col-md-2">
+              <label className="form-label">Sort By</label>
+              <select
+                className="form-select"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as 'name' | 'type' | 'category')}
+              >
+                <option value="name">Name</option>
+                <option value="type">Type</option>
+                <option value="category">Category</option>
+              </select>
+            </div>
+            <div className="col-md-1">
+              <label className="form-label">Order</label>
+              <button
+                className="btn btn-outline-secondary w-100"
+                onClick={() => setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')}
+              >
+                <i className={`bi bi-sort-${sortDirection === 'asc' ? 'down' : 'up'}`}></i>
+              </button>
+            </div>
+            <div className="col-md-2">
+              <label className="form-label">Actions</label>
+              <div className="btn-group w-100">
+                <button
+                  className="btn btn-success btn-sm"
+                  onClick={handleSelectAllCompatible}
+                  disabled={compatibleCalculations.length === 0}
+                >
+                  Select All
+                </button>
+                <button
+                  className="btn btn-danger btn-sm"
+                  onClick={handleClearAll}
+                  disabled={selectedCalculations.length === 0}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Summary Information */}
+      {/* Summary */}
       <div className="row mb-3">
         <div className="col-12">
-          <div className="d-flex gap-3 text-muted small flex-wrap">
-            <span>Total Available: {availableCalculations.length}</span>
-            <span>User Calculations: {userCalculations.length}</span>
-            <span>System Calculations: {systemCalculations.length}</span>
-            <span>Raw Fields: {staticFields.length}</span>
-            <span className="fw-bold text-primary">Currently Selected: {selectedCalculations.length}</span>
+          <div className="d-flex justify-content-between align-items-center">
+            <small className="text-muted">
+              Showing {compatibleCalculations.length + incompatibleCalculations.length} calculations
+              ({compatibleCalculations.length} compatible, {incompatibleCalculations.length} incompatible)
+            </small>
+            <span className="badge bg-primary">
+              {selectedCalculations.length} Selected
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Selected Calculations Summary - UPDATED for new string format */}
+      {/* Selected Calculations */}
       {selectedCalculations.length > 0 && (
         <div className="alert alert-info mb-3">
           <strong>Selected Calculations ({selectedCalculations.length}):</strong>
@@ -336,7 +385,6 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
               const availableCalc = availableCalculations.find(ac => ac.id === calc.calculation_id);
               const displayName = calc.display_name || availableCalc?.name || `Calculation ${calc.calculation_id}`;
               
-              // Use the helper function for consistent badge display
               let badgeClass = 'bg-secondary';
               let icon = 'bi-question-circle';
               if (availableCalc) {
@@ -379,77 +427,76 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
         </div>
       )}
 
-      {/* Enhanced scope compatibility warnings */}
-      {scope === 'DEAL' && incompatibleCalculations.length > 0 && (
-        <div className="alert alert-warning mb-3">
-          <i className="bi bi-exclamation-triangle me-2"></i>
-          <strong>Deal-Level Report Compatibility:</strong> Some calculations are not compatible with deal-level reports 
-          because they would create multiple rows per deal. These have been marked as incompatible below.
-          <details className="mt-2">
-            <summary>Why are some calculations incompatible?</summary>
-            <ul className="mt-2 mb-0">
-              <li><strong>Raw Tranche/TrancheBal fields:</strong> Would show individual tranche data, creating multiple rows per deal</li>
-              <li><strong>Tranche-level calculations:</strong> Designed to aggregate at tranche level, not deal level</li>
-              <li><strong>Solution:</strong> Use deal-level aggregated calculations instead (SUM, AVG, etc.)</li>
-            </ul>
-          </details>
-        </div>
-      )}
+      {/* Calculations Table */}
+      <div className="card">
+        <div className="card-body p-0">
+          <div className="table-responsive">
+            <table className="table table-hover mb-0">
+              <thead className="table-light">
+                <tr>
+                  <th style={{ width: '40px' }}>
+                    <input
+                      type="checkbox"
+                      className="form-check-input"
+                      checked={compatibleCalculations.length > 0 && compatibleCalculations.every(calc => isCalculationSelected(calc))}
+                      onChange={() => {
+                        const allSelected = compatibleCalculations.every(calc => isCalculationSelected(calc));
+                        if (allSelected) {
+                          handleClearAll();
+                        } else {
+                          handleSelectAllCompatible();
+                        }
+                      }}
+                    />
+                  </th>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Category</th>
+                  <th>Source</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {/* Compatible Calculations */}
+                {compatibleCalculations.map(calc => {
+                  const isSelected = isCalculationSelected(calc);
+                  const displayType = getAvailableCalculationDisplayType(calc);
+                  const isUser = isUserDefinedCalculation(calc);
+                  const isSystem = isSystemSqlCalculation(calc);
+                  const isStatic = isStaticFieldCalculation(calc);
+                  
+                  let typeIcon = 'bi-question-circle';
+                  let typeBadgeClass = 'bg-secondary';
+                  
+                  if (isUser) {
+                    typeIcon = 'bi-person-gear';
+                    typeBadgeClass = 'bg-primary';
+                  } else if (isSystem) {
+                    const isCDIVar = displayType === 'CDI Var';
+                    typeIcon = isCDIVar ? 'bi-database' : 'bi-code-square';
+                    typeBadgeClass = isCDIVar ? 'bg-info text-dark' : 'bg-warning text-dark';
+                  } else if (isStatic) {
+                    typeIcon = 'bi-file-text';
+                    typeBadgeClass = 'bg-info';
+                  }
 
-      {/* Calculation Cards */}
-      <div className="row">
-        {/* Compatible Calculations */}
-        {compatibleCalculations.length === 0 && incompatibleCalculations.length === 0 ? (
-          <div className="col-12">
-            <div className="text-center text-muted p-4">
-              {searchTerm || selectedCategory !== 'all' || calculationType !== 'all'
-                ? 'No calculations match your search criteria.' 
-                : 'No calculations available.'}
-            </div>
-          </div>
-        ) : (
-          <>
-            {compatibleCalculations.map(calc => {
-              const isSelected = isCalculationSelected(calc);
-              const parsed = parseCalculationId(calc.id);
-              const isUser = isUserDefinedCalculation(calc);
-              const isSystem = isSystemSqlCalculation(calc);
-              const isStatic = isStaticFieldCalculation(calc);
-              
-              let calcTypeInfo = { icon: 'bi-question-circle', label: 'Unknown', badgeClass: 'bg-secondary' };
-              if (isUser) {
-                calcTypeInfo = { icon: 'bi-person-gear', label: 'User Calculation', badgeClass: 'bg-primary' };
-              } else if (isSystem) {
-                // Use the helper function to correctly show "CDI Var" for CDI variables
-                const displayType = getAvailableCalculationDisplayType(calc);
-                const isCDIVar = displayType === 'CDI Var';
-                calcTypeInfo = { 
-                  icon: isCDIVar ? 'bi-database' : 'bi-code-square', 
-                  label: displayType, 
-                  badgeClass: isCDIVar ? 'bg-info text-dark' : 'bg-warning text-dark' 
-                };
-              } else if (isStatic) {
-                calcTypeInfo = { icon: 'bi-file-text', label: 'Raw Field', badgeClass: 'bg-info' };
-              }
+                  let sourceDisplay = '';
+                  if (isUser && calc.source_model && calc.source_field) {
+                    sourceDisplay = `${calc.source_model}.${calc.source_field}`;
+                  } else if (isSystem) {
+                    sourceDisplay = 'Custom SQL';
+                  } else if (isStatic) {
+                    const parsed = parseCalculationId(calc.id);
+                    sourceDisplay = parsed.identifier;
+                  }
 
-              return (
-                <div key={calc.id} className="col-md-6 col-lg-4 mb-3">
-                  <div 
-                    className={`card h-100 ${isSelected ? 'border-primary bg-light' : ''}`}
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => handleCalculationToggle(calc)}
-                  >
-                    <div className="card-body">
-                      <div className="d-flex justify-content-between align-items-start mb-2">
-                        <h6 className="card-title mb-0">
-                          <i className={`bi ${calcTypeInfo.icon} me-1`}></i>
-                          {calc.name}
-                          {calc.is_default && (
-                            <span className="badge bg-warning text-dark ms-1" title="Default calculation">
-                              <i className="bi bi-star-fill"></i>
-                            </span>
-                          )}
-                        </h6>
+                  return (
+                    <tr 
+                      key={calc.id} 
+                      className={`${isSelected ? 'table-primary' : ''} cursor-pointer`}
+                      onClick={() => handleCalculationToggle(calc)}
+                    >
+                      <td>
                         <input
                           type="checkbox"
                           className="form-check-input"
@@ -457,167 +504,99 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
                           onChange={() => handleCalculationToggle(calc)}
                           onClick={(e) => e.stopPropagation()}
                         />
-                      </div>
-                      
-                      <div className="text-muted small mb-2">
-                        <span className="badge bg-secondary me-1">{calc.category}</span>
-                        <span className={`badge ${calcTypeInfo.badgeClass}`}>
-                          {calcTypeInfo.label}
+                      </td>
+                      <td>
+                        <strong>{calc.name}</strong>
+                        {calc.is_default && (
+                          <span className="badge bg-warning text-dark ms-1" title="Default calculation">
+                            <i className="bi bi-star-fill"></i>
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <span className={`badge ${typeBadgeClass}`}>
+                          <i className={`bi ${typeIcon} me-1`}></i>
+                          {displayType}
                         </span>
-                        <span className="badge bg-success ms-1">
-                          <i className="bi bi-check-circle me-1"></i>Compatible
-                        </span>
-                      </div>
-                      
-                      {/* Enhanced source information using parsed ID */}
-                      <p className="card-text small text-muted">
-                        {isUser && (
-                          <><strong>Source:</strong> {calc.source_model}.{calc.source_field}</>
-                        )}
-                        {isSystem && (
-                          <><strong>Custom SQL</strong> → {parsed.identifier}</>
-                        )}
-                        {isStatic && (
-                          <><strong>Raw Field:</strong> {parsed.identifier}</>
-                        )}
-                      </p>
-                      
-                      {calc.description && (
-                        <p className="card-text small">
-                          {calc.description}
-                        </p>
-                      )}
-                      
-                      {calc.weight_field && isUser && (
-                        <p className="card-text small text-muted">
-                          <strong>Weight Field:</strong> {calc.weight_field}
-                        </p>
-                      )}
-                      
-                      {/* Type-specific information */}
-                      {isStatic && (
-                        <p className="card-text small text-info">
-                          <i className="bi bi-info-circle me-1"></i>
-                          Shows individual row values without aggregation
-                        </p>
-                      )}
-                      
-                      {isSystem && (
-                        <p className="card-text small text-warning">
-                          <i className="bi bi-code-square me-1"></i>
-                          Advanced custom SQL calculation
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                      </td>
+                      <td>
+                        <span className="badge bg-light text-dark">{calc.category}</span>
+                      </td>
+                      <td>
+                        <small className="text-muted">{sourceDisplay}</small>
+                      </td>
+                      <td>
+                        <small className="text-muted">
+                          {calc.description || 'No description available'}
+                        </small>
+                      </td>
+                    </tr>
+                  );
+                })}
 
-            {/* Incompatible Calculations (shown as disabled) */}
-            {incompatibleCalculations.map(calc => {
-              const { reason } = getCalculationCompatibilityInfo(calc, scope);
-              const parsed = parseCalculationId(calc.id);
-              const isUser = isUserDefinedCalculation(calc);
-              const isSystem = isSystemSqlCalculation(calc);
-              const isStatic = isStaticFieldCalculation(calc);
-              
-              let calcTypeInfo = { icon: 'bi-question-circle', label: 'Unknown' };
-              if (isUser) {
-                calcTypeInfo = { icon: 'bi-person-gear', label: 'User Calculation' };
-              } else if (isSystem) {
-                // Use the helper function to correctly show "CDI Var" for CDI variables
-                const displayType = getAvailableCalculationDisplayType(calc);
-                const isCDIVar = displayType === 'CDI Var';
-                calcTypeInfo = { 
-                  icon: isCDIVar ? 'bi-database' : 'bi-code-square', 
-                  label: displayType
-                };
-              } else if (isStatic) {
-                calcTypeInfo = { icon: 'bi-file-text', label: 'Raw Field' };
-              }
-              
-              return (
-                <div key={`incompatible-${calc.id}`} className="col-md-6 col-lg-4 mb-3">
-                  <div 
-                    className="card h-100 border-warning bg-light"
-                    style={{ opacity: 0.7, cursor: 'not-allowed' }}
-                    title={reason || 'Not compatible with current report scope'}
-                  >
-                    <div className="card-body">
-                      <div className="d-flex justify-content-between align-items-start mb-2">
-                        <h6 className="card-title mb-0 text-muted">
-                          <i className={`bi ${calcTypeInfo.icon} text-muted me-1`}></i>
-                          {calc.name}
-                          <i className="bi bi-exclamation-triangle text-warning ms-1" title="Not compatible"></i>
-                        </h6>
+                {/* Incompatible Calculations (if any) */}
+                {incompatibleCalculations.map(calc => {
+                  const displayType = getAvailableCalculationDisplayType(calc);
+                  const { reason } = getCalculationCompatibilityInfo(calc, scope);
+                  
+                  return (
+                    <tr key={calc.id} className="table-secondary opacity-50">
+                      <td>
                         <input
                           type="checkbox"
                           className="form-check-input"
-                          checked={false}
-                          disabled={true}
+                          disabled
                         />
-                      </div>
-                      
-                      <div className="text-muted small mb-2">
-                        <span className="badge bg-secondary me-1">{calc.category}</span>
-                        <span className="badge bg-light text-dark border">
-                          {calcTypeInfo.label}
+                      </td>
+                      <td>
+                        <span className="text-muted">{calc.name}</span>
+                        <i className="bi bi-exclamation-triangle text-warning ms-1" title="Not compatible"></i>
+                      </td>
+                      <td>
+                        <span className="badge bg-secondary">
+                          {displayType}
                         </span>
-                        <span className="badge bg-warning text-dark ms-1">
-                          <i className="bi bi-exclamation-triangle me-1"></i>Incompatible
-                        </span>
-                      </div>
-                      
-                      <p className="card-text small text-muted">
-                        {isUser && (
-                          <><strong>Source:</strong> {calc.source_model}.{calc.source_field}</>
-                        )}
-                        {isSystem && (
-                          <><strong>Custom SQL</strong></>
-                        )}
-                        {isStatic && (
-                          <><strong>Raw Field:</strong> {parsed.identifier}</>
-                        )}
-                      </p>
-                      
-                      {reason && (
-                        <div className="alert alert-warning small py-2 mb-2">
-                          <i className="bi bi-info-circle me-1"></i>
-                          {reason}
-                        </div>
-                      )}
-                      
-                      {calc.description && (
-                        <p className="card-text small text-muted">
-                          {calc.description}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </>
-        )}
-      </div>
+                      </td>
+                      <td>
+                        <span className="badge bg-light text-muted">{calc.category}</span>
+                      </td>
+                      <td>
+                        <small className="text-muted">
+                          {calc.source_model && calc.source_field ? `${calc.source_model}.${calc.source_field}` : 'Custom SQL'}
+                        </small>
+                      </td>
+                      <td>
+                        <small className="text-warning">
+                          {reason || 'Not compatible with current report scope'}
+                        </small>
+                      </td>
+                    </tr>
+                  );
+                })}
 
-      {/* Footer Summary */}
-      <div className="row mt-3">
-        <div className="col-12">
-          <small className="text-muted">
-            Showing {compatibleCalculations.length} compatible + {incompatibleCalculations.length} incompatible 
-            of {availableCalculations.length} total calculations. 
-            {selectedCalculations.length > 0 && ` ${selectedCalculations.length} selected.`}
-          </small>
-          {scope === 'DEAL' && incompatibleCalculations.length > 0 && (
-            <div className="small text-warning mt-1">
-              <i className="bi bi-exclamation-triangle me-1"></i>
-              {incompatibleCalculations.length} calculation(s) are incompatible with deal-level reports and are shown as disabled.
-            </div>
-          )}
+                {(compatibleCalculations.length === 0 && incompatibleCalculations.length === 0) && (
+                  <tr>
+                    <td colSpan={6} className="text-center text-muted p-4">
+                      {searchTerm || selectedCategory !== 'all' || calculationType !== 'all'
+                        ? 'No calculations match your search criteria.' 
+                        : 'No calculations available.'}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
+
+      {/* Incompatible calculations warning */}
+      {scope === 'DEAL' && incompatibleCalculations.length > 0 && (
+        <div className="alert alert-warning mt-3">
+          <i className="bi bi-exclamation-triangle me-2"></i>
+          <strong>Deal-Level Report Compatibility:</strong> {incompatibleCalculations.length} calculation(s) are not compatible with deal-level reports 
+          because they would create multiple rows per deal. These are shown as disabled above.
+        </div>
+      )}
     </div>
   );
 };
