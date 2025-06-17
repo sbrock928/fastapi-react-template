@@ -676,6 +676,10 @@ class ReportService:
             
             formatted_data.append(formatted_row)
 
+        # Apply sorting if specified in column preferences
+        if column_prefs.sort_config:
+            formatted_data = self._apply_sorting(formatted_data, column_prefs.sort_config, column_mapping, calc_id_to_alias)
+    
         # Sort columns by display_order if specified
         if column_prefs.columns:
             ordered_columns = sorted(
@@ -1233,3 +1237,104 @@ class ReportService:
             }
             for log in logs
         ]
+    def _apply_sorting(self, data: List[Dict[str, Any]], sort_config: List, 
+                       column_mapping: Dict[str, str], calc_id_to_alias: Dict[str, str]) -> List[Dict[str, Any]]:
+        """Apply sorting configuration to the data."""
+        if not sort_config or not data:
+            return data
+        
+        # Build sort keys based on the sort configuration
+        sort_keys = []
+        
+        # Sort by sort_order to get the correct precedence
+        sorted_sort_config = sorted(sort_config, key=lambda x: x.sort_order)
+        
+        for sort_item in sorted_sort_config:
+            column_id = sort_item.column_id
+            direction = sort_item.direction
+            
+            # Map column_id to the actual column name in the data
+            actual_column_name = None
+            
+            # Check if it's a default column
+            if column_id.replace(".", "_") in ["deal_number", "tranche_id", "cycle_code"]:
+                # For default columns, check if they're in column_mapping
+                raw_key = column_id.replace(".", "_")
+                if raw_key in column_mapping:
+                    actual_column_name = column_mapping[raw_key]
+                else:
+                    # Fallback to the display name format
+                    actual_column_name = raw_key.replace('_', ' ').title()
+            
+            # Check if it's a calculation column
+            elif column_id in calc_id_to_alias:
+                # For calculations, use the display name from column_mapping
+                raw_key = calc_id_to_alias[column_id]
+                if raw_key in column_mapping:
+                    actual_column_name = column_mapping[raw_key]
+                else:
+                    actual_column_name = raw_key
+            
+            # Check if it's a static field
+            elif column_id.startswith("static_"):
+                # Find the display name in column_mapping
+                for raw_key, display_name in column_mapping.items():
+                    # Check if this raw_key corresponds to our static field
+                    if column_id in column_mapping.values() or display_name == column_id:
+                        actual_column_name = display_name
+                        break
+                
+                # If not found in mapping, try to find by display name directly
+                if not actual_column_name:
+                    field_path = column_id.replace("static_", "")
+                    static_fields = StaticFieldService.get_all_static_fields()
+                    for field in static_fields:
+                        if field.field_path == field_path:
+                            actual_column_name = field.name
+                            break
+            
+            # Fallback - check if column_id itself is a display name in the data
+            if not actual_column_name and data:
+                first_row = data[0]
+                if column_id in first_row:
+                    actual_column_name = column_id
+                else:
+                    # Check if any of the column mappings match
+                    for raw_key, display_name in column_mapping.items():
+                        if display_name == column_id:
+                            actual_column_name = column_id
+                            break
+            
+            if actual_column_name and actual_column_name in data[0]:
+                # Add to sort keys with direction
+                reverse_sort = (direction.lower() == "desc")
+                sort_keys.append((actual_column_name, reverse_sort))
+                print(f"Debug: Adding sort key - Column: '{actual_column_name}', Direction: {direction}")
+            else:
+                print(f"Warning: Could not find column '{column_id}' (mapped to '{actual_column_name}') in data for sorting")
+        
+        if not sort_keys:
+            print("Warning: No valid sort keys found, returning unsorted data")
+            return data
+        
+        # Apply sorting with multiple keys
+        try:
+            # Sort the data
+            sorted_data = data.copy()
+            
+            # Apply sorts in reverse order (last sort first) to maintain precedence
+            for column_name, reverse_sort in reversed(sort_keys):
+                sorted_data.sort(
+                    key=lambda row: (
+                        row.get(column_name) is None,  # None values go to end
+                        str(row.get(column_name, '')).lower() if not isinstance(row.get(column_name), (int, float)) else row.get(column_name, 0)
+                    ),
+                    reverse=reverse_sort
+                )
+            
+            print(f"Debug: Applied sorting with {len(sort_keys)} sort keys")
+            return sorted_data
+            
+        except Exception as e:
+            print(f"Warning: Error applying sorting: {e}")
+            return data
