@@ -44,6 +44,9 @@ const CDIVariableModal: React.FC<CDIVariableModalProps> = ({
   const [newMappingKey, setNewMappingKey] = useState('');
   const [newMappingValues, setNewMappingValues] = useState('');
 
+  // NEW: State for inline editing of tranche IDs
+  const [editingTrancheMapping, setEditingTrancheMapping] = useState<{ suffix: string; trancheIds: string } | null>(null);
+
   // Load configuration data
   useEffect(() => {
     if (isOpen) {
@@ -130,6 +133,44 @@ const CDIVariableModal: React.FC<CDIVariableModalProps> = ({
     const { [suffix]: removed, ...remaining } = form.tranche_mappings;
     handleFormChange('tranche_mappings', remaining);
     showToast('Tranche mapping removed', 'success');
+  };
+
+  // NEW: Start editing tranche IDs for a suffix
+  const startEditingTrancheIds = (suffix: string, trancheIds: string[]) => {
+    setEditingTrancheMapping({
+      suffix,
+      trancheIds: trancheIds.join(', ')
+    });
+  };
+
+  // NEW: Save edited tranche IDs
+  const saveEditedTrancheIds = () => {
+    if (!editingTrancheMapping) return;
+
+    const { suffix, trancheIds: editedIds } = editingTrancheMapping;
+    const newTrancheIds = editedIds
+      .split(',')
+      .map(id => id.trim())
+      .filter(id => id.length > 0);
+
+    if (newTrancheIds.length === 0) {
+      showToast('Please enter at least one tranche ID', 'error');
+      return;
+    }
+
+    const updatedMappings = {
+      ...form.tranche_mappings,
+      [suffix]: newTrancheIds
+    };
+
+    handleFormChange('tranche_mappings', updatedMappings);
+    setEditingTrancheMapping(null);
+    showToast('Tranche IDs updated successfully', 'success');
+  };
+
+  // NEW: Cancel editing
+  const cancelEditingTrancheIds = () => {
+    setEditingTrancheMapping(null);
   };
 
   const validateForm = (): boolean => {
@@ -397,7 +438,44 @@ const CDIVariableModal: React.FC<CDIVariableModalProps> = ({
                             {Object.entries(form.tranche_mappings).map(([suffix, trancheIds]) => (
                               <tr key={suffix}>
                                 <td><strong>{suffix}</strong></td>
-                                <td>{trancheIds.join(', ')}</td>
+                                <td>
+                                  {editingTrancheMapping?.suffix === suffix ? (
+                                    <div className="input-group">
+                                      <input
+                                        type="text"
+                                        className="form-control"
+                                        value={editingTrancheMapping.trancheIds}
+                                        onChange={(e) => setEditingTrancheMapping({ suffix, trancheIds: e.target.value })}
+                                        placeholder="e.g., 1M1, 2M1, M1"
+                                      />
+                                      <button
+                                        type="button"
+                                        className="btn btn-sm btn-outline-success"
+                                        onClick={saveEditedTrancheIds}
+                                      >
+                                        <i className="bi bi-check"></i>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="btn btn-sm btn-outline-danger"
+                                        onClick={cancelEditingTrancheIds}
+                                      >
+                                        <i className="bi bi-x"></i>
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      {trancheIds.join(', ')}
+                                      <button
+                                        type="button"
+                                        className="btn btn-sm btn-outline-primary ms-2"
+                                        onClick={() => startEditingTrancheIds(suffix, trancheIds)}
+                                      >
+                                        Edit
+                                      </button>
+                                    </>
+                                  )}
+                                </td>
                                 <td>
                                   <button
                                     type="button"

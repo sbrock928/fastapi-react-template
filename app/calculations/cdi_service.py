@@ -204,9 +204,22 @@ class CDIVariableCalculationService:
     
     def _execute_tranche_level(self, variable_pattern: str, tranche_mappings: Dict[str, List[str]], 
                              cycle_code: int, deal_numbers: List[int]) -> List[Dict]:
-        """Execute tranche-level CDI variable calculation with clean trimmed matching"""
+        """Execute tranche-level CDI variable calculation with precise tranche-to-CDI matching"""
         
         all_results = []
+        
+        # FIXED: Get all tranches first, then assign CDI values only where they exist
+        all_tranches = (
+            self.dw_db.query(TrancheBal)
+            .filter(
+                TrancheBal.dl_nbr.in_(deal_numbers),
+                TrancheBal.cycle_cde == cycle_code
+            )
+            .all()
+        )
+        
+        # Create a lookup of CDI values by (deal, suffix)
+        cdi_value_lookup = {}
         
         # For each tranche suffix, get the corresponding CDI variables
         for tranche_suffix, tr_id_list in tranche_mappings.items():
@@ -224,29 +237,49 @@ class CDIVariableCalculationService:
                 .all()
             )
             
-            # For each CDI variable found, match it with corresponding tranches using TRIM
+            # Store CDI values in lookup by (deal_number, tranche_suffix)
             for cdi_var in cdi_vars:
-                from sqlalchemy import func
-                matching_tranches = (
-                    self.dw_db.query(TrancheBal)
-                    .filter(
-                        TrancheBal.dl_nbr == cdi_var.dl_nbr,
-                        TrancheBal.cycle_cde == cdi_var.cycle_cde,
-                        func.trim(TrancheBal.tr_id).in_(tr_id_list)  # CLEAN: Always use trimmed matching
-                    )
-                    .all()
-                )
-                
-                # Create result records for each matching tranche
-                for tranche in matching_tranches:
-                    all_results.append({
-                        'dl_nbr': cdi_var.dl_nbr,
-                        'tr_id': tranche.tr_id,  # Keep the original padded tr_id from database
-                        'cycle_cde': cdi_var.cycle_cde,
-                        'variable_value': cdi_var.numeric_value,
-                        'tranche_type': tranche_suffix,
-                        'variable_name': cdi_var.variable_name
-                    })
+                key = (cdi_var.dl_nbr, tranche_suffix)
+                cdi_value_lookup[key] = {
+                    'variable_value': cdi_var.numeric_value,
+                    'variable_name': cdi_var.variable_name
+                }
+        
+        # FIXED: Now assign values only to tranches that should get them
+        from sqlalchemy import func
+        for tranche in all_tranches:
+            tranche_id_trimmed = tranche.tr_id.strip()
+            assigned_value = False
+            
+            # Check each suffix mapping to see if this tranche should get a CDI value
+            for tranche_suffix, tr_id_list in tranche_mappings.items():
+                # If this tranche ID matches the mapping for this suffix
+                if tranche_id_trimmed in [tr_id.strip() for tr_id in tr_id_list]:
+                    # Check if we have a CDI value for this deal + suffix combination
+                    lookup_key = (tranche.dl_nbr, tranche_suffix)
+                    if lookup_key in cdi_value_lookup:
+                        cdi_data = cdi_value_lookup[lookup_key]
+                        all_results.append({
+                            'dl_nbr': tranche.dl_nbr,
+                            'tr_id': tranche.tr_id,  # Keep the original padded tr_id from database
+                            'cycle_cde': tranche.cycle_cde,
+                            'variable_value': cdi_data['variable_value'],
+                            'tranche_type': tranche_suffix,
+                            'variable_name': cdi_data['variable_name']
+                        })
+                        assigned_value = True
+                        break  # Only assign one value per tranche
+            
+            # FIXED: If no CDI value was found for this tranche, assign 0
+            if not assigned_value:
+                all_results.append({
+                    'dl_nbr': tranche.dl_nbr,
+                    'tr_id': tranche.tr_id,
+                    'cycle_cde': tranche.cycle_cde,
+                    'variable_value': 0.0,  # Default value for tranches without CDI variables
+                    'tranche_type': None,
+                    'variable_name': None
+                })
         
         return all_results
     
