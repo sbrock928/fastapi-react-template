@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { reportingApi } from '@/services/api';
 import { useToast } from '@/context/ToastContext';
 import { useReportContext } from '@/context/ReportContext';
+import { useModal } from '@/context/ModalContext';
 import type { ReportConfig } from '@/types';
 
 interface SavedReportsManagerProps {
@@ -10,7 +11,6 @@ interface SavedReportsManagerProps {
   onCreateNew: () => void;
   onReportsUpdated: () => void;
   onEditReport: (report: ReportConfig) => void;
-  onShowExecutionLogs: (reportId: number, reportName: string) => void;
 }
 
 const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
@@ -18,11 +18,11 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
   onReportSelect,
   onCreateNew,
   onReportsUpdated,
-  onEditReport,
-  onShowExecutionLogs
+  onEditReport
 }) => {
   const { showToast } = useToast();
   const { savedReports, loading, refreshReports } = useReportContext();
+  const { openExecutionLogsModal } = useModal();
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
   const [editLoading, setEditLoading] = useState<string | null>(null);
 
@@ -275,11 +275,9 @@ const SavedReportsManager: React.FC<SavedReportsManagerProps> = ({
             className="btn btn-outline-info w-100"
             disabled={!selectedReportId}
             onClick={() => {
-              if (selectedReportId) {
-                const report = savedReports.find(r => r.id.toString() === selectedReportId);
-                if (report) {
-                  onShowExecutionLogs(report.id, report.name);
-                }
+              const selectedReport = savedReports.find(r => r.id.toString() === selectedReportId);
+              if (selectedReport) {
+                openExecutionLogsModal(selectedReport.id, selectedReport.name);
               }
             }}
           >

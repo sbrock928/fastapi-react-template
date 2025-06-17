@@ -3,10 +3,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { useToast } from '@/context/ToastContext';
+import { useModal } from '@/context/ModalContext';
 import { calculationsApi } from '@/services/calculationsApi';
 import { useUnifiedCalculations } from './hooks/useUnifiedCalculations';
 import { useCalculationConfig, useCalculationForm } from './hooks/useCalculationConfig';
 import type { UserCalculation, SystemCalculation } from '@/types/calculations';
+import type { CDIVariableResponse } from '@/types/cdi';
 
 // Components
 import FilterSection from './components/FilterSection';
@@ -20,6 +22,7 @@ type CalculationTab = 'user-defined' | 'system-defined' | 'cdi-variables';
 
 const CalculationBuilder: React.FC = () => {
   const { showToast } = useToast();
+  const { openCDIModal, setOnCDIVariableSaved } = useModal();
   
   // Use unified calculations hook instead of separate hooks
   const {
@@ -47,7 +50,7 @@ const CalculationBuilder: React.FC = () => {
     isConfigAvailable
   } = useCalculationConfig();
 
-  // Modal states
+  // Modal states (remove CDI modal states - now handled by global context)
   const [showModal, setShowModal] = useState<boolean>(false);
   const [modalType, setModalType] = useState<'user-defined' | 'system-sql'>('user-defined');
   const [editingCalculation, setEditingCalculation] = useState<UserCalculation | SystemCalculation | null>(null);
@@ -82,6 +85,11 @@ const CalculationBuilder: React.FC = () => {
   useEffect(() => {
     fetchCalculationConfig();
   }, []);
+
+  // Set up the callback for CDI variable saves
+  useEffect(() => {
+    setOnCDIVariableSaved(() => refetchCalculations);
+  }, [setOnCDIVariableSaved, refetchCalculations]);
 
   // Tab switching with unsaved changes protection
   const handleTabSwitch = (newTab: CalculationTab) => {
@@ -357,6 +365,15 @@ const CalculationBuilder: React.FC = () => {
     }).length;
   };
 
+  // CDI Variable modal handlers - Updated to use global context
+  const handleCreateCDIVariable = () => {
+    openCDIModal();
+  };
+
+  const handleEditCDIVariable = (variable: CDIVariableResponse) => {
+    openCDIModal(variable);
+  };
+
   return (
     <div className="container-fluid">
       {/* Header */}
@@ -550,7 +567,11 @@ const CalculationBuilder: React.FC = () => {
 
                 {/* CDI Variables Tab */}
                 {activeTab === 'cdi-variables' && (
-                  <CDIVariablesTab onRefreshNeeded={refetchCalculations} />
+                  <CDIVariablesTab 
+                    onRefreshNeeded={refetchCalculations}
+                    onCreateVariable={handleCreateCDIVariable}
+                    onEditVariable={handleEditCDIVariable}
+                  />
                 )}
               </div>
             </div>

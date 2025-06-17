@@ -75,7 +75,7 @@ class ReportExecutionService:
         
         results = {}
         
-        # Execute regular calculations using unified approach
+        # FIXED: Always execute regular calculations first to establish the base data structure
         if regular_requests:
             filters = QueryFilters(deal_tranche_map, cycle_code, report_scope)
             regular_result = self.resolver.resolve_report(regular_requests, filters)
@@ -90,16 +90,55 @@ class ReportExecutionService:
                     'query_approach': 'unified'
                 }
             }
+        else:
+            # FIXED: Even if no regular calculations, create empty base structure for CDI merging
+            # Get all deal/tranche combinations for CDI data to merge into
+            base_data = []
+            for deal_id, tranche_ids in deal_tranche_map.items():
+                if tranche_ids and report_scope == "TRANCHE":
+                    # Create base records for each tranche
+                    for tranche_id in tranche_ids:
+                        base_data.append({
+                            'dl_nbr': deal_id,
+                            'tr_id': tranche_id,
+                            'cycle_cde': cycle_code
+                        })
+                else:
+                    # Create base record for deal level
+                    base_data.append({
+                        'dl_nbr': deal_id,
+                        'cycle_cde': cycle_code
+                    })
+            
+            results = {
+                'data': base_data,
+                'metadata': {
+                    'total_rows': len(base_data),
+                    'calculations_executed': 0,
+                    'query_approach': 'cdi_only_with_base'
+                }
+            }
         
-        # Execute CDI variable calculations
+        # Execute CDI variable calculations and merge them
         if cdi_requests and self.cdi_service:
             cdi_results = self._execute_cdi_calculations(cdi_requests, deal_tranche_map, cycle_code)
             
-            # Merge CDI results with regular results
-            if 'data' in results and 'data' in cdi_results:
-                results['data'] = self._merge_calculation_results(results['data'], cdi_results['data'])
-            elif 'data' in cdi_results:
-                results['data'] = cdi_results['data']
+            # FIXED: Always merge CDI results into existing data, never replace
+            if 'data' in results and results['data']:
+                if 'data' in cdi_results and cdi_results['data']:
+                    # Merge CDI results with existing regular results
+                    results['data'] = self._merge_calculation_results(results['data'], cdi_results['data'])
+                else:
+                    # CDI returned empty but regular results exist - add empty CDI columns with defaults
+                    cdi_field_names = set()
+                    for request in cdi_requests:
+                        field_alias = getattr(request, 'alias', f'cdi_calc_{request.calc_id}')
+                        cdi_field_names.add(field_alias)
+                    
+                    # Add default values (0.0) for missing CDI fields to preserve regular results
+                    for record in results['data']:
+                        for field_name in cdi_field_names:
+                            record[field_name] = 0.0
             
             # Update metadata
             if 'metadata' not in results:
@@ -186,7 +225,13 @@ class ReportExecutionService:
         }
     
     def _merge_calculation_results(self, regular_data: List[Dict], cdi_data: List[Dict]) -> List[Dict]:
-        """Merge regular calculation results with CDI variable results"""
+        """Merge regular calculation results with CDI variable results with improved key matching"""
+        
+        if not cdi_data:
+            return regular_data
+        
+        if not regular_data:
+            return cdi_data
         
         # Get all unique CDI field names from the CDI data
         cdi_field_names = set()
@@ -195,27 +240,67 @@ class ReportExecutionService:
                 if field_name not in ['dl_nbr', 'tr_id', 'cycle_cde', 'variable_name', 'tranche_type']:
                     cdi_field_names.add(field_name)
         
-        # Create a lookup for CDI data by (dl_nbr, tr_id, cycle_cde)
+        # IMPROVED: Create a more flexible lookup for CDI data
+        # Handle both deal-level and tranche-level matching
         cdi_lookup = {}
-        for record in cdi_data:
-            key = (record.get('dl_nbr'), record.get('tr_id'), record.get('cycle_cde'))
-            if key not in cdi_lookup:
-                cdi_lookup[key] = {}
-            
-            # Store all CDI field values
-            for field_name, field_value in record.items():
-                if field_name not in ['dl_nbr', 'tr_id', 'cycle_cde', 'variable_name', 'tranche_type']:
-                    cdi_lookup[key][field_name] = field_value
         
-        # Merge CDI data into regular data with defaults
-        for record in regular_data:
-            key = (record.get('dl_nbr'), record.get('tr_id'), record.get('cycle_cde'))
+        for record in cdi_data:
+            dl_nbr = record.get('dl_nbr')
+            tr_id = record.get('tr_id', '').strip() if record.get('tr_id') else None
+            cycle_cde = record.get('cycle_cde')
             
-            # For each CDI field, either use the actual value or default to 0.0
+            # Create multiple lookup keys to handle different scenarios
+            keys_to_try = []
+            
+            # Full key (deal + tranche + cycle)
+            if tr_id:
+                keys_to_try.append((dl_nbr, tr_id, cycle_cde))
+                keys_to_try.append((dl_nbr, tr_id.strip(), cycle_cde))
+            
+            # Deal-only key (for deal-level calculations)
+            keys_to_try.append((dl_nbr, None, cycle_cde))
+            keys_to_try.append((dl_nbr, '', cycle_cde))
+            
+            # Store CDI values under all possible keys
+            for key in keys_to_try:
+                if key not in cdi_lookup:
+                    cdi_lookup[key] = {}
+                
+                # Store all CDI field values
+                for field_name, field_value in record.items():
+                    if field_name not in ['dl_nbr', 'tr_id', 'cycle_cde', 'variable_name', 'tranche_type']:
+                        cdi_lookup[key][field_name] = field_value
+        
+        # IMPROVED: Merge CDI data into regular data with flexible key matching
+        for record in regular_data:
+            dl_nbr = record.get('dl_nbr')
+            tr_id = record.get('tr_id', '').strip() if record.get('tr_id') else None
+            cycle_cde = record.get('cycle_cde')
+            
+            # Try different key combinations to find CDI data
+            keys_to_try = []
+            
+            # Try exact match first
+            if tr_id:
+                keys_to_try.append((dl_nbr, tr_id, cycle_cde))
+                keys_to_try.append((dl_nbr, tr_id.strip(), cycle_cde))
+            
+            # Try deal-only match (for when CDI is deal-level but regular is tranche-level)
+            keys_to_try.append((dl_nbr, None, cycle_cde))
+            keys_to_try.append((dl_nbr, '', cycle_cde))
+            
+            # Find the first matching CDI data
+            cdi_values_found = None
+            for key in keys_to_try:
+                if key in cdi_lookup:
+                    cdi_values_found = cdi_lookup[key]
+                    break
+            
+            # Add CDI fields to the record
             for field_name in cdi_field_names:
-                if key in cdi_lookup and field_name in cdi_lookup[key]:
+                if cdi_values_found and field_name in cdi_values_found:
                     # Use actual CDI value
-                    record[field_name] = cdi_lookup[key][field_name]
+                    record[field_name] = cdi_values_found[field_name]
                 else:
                     # Use default value of 0.0 for missing CDI mappings
                     record[field_name] = 0.0

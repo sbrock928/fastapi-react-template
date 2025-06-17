@@ -4,7 +4,6 @@
 import React, { useState, useEffect } from 'react';
 import { useToast } from '@/context/ToastContext';
 import { cdiVariableApi, calculationsApi } from '@/services/calculationsApi';
-import CDIVariableModal from './CDIVariableModal';
 import UsageModal from './UsageModal';
 import type { 
   CDIVariableResponse
@@ -12,9 +11,15 @@ import type {
 
 interface CDIVariablesTabProps {
   onRefreshNeeded?: () => void;
+  onCreateVariable?: () => void;
+  onEditVariable?: (variable: CDIVariableResponse) => void;
 }
 
-const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) => {
+const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ 
+  onRefreshNeeded,
+  onCreateVariable,
+  onEditVariable
+}) => {
   const { showToast } = useToast();
 
   // State management
@@ -22,9 +27,6 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
   const [filteredVariables, setFilteredVariables] = useState<CDIVariableResponse[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showModal, setShowModal] = useState(false);
-  const [editingVariable, setEditingVariable] = useState<CDIVariableResponse | null>(null);
-  const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [variableUsage, setVariableUsage] = useState<Record<number, any>>({});
 
   // Usage modal states
@@ -97,15 +99,11 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
   };
 
   const handleCreateVariable = () => {
-    setEditingVariable(null);
-    setModalMode('create');
-    setShowModal(true);
+    onCreateVariable?.();
   };
 
   const handleEditVariable = (variable: CDIVariableResponse) => {
-    setEditingVariable(variable);
-    setModalMode('edit');
-    setShowModal(true);
+    onEditVariable?.(variable);
   };
 
   const handleDeleteVariable = async (variable: CDIVariableResponse) => {
@@ -143,12 +141,6 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
       
       showToast(errorMessage, 'error');
     }
-  };
-
-  const handleVariableSaved = () => {
-    loadCDIVariables();
-    onRefreshNeeded?.();
-    setShowModal(false);
   };
 
   const handleShowUsage = async (variable: CDIVariableResponse) => {
@@ -398,16 +390,7 @@ const CDIVariablesTab: React.FC<CDIVariablesTabProps> = ({ onRefreshNeeded }) =>
         </div>
       </div>
 
-      {/* CDI Variable Modal */}
-      <CDIVariableModal
-        isOpen={showModal}
-        onClose={() => setShowModal(false)}
-        onSave={handleVariableSaved}
-        editingVariable={editingVariable}
-        mode={modalMode}
-      />
-
-      {/* Usage Modal */}
+      {/* Usage Modal - Keep this one since it's specific to the tab */}
       <UsageModal
         isOpen={showUsageModal}
         onClose={() => setShowUsageModal(false)}

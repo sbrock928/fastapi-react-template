@@ -26,6 +26,13 @@ class Deal(Base):
         cascade="all, delete-orphan"
     )
     
+    # Add relationship to Deal attributes
+    attributes = relationship(
+        "DealAttr",
+        back_populates="deal",
+        cascade="all, delete-orphan"
+    )
+    
     def get_cdi_variables_for_cycle(self, cycle_code: int):
         '''Get all CDI variables for this deal and cycle'''
         return [var for var in self.cdi_variables if var.cycle_cde == cycle_code]
@@ -243,3 +250,23 @@ class DealCdiVarRpt(Base):
             query = query.filter(cls.cycle_cde == cycle_code)
             
         return [name.strip() for name, in query.all()]
+
+
+class DealAttr(Base):
+    """Deal attributes table for storing key-value pairs of deal metadata."""
+
+    __tablename__ = "deal_attr"
+
+    dl_nbr: Mapped[int] = mapped_column(ForeignKey("deal.dl_nbr"), primary_key=True)
+    abr_cde: Mapped[str] = mapped_column(String(50), primary_key=True)  # Attribute code
+    dl_attr_value: Mapped[str] = mapped_column(String(255), nullable=True)  # Attribute value
+    
+    # Optional metadata
+    created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # Relationship back to deal
+    deal = relationship("Deal", back_populates="attributes")
+
+    def __repr__(self):
+        return f"<DealAttr(dl_nbr={self.dl_nbr}, code='{self.abr_cde}', value='{self.dl_attr_value}')>"
