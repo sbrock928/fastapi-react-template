@@ -69,7 +69,7 @@ def create_all_tables():
     """Create tables in both databases."""
     # Import models to ensure they're registered with Base classes
     from app.reporting.models import Report  # noqa: F401
-    from app.calculations.models import UserCalculation, SystemCalculation  # noqa: F401
+    from app.calculations.models import Calculation  # noqa: F401 - Updated to use unified model
     from app.datawarehouse.models import Deal, Tranche, TrancheBal  # noqa: F401
 
     print("Creating config database tables...")
@@ -85,7 +85,7 @@ def drop_all_tables():
     """Drop all tables in both databases (use with caution!)."""
     # Import models to ensure they're registered with Base classes
     from app.reporting.models import Report  # noqa: F401
-    from app.calculations.models import UserCalculation, SystemCalculation  # noqa: F401
+    from app.calculations.models import Calculation  # noqa: F401 - Updated to use unified model
     from app.datawarehouse.models import Deal, Tranche, TrancheBal, DealCdiVarRpt  # noqa: F401 - ADDED DealCdiVarRpt
 
     print("Dropping config database tables...")
@@ -101,38 +101,33 @@ def drop_all_tables():
 
 
 def create_standard_calculations():
-    """Create standard calculation system with separated User and System calculations - FIXED VERSION."""
+    """Create standard calculation system with unified calculation model."""
     # Import only when needed to avoid circular imports
     from app.calculations.models import (
-        UserCalculation,
-        SystemCalculation,
+        Calculation,
+        CalculationType,
         AggregationFunction,
         SourceModel,
         GroupLevel,
     )
-    from app.calculations.service import UserCalculationService, SystemCalculationService
-    from app.calculations.dao import UserCalculationDAO, SystemCalculationDAO  # CRITICAL: Import DAOs
-    from app.calculations.schemas import UserCalculationCreate, SystemCalculationCreate
+    from app.calculations.service import UnifiedCalculationService
+    from app.calculations.schemas import UserAggregationCalculationCreate, SystemSqlCalculationCreate
 
-    # Create config database session
+    # Create both database sessions
     config_db = SessionLocal()
+    dw_db = next(get_dw_db())
 
     try:
         # Check if calculations already exist
-        existing_user_count = config_db.query(UserCalculation).count()
-        existing_system_count = config_db.query(SystemCalculation).count()
-        if existing_user_count > 0 or existing_system_count > 0:
-            print(f"Calculations already exist ({existing_user_count} user, {existing_system_count} system found). Skipping creation.")
+        existing_count = config_db.query(Calculation).count()
+        if existing_count > 0:
+            print(f"Calculations already exist ({existing_count} found). Skipping creation.")
             return
 
-        print("Creating separated calculation system...")
+        print("Creating unified calculation system...")
 
-        # FIXED: Initialize calculation services with proper DAOs
-        user_calc_dao = UserCalculationDAO(config_db)  # Create DAO with session
-        system_calc_dao = SystemCalculationDAO(config_db)  # Create DAO with session
-        
-        user_calc_service = UserCalculationService(user_calc_dao)  # Pass DAO to service
-        system_calc_service = SystemCalculationService(system_calc_dao)  # Pass DAO to service
+        # Initialize unified calculation service with both databases - FIXED parameter order
+        calc_service = UnifiedCalculationService(config_db, dw_db)
 
         # ===== 1. USER-DEFINED CALCULATIONS =====
         print("Creating user-defined calculations...")
@@ -143,7 +138,7 @@ def create_standard_calculations():
                 "description": "Sum of all tranche ending balances",
                 "aggregation_function": AggregationFunction.SUM,
                 "source_model": SourceModel.TRANCHE_BAL,
-                "source_field": "tr_end_bal_amt",  # Use actual field name from your model
+                "source_field": "tr_end_bal_amt",
                 "group_level": GroupLevel.DEAL,
             },
             {
@@ -151,8 +146,8 @@ def create_standard_calculations():
                 "description": "Weighted average pass through rate",
                 "aggregation_function": AggregationFunction.WEIGHTED_AVG,
                 "source_model": SourceModel.TRANCHE_BAL,
-                "source_field": "tr_pass_thru_rte",  # Use actual field name from your model
-                "weight_field": "tr_end_bal_amt",  # Use actual field name from your model
+                "source_field": "tr_pass_thru_rte",
+                "weight_field": "tr_end_bal_amt",
                 "group_level": GroupLevel.DEAL,
             },
         ]
@@ -160,8 +155,8 @@ def create_standard_calculations():
         user_created_count = 0
         for calc_config in user_calculations:
             try:
-                request = UserCalculationCreate(**calc_config)
-                created_calc = user_calc_service.create_user_calculation(request)
+                request = UserAggregationCalculationCreate(**calc_config)
+                created_calc = calc_service.create_user_aggregation_calculation(request, "system")
                 print(f"✅ Created user calculation: {created_calc.name}")
                 user_created_count += 1
             except Exception as e:
@@ -194,8 +189,8 @@ def create_standard_calculations():
         system_created_count = 0
         for calc_config in system_calculations:
             try:
-                request = SystemCalculationCreate(**calc_config)
-                created_calc = system_calc_service.create_system_calculation(request, "system")
+                request = SystemSqlCalculationCreate(**calc_config)
+                created_calc = calc_service.create_system_sql_calculation(request, "system")
                 print(f"✅ Created system calculation: {created_calc.name}")
                 system_created_count += 1
             except Exception as e:
@@ -206,6 +201,7 @@ def create_standard_calculations():
         print("\n📋 Final counts:")
         print(f"   User calculations: {user_created_count}")
         print(f"   System calculations: {system_created_count}")
+        print(f"   Total calculations: {user_created_count + system_created_count}")
 
     except Exception as e:
         config_db.rollback()
@@ -213,6 +209,7 @@ def create_standard_calculations():
         raise
     finally:
         config_db.close()
+        dw_db.close()
 
 
 # ===== SAMPLE DATA CREATION =====

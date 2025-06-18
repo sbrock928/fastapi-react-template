@@ -10,9 +10,9 @@ import type {
 } from '@/types/calculations';
 import { 
   getPreviewFormula, 
-  getScopeCompatibilityWarning, 
-  validateSqlSyntax,
-  getAvailableFields
+  getScopeCompatibilityWarning,
+  getAvailableFields,
+  parseAndValidateComplexSQLWithPlaceholders
 } from '../utils/calculationUtils';
 import { getFullSQLPreview } from '../utils/sqlPreviewUtils';
 import SqlEditor from './SqlEditor';
@@ -21,7 +21,7 @@ import { useToast } from '@/context/ToastContext';
 
 interface CalculationModalProps {
   isOpen: boolean;
-  modalType: 'user-defined' | 'system-sql';
+  modalType: 'user-defined' | 'system-field' | 'system-sql';
   editingCalculation: Calculation | null;
   calculation: CalculationForm;
   error: string | null;
@@ -56,6 +56,7 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
   const { showToast } = useToast();
   const [sqlValidationResult, setSqlValidationResult] = useState<any>(null);
   const [sqlValidating, setSqlValidating] = useState<boolean>(false);
+  const [clientValidationResult, setClientValidationResult] = useState<any>(null);
 
   if (!isOpen) return null;
 
@@ -81,7 +82,7 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
     }
   };
 
-  // Handle SQL validation for System SQL calculations
+  // Enhanced SQL validation for System SQL calculations
   const handleValidateSQL = async () => {
     if (!calculation.source_field || !calculation.weight_field || !calculation.level) {
       showToast('Please provide SQL query, result column name, and group level before validating', 'warning');
@@ -99,7 +100,7 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
       setSqlValidationResult(response.data.validation_result);
       
       if (response.data.validation_result.is_valid) {
-        showToast('SQL validation passed!', 'success');
+        showToast('SQL validation passed! All placeholder usage and structure checks succeeded.', 'success');
       } else {
         showToast('SQL validation failed. Please check the errors below.', 'error');
       }
@@ -110,10 +111,33 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
       setSqlValidationResult({
         is_valid: false,
         errors: [errorMessage],
-        warnings: []
+        warnings: [],
+        placeholders_used: []
       });
     } finally {
       setSqlValidating(false);
+    }
+  };
+
+  // Enhanced client-side validation for real-time feedback
+  const handleSqlChange = (sql: string) => {
+    onUpdateCalculation({ source_field: sql });
+    
+    // Clear previous server validation when SQL changes
+    if (sqlValidationResult) {
+      setSqlValidationResult(null);
+    }
+    
+    // Perform enhanced client-side validation with placeholder support
+    if (sql && calculation.level && calculation.weight_field) {
+      const clientValidation = parseAndValidateComplexSQLWithPlaceholders(
+        sql,
+        calculation.level,
+        calculation.weight_field
+      );
+      setClientValidationResult(clientValidation);
+    } else {
+      setClientValidationResult(null);
     }
   };
 
@@ -277,21 +301,19 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
   };
 
   const renderSystemSqlForm = () => {
-    // Perform basic client-side SQL validation
-    const clientValidation = calculation.source_field ? validateSqlSyntax(calculation.source_field) : null;
-
     return (
       <>
         <div className="alert alert-info">
           <i className="bi bi-info-circle me-2"></i>
-          <strong>System SQL Calculation:</strong> Advanced custom calculation using validated SQL queries including CTEs and complex patterns.
+          <strong>Enhanced System SQL Calculation:</strong> Create powerful calculations using SQL with dynamic placeholder support.
           <div className="mt-2">
-            <strong>Enhanced Capabilities:</strong> 
+            <strong>New Enhanced Capabilities:</strong> 
             <ul className="mb-0 mt-1">
-              <li><strong>CTEs (Common Table Expressions)</strong> - Use WITH clauses for complex logic</li>
-              <li><strong>Subqueries and window functions</strong> - Advanced analytical calculations</li>
-              <li><strong>Smart filter injection</strong> - System automatically adds appropriate WHERE clauses</li>
-              <li><strong>Final result extraction</strong> - Calculation engine extracts value from your final SELECT</li>
+              <li><strong>Dynamic Placeholders</strong> - Use {`{current_cycle}`}, {`{deal_tranche_filter}`}, etc.</li>
+              <li><strong>CTEs & Window Functions</strong> - Complex analytical calculations with proper validation</li>
+              <li><strong>Previous Cycle Comparisons</strong> - Access {`{previous_cycle}`} and {`{cycle_minus_2}`}</li>
+              <li><strong>Smart Parameter Injection</strong> - System replaces placeholders with actual values at runtime</li>
+              <li><strong>Enhanced Security</strong> - Advanced validation prevents SQL injection</li>
             </ul>
           </div>
         </div>
@@ -304,7 +326,7 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
               value={calculation.name}
               onChange={(e) => onUpdateCalculation({ name: e.target.value })}
               className="form-control"
-              placeholder="e.g., Issuer Type Classification"
+              placeholder="e.g., Deal Growth Trend Analysis"
             />
           </div>
 
@@ -320,7 +342,7 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
               </option>
               {groupLevels.map((level: GroupLevelInfo) => (
                 <option key={level.value} value={level.value}>
-                  {level.label}
+                  {level.label} - {level.value === 'deal' ? 'One result per deal' : 'One result per tranche'}
                 </option>
               ))}
             </select>
@@ -333,7 +355,7 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
               onChange={(e) => onUpdateCalculation({ description: e.target.value })}
               className="form-control"
               rows={2}
-              placeholder="Describe what this SQL calculation does..."
+              placeholder="Describe what this calculation analyzes (e.g., 'Classifies deals by growth trend using current vs previous cycle balances')"
             />
           </div>
 
@@ -341,187 +363,201 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
             <label className="form-label">Result Column Name *</label>
             <input
               type="text"
-              value={calculation.weight_field || ''} // Using weight_field to store result column name
+              value={calculation.weight_field || ''}
               onChange={(e) => onUpdateCalculation({ weight_field: e.target.value })}
               className="form-control"
-              placeholder="e.g., issuer_type"
+              placeholder="e.g., growth_trend"
               pattern="^[a-zA-Z][a-zA-Z0-9_]*$"
             />
-            <div className="form-text">Must be a valid SQL identifier (letters, numbers, underscores)</div>
+            <div className="form-text">
+              Must be a valid SQL identifier. This will be the column name in your reports.
+            </div>
+          </div>
+
+          {/* Enhanced placeholder information */}
+          <div className="col-md-6">
+            <label className="form-label">Available Placeholders</label>
+            <div className="form-control" style={{ height: 'auto', minHeight: '38px' }}>
+              <small className="text-muted">
+                Click "Placeholders" in SQL editor to see all options. 
+                Examples: <code className="text-primary">{`{current_cycle}`}</code>, <code className="text-primary">{`{previous_cycle}`}</code>
+              </small>
+            </div>
           </div>
 
           <div className="col-12">
-            <label className="form-label">SQL Query *</label>
+            <label className="form-label">SQL Query with Enhanced Placeholder Support *</label>
             <div className="alert alert-warning mb-2">
-              <i className="bi bi-exclamation-triangle me-2"></i>
-              <strong>Filter Injection Notice:</strong> 
+              <i className="bi bi-lightning me-2"></i>
+              <strong>Dynamic Parameter Injection:</strong> 
               <div className="mt-1">
-                The system will automatically add WHERE clauses for:
-                <ul className="mb-0 mt-1">
-                  <li><code>deal.dl_nbr IN (selected_deals)</code></li>
-                  <li><code>tranche.tr_id IN (selected_tranches)</code> (if applicable)</li>
-                  <li><code>tranchebal.cycle_cde = selected_cycle</code> (if tranchebal table is used)</li>
-                </ul>
-                <strong>Don't include these filters in your SQL - they'll be added automatically!</strong>
+                <div className="row">
+                  <div className="col-md-6">
+                    <strong>✨ New Placeholders Available:</strong>
+                    <ul className="mb-0 mt-1 small">
+                      <li><code>{`{current_cycle}`}</code> - Selected reporting cycle</li>
+                      <li><code>{`{previous_cycle}`}</code> - Previous cycle for comparisons</li>
+                      <li><code>{`{cycle_minus_2}`}</code> - Two cycles back</li>
+                      <li><code>{`{deal_tranche_filter}`}</code> - Combined deal/tranche WHERE</li>
+                    </ul>
+                  </div>
+                  <div className="col-md-6">
+                    <strong>🚀 Enhanced Capabilities:</strong>
+                    <ul className="mb-0 mt-1 small">
+                      <li>Period-over-period analysis</li>
+                      <li>Trend calculations</li>
+                      <li>Complex CTEs with filtering</li>
+                      <li>Window functions across cycles</li>
+                    </ul>
+                  </div>
+                </div>
               </div>
             </div>
+            
             <SqlEditor
-              value={calculation.source_field || ''} // Using source_field to store SQL
-              onChange={(sql) => {
-                onUpdateCalculation({ source_field: sql });
-                // Clear previous validation when SQL changes
-                if (sqlValidationResult) {
-                  setSqlValidationResult(null);
-                }
-              }}
+              value={calculation.source_field || ''}
+              onChange={handleSqlChange}
               groupLevel={calculation.level}
               disabled={isSaving}
-              placeholder={calculation.level === 'deal' 
-                ? `-- CTE Example: Deal-level complex calculation
-WITH deal_metrics AS (
+              resultColumnName={calculation.weight_field || 'result_column'}
+              onValidate={handleValidateSQL}
+              validationResult={sqlValidationResult}
+              placeholder={`-- Enhanced SQL with Placeholders
+-- Example: Deal growth analysis with previous cycle comparison
+WITH current_balances AS (
     SELECT 
         deal.dl_nbr,
-        COUNT(tranche.tr_id) as tranche_count,
-        SUM(tranchebal.tr_end_bal_amt) as total_balance
+        SUM(tranchebal.tr_end_bal_amt) as current_balance,
+        COUNT(tranche.tr_id) as tranche_count
     FROM deal
     JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
     JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
         AND tranche.tr_id = tranchebal.tr_id
+    WHERE tranchebal.cycle_cde = {current_cycle}
+        AND {deal_tranche_filter}
+    GROUP BY deal.dl_nbr
+),
+previous_balances AS (
+    SELECT 
+        deal.dl_nbr,
+        SUM(tranchebal.tr_end_bal_amt) as previous_balance
+    FROM deal
+    JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
+    JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
+        AND tranche.tr_id = tranchebal.tr_id
+    WHERE tranchebal.cycle_cde = {previous_cycle}
+        AND {deal_tranche_filter}
     GROUP BY deal.dl_nbr
 )
 SELECT 
-    dl_nbr,
+    c.dl_nbr,
     CASE 
-        WHEN total_balance >= 100000000 THEN 'Large Deal'
-        WHEN tranche_count > 5 THEN 'Complex'
-        ELSE 'Standard'
+        WHEN p.previous_balance IS NULL THEN 'New Deal'
+        WHEN c.current_balance > p.previous_balance * 1.1 THEN 'Growing'
+        WHEN c.current_balance < p.previous_balance * 0.9 THEN 'Declining'
+        ELSE 'Stable'
     END AS ${calculation.weight_field || 'result_column'}
-FROM deal_metrics`
-                : `-- CTE Example: Tranche-level with window functions
-WITH tranche_rankings AS (
-    SELECT 
-        deal.dl_nbr,
-        tranche.tr_id,
-        tranchebal.tr_end_bal_amt,
-        ROW_NUMBER() OVER (
-            PARTITION BY deal.dl_nbr 
-            ORDER BY tranchebal.tr_end_bal_amt DESC
-        ) as size_rank
-    FROM deal
-    JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
-    JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
-        AND tranche.tr_id = tranchebal.tr_id
-)
-SELECT 
-    dl_nbr,
-    tr_id,
-    CASE 
-        WHEN size_rank = 1 THEN 'Senior'
-        WHEN tr_end_bal_amt > 10000000 THEN 'Major'
-        ELSE 'Minor'
-    END AS ${calculation.weight_field || 'result_column'}
-FROM tranche_rankings`}
+FROM current_balances c
+LEFT JOIN previous_balances p ON c.dl_nbr = p.dl_nbr`}
             />
           </div>
 
-          {/* CTE Examples Section */}
+          {/* Enhanced Examples Section */}
           <div className="col-12">
             <div className="card bg-light border-info">
               <div className="card-header bg-info text-white">
                 <h6 className="mb-0">
                   <i className="bi bi-lightbulb me-2"></i>
-                  Advanced SQL Examples
+                  Enhanced SQL Examples with Placeholders
                 </h6>
               </div>
               <div className="card-body">
                 <div className="row">
                   <div className="col-md-4">
-                    <h6 className="text-info">CTEs & Window Functions</h6>
-                    <ul className="small mb-0">
-                      <li>WITH clauses for complex logic</li>
-                      <li>ROW_NUMBER(), RANK(), LAG()</li>
-                      <li>Multiple CTE definitions</li>
-                      <li>PARTITION BY for grouping</li>
-                    </ul>
+                    <h6 className="text-info">Period-over-Period Analysis</h6>
+                    <div className="bg-dark text-light p-2 rounded small" style={{ fontFamily: 'monospace' }}>
+{`-- Compare current vs previous
+WHERE cycle_cde = {current_cycle}
+-- Previous cycle data  
+WHERE cycle_cde = {previous_cycle}
+-- Two cycles back
+WHERE cycle_cde = {cycle_minus_2}`}
+                    </div>
                   </div>
                   <div className="col-md-4">
-                    <h6 className="text-info">Subqueries & Joins</h6>
-                    <ul className="small mb-0">
-                      <li>Correlated subqueries</li>
-                      <li>EXISTS and NOT EXISTS</li>
-                      <li>Complex JOIN conditions</li>
-                      <li>Self-joins on same table</li>
-                    </ul>
+                    <h6 className="text-info">Dynamic Filtering</h6>
+                    <div className="bg-dark text-light p-2 rounded small" style={{ fontFamily: 'monospace' }}>
+{`-- Combined deal/tranche filter
+WHERE {deal_tranche_filter}
+-- Just deal filter
+WHERE {deal_filter}
+-- Direct deal list
+IN ({deal_numbers})`}
+                    </div>
                   </div>
                   <div className="col-md-4">
-                    <h6 className="text-info">Analytical Functions</h6>
-                    <ul className="small mb-0">
-                      <li>FIRST_VALUE(), LAST_VALUE()</li>
-                      <li>STDDEV(), VARIANCE()</li>
-                      <li>NTILE() for percentiles</li>
-                      <li>CASE WHEN for logic</li>
-                    </ul>
+                    <h6 className="text-info">Window Functions</h6>
+                    <div className="bg-dark text-light p-2 rounded small" style={{ fontFamily: 'monospace' }}>
+{`-- Ranking within cycle
+ROW_NUMBER() OVER (
+  ORDER BY balance DESC
+) as rank
+-- Running totals
+SUM(balance) OVER (
+  ORDER BY dl_nbr
+) as running_total`}
+                    </div>
                   </div>
                 </div>
-                <div className="alert alert-info mt-3 mb-0">
+                
+                <div className="alert alert-success mt-3 mb-0">
                   <small>
-                    <strong>💡 Pro Tip:</strong> The calculation engine will extract the final result from your outermost SELECT. 
-                    You can use any number of CTEs and subqueries - just ensure your final SELECT returns the required columns.
+                    <strong>💡 Pro Tip:</strong> Use <code>{`{deal_tranche_filter}`}</code> for comprehensive filtering that adapts to user selections.
+                    Previous cycle placeholders enable powerful trend analysis and period comparisons.
                   </small>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Preview of what the final SQL will look like */}
-          {calculation.source_field && calculation.source_field.trim() && (
-            <div className="col-12">
-              <label className="form-label">Final SQL Preview (with injected filters)</label>
-              <div className="alert alert-secondary">
-                <small className="text-muted">
-                  This shows how your SQL will look after the system automatically injects WHERE clauses:
-                </small>
-                <pre className="bg-dark text-light p-3 mt-2 rounded" style={{ fontSize: '0.8rem', whiteSpace: 'pre-wrap' }}>
-{calculation.source_field.trim()}
-{/* Show where the WHERE clause would be injected */}
-{!calculation.source_field.toLowerCase().includes('where') && !calculation.source_field.toLowerCase().includes('group by') 
-  ? '\nWHERE [filters will be injected here]'
-  : calculation.source_field.toLowerCase().includes('group by') && !calculation.source_field.toLowerCase().includes('where')
-  ? '\nWHERE [filters will be injected before GROUP BY]'
-  : '\nAND [additional filters will be injected]'}
-                </pre>
-              </div>
-            </div>
-          )}
-
-          {/* Client-side SQL validation feedback */}
-          {clientValidation && !clientValidation.isValid && (
+          {/* Enhanced client-side validation feedback */}
+          {clientValidationResult && !clientValidationResult.isValid && (
             <div className="col-12">
               <div className="alert alert-warning">
                 <h6 className="alert-heading">
                   <i className="bi bi-exclamation-triangle me-2"></i>
-                  Basic SQL Issues Detected
+                  Client-side Validation Issues
                 </h6>
                 <ul className="mb-0">
-                  {clientValidation.errors.map((error: string, index: number) => (
+                  {clientValidationResult.errors.map((error: string, index: number) => (
                     <li key={index}>{error}</li>
                   ))}
                 </ul>
+                {clientValidationResult.warnings && clientValidationResult.warnings.length > 0 && (
+                  <div className="mt-2">
+                    <strong>Warnings:</strong>
+                    <ul className="mb-0">
+                      {clientValidationResult.warnings.map((warning: string, index: number) => (
+                        <li key={index} className="text-warning">{warning}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 <small className="text-muted mt-2 d-block">
-                  Fix these issues before server validation.
+                  Fix these issues before server validation. Some validation happens only on the server.
                 </small>
               </div>
             </div>
           )}
 
-          {/* Server validation results */}
+          {/* Enhanced server validation results */}
           {sqlValidationResult && (
             <div className="col-12">
               <div className={`alert ${sqlValidationResult.is_valid ? 'alert-success' : 'alert-danger'} mt-3`}>
                 <div className="d-flex align-items-center mb-2">
                   <i className={`bi ${sqlValidationResult.is_valid ? 'bi-check-circle' : 'bi-exclamation-triangle'} me-2`}></i>
                   <strong>
-                    {sqlValidationResult.is_valid ? 'SQL Validation Passed' : 'SQL Validation Failed'}
+                    {sqlValidationResult.is_valid ? 'Enhanced SQL Validation Passed' : 'SQL Validation Failed'}
                   </strong>
                 </div>
                 
@@ -537,7 +573,7 @@ FROM tranche_rankings`}
                 )}
                 
                 {sqlValidationResult.warnings && sqlValidationResult.warnings.length > 0 && (
-                  <div>
+                  <div className="mb-2">
                     <strong className="text-warning">Warnings:</strong>
                     <ul className="mb-0 mt-1">
                       {sqlValidationResult.warnings.map((warning: string, index: number) => (
@@ -547,50 +583,87 @@ FROM tranche_rankings`}
                   </div>
                 )}
                 
+                {sqlValidationResult.placeholders_used && sqlValidationResult.placeholders_used.length > 0 && (
+                  <div className="mb-2">
+                    <strong className="text-info">Placeholders Detected:</strong>
+                    <div className="mt-1">
+                      {sqlValidationResult.placeholders_used.map((placeholder: string, index: number) => (
+                        <span key={index} className="badge bg-info me-1">
+                          {`{${placeholder}}`}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
                 {sqlValidationResult.is_valid && (
-                  <small className="text-muted d-block mt-2">
-                    Your SQL passed all validation checks and is ready to save.
-                  </small>
+                  <div className="mt-2">
+                    <div className="row">
+                      <div className="col-md-6">
+                        <small className="text-success d-block">
+                          <strong>✅ Validation Passed:</strong>
+                          <ul className="mb-0 mt-1">
+                            <li>SQL structure is valid</li>
+                            <li>Required columns included</li>
+                            <li>Placeholders are valid</li>
+                            <li>Security checks passed</li>
+                          </ul>
+                        </small>
+                      </div>
+                      {sqlValidationResult.has_ctes && (
+                        <div className="col-md-6">
+                          <small className="text-info d-block">
+                            <strong>📊 Advanced Features Detected:</strong>
+                            <ul className="mb-0 mt-1">
+                              {sqlValidationResult.has_ctes && <li>Common Table Expressions (CTEs)</li>}
+                              {sqlValidationResult.has_subqueries && <li>Subqueries</li>}
+                              {sqlValidationResult.used_tables && sqlValidationResult.used_tables.length > 2 && <li>Complex multi-table joins</li>}
+                            </ul>
+                          </small>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
           )}
 
-          {/* Updated Requirements */}
+          {/* Enhanced Requirements */}
           <div className="col-12">
             <div className="card bg-light border-primary">
               <div className="card-body">
                 <h6 className="card-title text-primary">
                   <i className="bi bi-list-check me-2"></i>
-                  SQL Requirements for {calculation.level} Level:
+                  Enhanced SQL Requirements for {calculation.level} Level:
                 </h6>
                 <div className="row">
                   <div className="col-md-6">
                     <h6 className="text-success">✅ Required (You Must Include):</h6>
                     <ul className="mb-2">
-                      <li>SELECT <code>deal.dl_nbr</code></li>
+                      <li>SELECT <code>deal.dl_nbr</code> (or <code>dl_nbr</code>)</li>
                       {calculation.level === 'tranche' && (
-                        <li>SELECT <code>tranche.tr_id</code></li>
+                        <li>SELECT <code>tranche.tr_id</code> (or <code>tr_id</code>)</li>
                       )}
-                      <li>Return exactly one result column: <code>{calculation.weight_field || 'result_column'}</code></li>
-                      <li>Proper FROM and JOIN statements</li>
-                      <li><strong>GROUP BY clause</strong> (for aggregations)</li>
+                      <li>Return result column: <code>{calculation.weight_field || 'result_column'}</code></li>
+                      <li>Proper FROM/JOIN structure</li>
+                      <li>Use placeholders for dynamic filtering</li>
                     </ul>
                   </div>
                   <div className="col-md-6">
-                    <h6 className="text-danger">❌ Forbidden (System Handles):</h6>
+                    <h6 className="text-info">✨ Enhanced Features Available:</h6>
                     <ul className="mb-2">
-                      <li>WHERE <code>deal.dl_nbr = ...</code></li>
-                      <li>WHERE <code>tranche.tr_id IN ...</code></li>
-                      <li>WHERE <code>tranchebal.cycle_cde = ...</code></li>
-                      <li>Dangerous operations (DROP, DELETE, etc.)</li>
+                      <li>Period comparisons with <code>{`{previous_cycle}`}</code></li>
+                      <li>Dynamic filtering with <code>{`{deal_tranche_filter}`}</code></li>
+                      <li>CTEs and window functions</li>
+                      <li>Complex analytical calculations</li>
                     </ul>
                   </div>
                 </div>
                 <div className="alert alert-info mb-0 mt-2">
                   <small>
-                    <strong>💡 Tip:</strong> Focus on your business logic and grouping. The system will automatically add filters 
-                    for the selected deals, tranches, and cycle when the calculation runs.
+                    <strong>🚀 New in Enhanced Mode:</strong> Use placeholders to create calculations that adapt to different 
+                    reporting cycles and selections automatically. Perfect for trend analysis and period comparisons!
                   </small>
                 </div>
               </div>
@@ -619,6 +692,9 @@ FROM tranche_rankings`}
           <div className={`modal-header ${getModalHeaderColor()}`}>
             <h5 className="modal-title">
               {getModalTitle()}
+              {modalType === 'system-sql' && (
+                <span className="badge bg-light text-dark ms-2">Enhanced</span>
+              )}
             </h5>
             <button
               type="button"
@@ -648,7 +724,7 @@ FROM tranche_rankings`}
             )}
           </div>
 
-          {/* Modal Footer */}
+          {/* Enhanced Modal Footer */}
           <div className="modal-footer">
             <button
               type="button"
@@ -672,8 +748,8 @@ FROM tranche_rankings`}
                   </>
                 ) : (
                   <>
-                    <i className="bi bi-check-circle me-2"></i>
-                    Validate SQL
+                    <i className="bi bi-shield-check me-2"></i>
+                    Validate Enhanced SQL
                   </>
                 )}
               </button>
@@ -684,7 +760,8 @@ FROM tranche_rankings`}
               disabled={
                 isSaving || 
                 fieldsLoading || 
-                (modalType === 'system-sql' && (!sqlValidationResult || !sqlValidationResult.is_valid))
+                (modalType === 'system-sql' && (!sqlValidationResult || !sqlValidationResult.is_valid)) ||
+                (modalType === 'system-sql' && clientValidationResult && !clientValidationResult.isValid)
               }
               className="btn btn-primary"
             >
@@ -696,7 +773,7 @@ FROM tranche_rankings`}
               ) : (
                 <>
                   <i className="bi bi-save me-2"></i>
-                  {editingCalculation ? 'Update Calculation' : 'Save Calculation'}
+                  {editingCalculation ? 'Update Enhanced Calculation' : 'Save Enhanced Calculation'}
                 </>
               )}
             </button>

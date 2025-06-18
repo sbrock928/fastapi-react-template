@@ -1,1137 +1,586 @@
 # app/calculations/service.py
-"""Simplified calculation service using the unified resolver architecture"""
+"""Enhanced unified calculation service with dynamic SQL parameter injection"""
 
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any, Optional
-from app.core.exceptions import (
-    CalculationNotFoundError,
-    CalculationAlreadyExistsError,
-    InvalidCalculationError,
-)
+from sqlalchemy import and_, or_
+from typing import List, Dict, Any, Optional, Union
+from datetime import datetime
 
-from .models import (
-    UserCalculation, 
-    SystemCalculation, 
-    AggregationFunction, 
-    SourceModel, 
-    GroupLevel,
-    get_all_static_fields,
-    get_static_field_info
-)
-from .dao import UserCalculationDAO, SystemCalculationDAO
-from .resolver import UnifiedCalculationResolver, CalculationRequest, QueryFilters
+from .models import Calculation, CalculationType, AggregationFunction, SourceModel, GroupLevel, get_static_field_info
 from .schemas import (
-    UserCalculationCreate,
-    UserCalculationUpdate,
-    SystemCalculationCreate,
-    SystemCalculationUpdate,
-    StaticFieldInfo
+    UserAggregationCalculationCreate, SystemFieldCalculationCreate, SystemSqlCalculationCreate,
+    CDIVariableCalculationCreate, CalculationUpdate, CalculationResponse,
+    SqlValidationRequest, SqlValidationResult, PlaceholderInfo
 )
-# Add this conditional import to avoid circular imports
-from typing import TYPE_CHECKING
+from .resolver import EnhancedCalculationResolver, CalculationRequest, QueryFilters
+from app.core.exceptions import CalculationNotFoundError, InvalidCalculationError
+import re
 
-# Add this conditional import to avoid circular imports
-if TYPE_CHECKING:
-    from .cdi_service import CDIVariableCalculationService
 
-class ReportExecutionService:
-    """Service for executing reports with mixed calculation types using unified resolver"""
+class UnifiedCalculationService:
+    """Unified service for all calculation types with dynamic SQL parameter injection"""
 
-    def __init__(self, dw_db: Session, config_db: Session, cdi_service: Optional['CDIVariableCalculationService'] = None):
-        self.dw_db = dw_db
+    def __init__(self, config_db: Session, dw_db: Session):
         self.config_db = config_db
-        # Use only the unified resolver for cleaner, more readable SQL
-        self.resolver = UnifiedCalculationResolver(dw_db, config_db)
-        self.cdi_service = cdi_service
+        self.dw_db = dw_db
+        self.resolver = EnhancedCalculationResolver(dw_db, config_db)
 
-    def set_cdi_service(self, cdi_service: 'CDIVariableCalculationService'):
-        """Set the CDI service for integration (dependency injection)"""
-        self.cdi_service = cdi_service
+    # === CREATION METHODS ===
 
-    def execute_report(self, calculation_requests: List[CalculationRequest], 
-                      deal_tranche_map: Dict[int, List[str]], cycle_code: int, 
-                      report_scope: str = None) -> Dict[str, Any]:
-        """Execute a report with mixed calculation types including CDI variables"""
-        
-        # Separate calculation requests by type
-        regular_requests = []
-        cdi_requests = []
-        
-        for request in calculation_requests:
-            if request.calc_type == "system_calculation" and request.calc_id:
-                # Check if this system calculation is a CDI variable
-                system_calc = self.config_db.query(SystemCalculation).filter_by(
-                    id=request.calc_id, is_active=True
-                ).first()
-                
-                if (system_calc and 
-                    system_calc.metadata_config and 
-                    system_calc.metadata_config.get("calculation_type") == "cdi_variable"):
-                    cdi_requests.append(request)
-                else:
-                    regular_requests.append(request)
-            else:
-                regular_requests.append(request)
-        
-        results = {}
-        
-        # FIXED: Always execute regular calculations first to establish the base data structure
-        if regular_requests:
-            filters = QueryFilters(deal_tranche_map, cycle_code, report_scope)
-            regular_result = self.resolver.resolve_report(regular_requests, filters)
-            
-            results = {
-                'data': regular_result['merged_data'],
-                'metadata': {
-                    'total_rows': len(regular_result['merged_data']),
-                    'calculations_executed': len(regular_requests),
-                    'debug_info': regular_result['debug_info'],
-                    'unified_sql': regular_result.get('unified_sql'),
-                    'query_approach': 'unified'
-                }
-            }
-        else:
-            # FIXED: Even if no regular calculations, create empty base structure for CDI merging
-            # Get all deal/tranche combinations for CDI data to merge into
-            base_data = []
-            for deal_id, tranche_ids in deal_tranche_map.items():
-                if tranche_ids and report_scope == "TRANCHE":
-                    # Create base records for each tranche
-                    for tranche_id in tranche_ids:
-                        base_data.append({
-                            'dl_nbr': deal_id,
-                            'tr_id': tranche_id,
-                            'cycle_cde': cycle_code
-                        })
-                else:
-                    # Create base record for deal level
-                    base_data.append({
-                        'dl_nbr': deal_id,
-                        'cycle_cde': cycle_code
-                    })
-            
-            results = {
-                'data': base_data,
-                'metadata': {
-                    'total_rows': len(base_data),
-                    'calculations_executed': 0,
-                    'query_approach': 'cdi_only_with_base'
-                }
-            }
-        
-        # Execute CDI variable calculations and merge them
-        if cdi_requests and self.cdi_service:
-            cdi_results = self._execute_cdi_calculations(cdi_requests, deal_tranche_map, cycle_code)
-            
-            # FIXED: Always merge CDI results into existing data, never replace
-            if 'data' in results and results['data']:
-                if 'data' in cdi_results and cdi_results['data']:
-                    # Merge CDI results with existing regular results
-                    results['data'] = self._merge_calculation_results(results['data'], cdi_results['data'])
-                else:
-                    # CDI returned empty but regular results exist - add empty CDI columns with defaults
-                    cdi_field_names = set()
-                    for request in cdi_requests:
-                        field_alias = getattr(request, 'alias', f'cdi_calc_{request.calc_id}')
-                        cdi_field_names.add(field_alias)
-                    
-                    # Add default values (0.0) for missing CDI fields to preserve regular results
-                    for record in results['data']:
-                        for field_name in cdi_field_names:
-                            record[field_name] = 0.0
-            
-            # Update metadata
-            if 'metadata' not in results:
-                results['metadata'] = {}
-            
-            results['metadata']['cdi_calculations'] = len(cdi_requests)
-            results['metadata']['total_calculations'] = len(calculation_requests)
-            results['metadata']['cdi_records'] = cdi_results.get('total_cdi_records', 0)
-        
-        return results
-
-    def _execute_cdi_calculations(self, cdi_requests: List[CalculationRequest], 
-                                deal_tranche_map: Dict[int, List[str]], 
-                                cycle_code: int) -> Dict[str, Any]:
-        """Execute CDI variable calculations"""
-        
-        # Extract deal numbers from deal_tranche_map
-        deal_numbers = list(deal_tranche_map.keys())
-        
-        # Group CDI results by (dl_nbr, tr_id, cycle_cde) and then by alias
-        cdi_data_by_key = {}
-        
-        for request in cdi_requests:
-            try:
-                # Extract calc_id from the request
-                if hasattr(request, 'calc_id') and request.calc_id:
-                    calc_id = request.calc_id
-                elif hasattr(request, 'calculation_id'):
-                    # Handle string format like "system.123"
-                    calc_id_str = str(request.calculation_id)
-                    if calc_id_str.startswith('system.'):
-                        calc_id = int(calc_id_str.split('.')[-1])
-                    else:
-                        calc_id = int(calc_id_str)
-                else:
-                    continue
-                
-                result_df = self.cdi_service.execute_cdi_variable_calculation(
-                    calc_id, cycle_code, deal_numbers
-                )
-                
-                # Convert DataFrame to list of dicts and organize by key
-                result_data = result_df.to_dict('records')
-                
-                # Use the request alias as the field name in the merged data
-                field_alias = getattr(request, 'alias', f'cdi_calc_{calc_id}')
-                
-                for record in result_data:
-                    key = (record.get('dl_nbr'), record.get('tr_id'), record.get('cycle_cde'))
-                    if key not in cdi_data_by_key:
-                        cdi_data_by_key[key] = {}
-                    
-                    # Map the CDI value to the alias name used in the report
-                    # The CDI service returns the value under different field names depending on calculation type
-                    cdi_value = None
-                    for field_name, field_value in record.items():
-                        if field_name not in ['dl_nbr', 'tr_id', 'cycle_cde', 'variable_name', 'tranche_type']:
-                            cdi_value = field_value
-                            break
-                    
-                    if cdi_value is not None:
-                        cdi_data_by_key[key][field_alias] = cdi_value
-                
-            except Exception as e:
-                # Log error but continue with other calculations
-                continue
-        
-        # Convert to the expected format for merging
-        cdi_results = []
-        for key, fields in cdi_data_by_key.items():
-            dl_nbr, tr_id, cycle_cde = key
-            record = {
-                'dl_nbr': dl_nbr,
-                'tr_id': tr_id,
-                'cycle_cde': cycle_cde,
-                **fields  # Add all CDI field values
-            }
-            cdi_results.append(record)
-        
-        return {
-            'data': cdi_results,
-            'cdi_calculation_count': len(cdi_requests),
-            'total_cdi_records': len(cdi_results)
-        }
-    
-    def _merge_calculation_results(self, regular_data: List[Dict], cdi_data: List[Dict]) -> List[Dict]:
-        """Merge regular calculation results with CDI variable results with improved key matching"""
-        
-        if not cdi_data:
-            return regular_data
-        
-        if not regular_data:
-            return cdi_data
-        
-        # Get all unique CDI field names from the CDI data
-        cdi_field_names = set()
-        for record in cdi_data:
-            for field_name in record.keys():
-                if field_name not in ['dl_nbr', 'tr_id', 'cycle_cde', 'variable_name', 'tranche_type']:
-                    cdi_field_names.add(field_name)
-        
-        # IMPROVED: Create a more flexible lookup for CDI data
-        # Handle both deal-level and tranche-level matching
-        cdi_lookup = {}
-        
-        for record in cdi_data:
-            dl_nbr = record.get('dl_nbr')
-            tr_id = record.get('tr_id', '').strip() if record.get('tr_id') else None
-            cycle_cde = record.get('cycle_cde')
-            
-            # Create multiple lookup keys to handle different scenarios
-            keys_to_try = []
-            
-            # Full key (deal + tranche + cycle)
-            if tr_id:
-                keys_to_try.append((dl_nbr, tr_id, cycle_cde))
-                keys_to_try.append((dl_nbr, tr_id.strip(), cycle_cde))
-            
-            # Deal-only key (for deal-level calculations)
-            keys_to_try.append((dl_nbr, None, cycle_cde))
-            keys_to_try.append((dl_nbr, '', cycle_cde))
-            
-            # Store CDI values under all possible keys
-            for key in keys_to_try:
-                if key not in cdi_lookup:
-                    cdi_lookup[key] = {}
-                
-                # Store all CDI field values
-                for field_name, field_value in record.items():
-                    if field_name not in ['dl_nbr', 'tr_id', 'cycle_cde', 'variable_name', 'tranche_type']:
-                        cdi_lookup[key][field_name] = field_value
-        
-        # IMPROVED: Merge CDI data into regular data with flexible key matching
-        for record in regular_data:
-            dl_nbr = record.get('dl_nbr')
-            tr_id = record.get('tr_id', '').strip() if record.get('tr_id') else None
-            cycle_cde = record.get('cycle_cde')
-            
-            # Try different key combinations to find CDI data
-            keys_to_try = []
-            
-            # Try exact match first
-            if tr_id:
-                keys_to_try.append((dl_nbr, tr_id, cycle_cde))
-                keys_to_try.append((dl_nbr, tr_id.strip(), cycle_cde))
-            
-            # Try deal-only match (for when CDI is deal-level but regular is tranche-level)
-            keys_to_try.append((dl_nbr, None, cycle_cde))
-            keys_to_try.append((dl_nbr, '', cycle_cde))
-            
-            # Find the first matching CDI data
-            cdi_values_found = None
-            for key in keys_to_try:
-                if key in cdi_lookup:
-                    cdi_values_found = cdi_lookup[key]
-                    break
-            
-            # Add CDI fields to the record
-            for field_name in cdi_field_names:
-                if cdi_values_found and field_name in cdi_values_found:
-                    # Use actual CDI value
-                    record[field_name] = cdi_values_found[field_name]
-                else:
-                    # Use default value of 0.0 for missing CDI mappings
-                    record[field_name] = 0.0
-        
-        return regular_data
-
-    def preview_report_sql(self, calculation_requests: List[CalculationRequest],
-                          deal_tranche_map: Dict[int, List[str]], cycle_code: int, 
-                          report_scope: str = None) -> Dict[str, Any]:
-        """Preview SQL queries without executing them using unified approach"""
-
-        # Separate regular and CDI calculations using same logic as execute_report
-        regular_requests = []
-        cdi_requests = []
-        
-        for request in calculation_requests:
-            if request.calc_type == "system_calculation" and request.calc_id:
-                # Check if this system calculation is a CDI variable
-                system_calc = self.config_db.query(SystemCalculation).filter_by(
-                    id=request.calc_id, is_active=True
-                ).first()
-                
-                if (system_calc and 
-                    system_calc.metadata_config and 
-                    system_calc.metadata_config.get("calculation_type") == "cdi_variable"):
-                    cdi_requests.append(request)
-                else:
-                    regular_requests.append(request)
-            else:
-                regular_requests.append(request)
-
-        filters = QueryFilters(deal_tranche_map, cycle_code, report_scope)
-        
-        # Generate the unified SQL for regular calculations only
-        unified_sql = None
-        if regular_requests:
-            try:
-                unified_sql = self.resolver._build_unified_query(regular_requests, filters)
-            except Exception as e:
-                unified_sql = f"-- ERROR generating unified SQL: {str(e)}"
-        
-        result = {
-            'unified_sql': unified_sql,
-            'parameters': {
-                'deal_tranche_map': deal_tranche_map,
-                'cycle_code': cycle_code,
-                'report_scope': report_scope
-            },
-            'summary': {
-                'total_calculations': len(calculation_requests),
-                'static_fields': len([r for r in regular_requests if r.calc_type == 'static_field']),
-                'user_calculations': len([r for r in regular_requests if r.calc_type == 'user_calculation']),
-                'system_calculations': len([r for r in calculation_requests if r.calc_type == 'system_calculation']),  # FIXED: Count ALL system calculations
-                'cdi_calculations': len(cdi_requests),
-                'query_approach': 'unified'
-            }
-        }
-        
-        # Add CDI calculation SQL previews if present
-        if cdi_requests and self.cdi_service:
-            cdi_sql_previews = []
-            deal_numbers = list(deal_tranche_map.keys())
-            
-            for req in cdi_requests:
-                try:
-                    # Extract calc_id from the request
-                    if hasattr(req, 'calc_id') and req.calc_id:
-                        calc_id = req.calc_id
-                    elif hasattr(req, 'calculation_id'):
-                        # Handle string format like "system.123"
-                        calc_id_str = str(req.calculation_id)
-                        if calc_id_str.startswith('system.'):
-                            calc_id = int(calc_id_str.split('.')[-1])
-                        else:
-                            calc_id = int(calc_id_str)
-                    else:
-                        continue
-                    
-                    # Generate SQL preview for this CDI calculation
-                    cdi_preview = self.cdi_service.generate_cdi_sql_preview(
-                        calc_id, cycle_code, deal_numbers
-                    )
-                    
-                    # Add the alias from the request for context
-                    cdi_preview['alias'] = getattr(req, 'alias', f'cdi_calc_{calc_id}')
-                    cdi_preview['calc_id'] = calc_id
-                    
-                    cdi_sql_previews.append(cdi_preview)
-                    
-                except Exception as e:
-                    # If preview generation fails, add error info
-                    cdi_sql_previews.append({
-                        'alias': getattr(req, 'alias', 'unknown'),
-                        'calc_id': getattr(req, 'calc_id', 'unknown'),
-                        'error': f'Failed to generate SQL preview: {str(e)}',
-                        'sql': '-- SQL generation failed',
-                        'calculation_type': 'cdi_error'
-                    })
-            
-            result['cdi_sql_previews'] = cdi_sql_previews
-        
-        return result
-    
-class UserCalculationService:
-    """Service for managing user-defined calculations"""
-
-    def __init__(self, user_calc_dao: UserCalculationDAO):
-        self.user_calc_dao = user_calc_dao
-
-    def get_all_user_calculations(self, group_level: Optional[str] = None) -> List[UserCalculation]:
-        """Get all active user calculations with usage information"""
-        group_level_enum = GroupLevel(group_level) if group_level else None
-        calculations = self.user_calc_dao.get_all(group_level_enum)
-        
-        # Add usage information to each calculation
-        for calc in calculations:
-            try:
-                usage_info = self.get_user_calculation_usage(calc.id)
-                # Add usage info as attributes to the calculation object
-                calc.usage_info = usage_info
-            except Exception as e:
-                # If usage fetch fails, provide default values
-                calc.usage_info = {
-                    "calculation_id": calc.id,
-                    "calculation_name": calc.name,
-                    "is_in_use": False,
-                    "report_count": 0,
-                    "reports": [],
-                }
-        
-        return calculations
-
-    def get_user_calculation_by_id(self, calc_id: int) -> Optional[UserCalculation]:
-        """Get user calculation by ID"""
-        return self.user_calc_dao.get_by_id(calc_id)
-
-    def get_user_calculation_by_source_field(self, source_field: str) -> Optional[UserCalculation]:
-        """Get user calculation by source_field"""
-        return self.user_calc_dao.get_by_source_field(source_field)
-
-    def get_user_calculation_by_source_field_and_scope(
+    def create_user_aggregation_calculation(
         self, 
-        source_field: str, 
-        report_scope: str
-    ) -> Optional[UserCalculation]:
-        """
-        Get user calculation by source_field with scope preference.
+        request: UserAggregationCalculationCreate, 
+        created_by: str
+    ) -> CalculationResponse:
+        """Create a new user aggregation calculation"""
         
-        For TRANCHE reports: Prefer tranche-level calculations, fall back to deal-level
-        For DEAL reports: Only return deal-level calculations
-        """
-        # Get all active calculations for this source field
-        calculations = self.user_calc_dao.get_all_by_source_field(source_field)
-        
-        if not calculations:
-            return None
-        
-        # Filter by scope preference
-        if report_scope == "TRANCHE":
-            # For tranche reports, prefer tranche-level calculations
-            tranche_calcs = [c for c in calculations if c.group_level.value == "tranche"]
-            if tranche_calcs:
-                return tranche_calcs[0]  # Return first tranche-level match
-            
-            # Fall back to deal-level if no tranche-level exists
-            deal_calcs = [c for c in calculations if c.group_level.value == "deal"]
-            return deal_calcs[0] if deal_calcs else None
-        
-        elif report_scope == "DEAL":
-            # For deal reports, only return deal-level calculations
-            deal_calcs = [c for c in calculations if c.group_level.value == "deal"]
-            return deal_calcs[0] if deal_calcs else None
-        
-        # Fallback to original behavior
-        return calculations[0] if calculations else None
-
-    def create_user_calculation(self, request: UserCalculationCreate, created_by: str = "api_user") -> UserCalculation:
-        """Create a new user calculation with automatic approval for development"""
-        
-        # Check if calculation name already exists at this group level
-        existing = self.user_calc_dao.get_by_name_and_group_level(request.name, request.group_level)
-        
-        if existing:
-            raise CalculationAlreadyExistsError(
-                f"User calculation with name '{request.name}' already exists at {request.group_level} level"
-            )
-
-        # Check if source_field is already in use
-        existing_calc = self.user_calc_dao.get_by_source_field_and_group_level(request.source_field, request.group_level)
-        if existing_calc:
-            raise ValueError(f"Source field '{request.source_field}' is already in use by calculation '{existing_calc.name}' at the {request.group_level.value} level")
-
-        # Validate weighted average has weight field
-        if request.aggregation_function == AggregationFunction.WEIGHTED_AVG and not request.weight_field:
-            raise InvalidCalculationError("Weighted average calculations require a weight_field")
-
-        # Create new calculation
-        calculation = UserCalculation(
+        # Create the calculation
+        calculation = Calculation(
             name=request.name,
             description=request.description,
+            calculation_type=CalculationType.USER_AGGREGATION,
+            group_level=request.group_level,
             aggregation_function=request.aggregation_function,
             source_model=request.source_model,
             source_field=request.source_field,
             weight_field=request.weight_field,
-            group_level=request.group_level,
-            advanced_config=request.advanced_config,
-            created_by=created_by,
-        )
-
-        # Create the calculation first
-        created_calc = self.user_calc_dao.create(calculation)
-        
-        # Auto-approve for development (TODO: implement proper approval workflow)
-        approved_calc = self.approve_user_calculation(created_calc.id, "system_auto_approval")
-        
-        return approved_calc
-
-    def approve_user_calculation(self, calc_id: int, approved_by: str) -> UserCalculation:
-        """Approve a user calculation"""
-        calculation = self.get_user_calculation_by_id(calc_id)
-        if not calculation:
-            raise CalculationNotFoundError(f"User calculation with ID {calc_id} not found")
-
-        from datetime import datetime
-        calculation.approved_by = approved_by
-        calculation.approval_date = datetime.now()
-        
-        return self.user_calc_dao.update(calculation)
-
-    def update_user_calculation(self, calc_id: int, request: UserCalculationUpdate) -> UserCalculation:
-        """Update an existing user calculation"""
-        calculation = self.get_user_calculation_by_id(calc_id)
-        if not calculation:
-            raise CalculationNotFoundError(f"User calculation with ID {calc_id} not found")
-
-        # Check if another calculation with the same name exists at this group level (excluding current one)
-        if request.name:
-            group_level = request.group_level or calculation.group_level
-            existing = self.user_calc_dao.get_by_name_and_group_level(request.name, group_level)
-            
-            if existing and existing.id != calc_id:
-                raise CalculationAlreadyExistsError(
-                    f"Another user calculation with name '{request.name}' already exists at that group level"
-                )
-
-        # If source_field is being updated, check for conflicts at the same group level
-        if hasattr(request, 'source_field') and request.source_field and request.source_field != calculation.source_field:
-            group_level = request.group_level or calculation.group_level
-            conflicting_calc = self.user_calc_dao.get_by_source_field_and_group_level(request.source_field, group_level)
-            if conflicting_calc and conflicting_calc.id != calc_id:
-                raise ValueError(f"Source field '{request.source_field}' is already in use by calculation '{conflicting_calc.name}' at the {group_level.value} level")
-
-        # Update fields that are provided
-        if request.name is not None:
-            calculation.name = request.name
-        if request.description is not None:
-            calculation.description = request.description
-        if request.aggregation_function is not None:
-            calculation.aggregation_function = request.aggregation_function
-        if request.source_model is not None:
-            calculation.source_model = request.source_model
-        if request.source_field is not None:
-            calculation.source_field = request.source_field
-        if request.weight_field is not None:
-            calculation.weight_field = request.weight_field
-        if request.group_level is not None:
-            calculation.group_level = request.group_level
-        if request.advanced_config is not None:
-            calculation.advanced_config = request.advanced_config
-
-        # Validate weighted average has weight field
-        if (calculation.aggregation_function == AggregationFunction.WEIGHTED_AVG 
-            and not calculation.weight_field):
-            raise InvalidCalculationError("Weighted average calculations require a weight_field")
-
-        return self.user_calc_dao.update(calculation)
-
-    def delete_user_calculation(self, calc_id: int) -> Dict[str, str]:
-        """Soft delete a user calculation"""
-        calculation = self.get_user_calculation_by_id(calc_id)
-        if not calculation:
-            raise CalculationNotFoundError(f"User calculation with ID {calc_id} not found")
-
-        self.user_calc_dao.soft_delete(calculation)
-        return {"message": f"User calculation '{calculation.name}' deleted successfully"}
-
-    def get_user_calculation_usage(self, calc_id: int, report_scope: Optional[str] = None) -> Dict[str, Any]:
-        """Get usage information for a user calculation with scope awareness."""
-        calculation = self.get_user_calculation_by_id(calc_id)
-        if not calculation:
-            raise CalculationNotFoundError(f"User calculation with ID {calc_id} not found")
-        
-        from app.reporting.models import ReportCalculation, Report
-        from sqlalchemy.orm import joinedload
-        
-        # Find all reports that use this calculation using NEW FORMAT
-        new_calc_id = f"user.{calculation.source_field}"
-        
-        # Base query - filter by calculation ID and active reports
-        query = (
-            self.user_calc_dao.db
-            .query(ReportCalculation)
-            .join(Report)
-            .filter(
-                ReportCalculation.calculation_id == new_calc_id,
-                Report.is_active == True
-            )
-            .options(joinedload(ReportCalculation.report))
+            created_by=created_by
         )
         
-        # Apply scope filter if provided
-        if report_scope:
-            query = query.filter(Report.scope == report_scope.upper())
+        self.config_db.add(calculation)
+        self.config_db.commit()
+        self.config_db.refresh(calculation)
         
-        report_usages = query.all()
-        
-        reports = []
-        for usage in report_usages:
-            reports.append({
-                "report_id": usage.report.id,
-                "report_name": usage.report.name,
-                "report_scope": usage.report.scope,
-                "display_order": usage.display_order,
-                "display_name": usage.display_name
-            })
-        
-        # Return the NEW FORMAT calculation_id instead of the database ID
-        result = {
-            "calculation_id": new_calc_id,  # FIXED: Use new format instead of calc_id
-            "calculation_name": calculation.name,
-            "is_in_use": len(reports) > 0,
-            "report_count": len(reports),
-            "reports": reports,
-        }
-        
-        if report_scope:
-            result["scope_filter"] = report_scope.upper()
-            result["scope_specific_usage"] = True
-        
-        return result
+        return self._to_response(calculation)
 
-
-class SystemCalculationService:
-    """Service for managing system-defined calculations"""
-
-    def __init__(self, system_calc_dao: SystemCalculationDAO):
-        self.system_calc_dao = system_calc_dao
-        self._cdi_service: Optional['CDIVariableCalculationService'] = None
+    def create_system_field_calculation(
+        self, 
+        request: SystemFieldCalculationCreate, 
+        created_by: str
+    ) -> CalculationResponse:
+        """Create a new system field calculation"""
         
-    def get_all_system_calculations(self, group_level: Optional[str] = None) -> List[SystemCalculation]:
-        """Get all active system calculations with usage information"""
-        group_level_enum = GroupLevel(group_level) if group_level else None
-        calculations = self.system_calc_dao.get_all(group_level_enum)
+        # Parse field path and get field info
+        field_info = get_static_field_info(request.field_path)
         
-        # Add usage information to each calculation
-        for calc in calculations:
-            try:
-                usage_info = self.get_system_calculation_usage(calc.id)
-                # Add usage info as attributes to the calculation object
-                calc.usage_info = usage_info
-            except Exception as e:
-                # If usage fetch fails, provide default values
-                calc.usage_info = {
-                    "calculation_id": calc.id,
-                    "calculation_name": calc.name,
-                    "is_in_use": False,
-                    "report_count": 0,
-                    "reports": [],
-                }
-        
-        return calculations
-
-    def get_system_calculation_by_id(self, calc_id: int) -> Optional[SystemCalculation]:
-        """Get system calculation by ID"""
-        return self.system_calc_dao.get_by_id(calc_id)
-
-    def get_system_calculation_by_result_column(self, result_column_name: str) -> Optional[SystemCalculation]:
-        """Get system calculation by result_column_name"""
-        return self.system_calc_dao.get_by_result_column_name(result_column_name)
-
-    def create_system_calculation(self, request: SystemCalculationCreate, 
-                                created_by: str = "admin") -> SystemCalculation:
-        """Create a new system calculation"""
-        
-        # Check if calculation name already exists at this group level
-        existing = self.system_calc_dao.get_by_name_and_group_level(request.name, request.group_level)
-        
-        if existing:
-            raise CalculationAlreadyExistsError(
-                f"System calculation with name '{request.name}' already exists at {request.group_level} level"
-            )
-
-        # Check if result_column_name is already in use
-        existing_calc = self.get_system_calculation_by_result_column(request.result_column_name)
-        if existing_calc:
-            raise ValueError(f"Result column '{request.result_column_name}' is already in use by calculation '{existing_calc.name}'")
-
-        # Basic SQL validation
-        self._validate_system_sql(request.raw_sql, request.group_level, request.result_column_name)
-
-        # Create new calculation
-        calculation = SystemCalculation(
+        calculation = Calculation(
             name=request.name,
             description=request.description,
+            calculation_type=CalculationType.SYSTEM_FIELD,
+            group_level=request.group_level,
+            source_field=request.field_path.split('.')[-1],  # Extract field name
+            metadata_config={
+                "field_path": request.field_path,
+                "field_info": field_info
+            },
+            created_by=created_by
+        )
+        
+        self.config_db.add(calculation)
+        self.config_db.commit()
+        self.config_db.refresh(calculation)
+        
+        return self._to_response(calculation)
+
+    def create_system_sql_calculation(
+        self, 
+        request: SystemSqlCalculationCreate, 
+        created_by: str
+    ) -> CalculationResponse:
+        """Create a new system SQL calculation with placeholder support"""
+        
+        # Extract placeholders and validate SQL
+        validation_result = self.validate_sql(SqlValidationRequest(
+            sql_text=request.raw_sql,
+            group_level=request.group_level,
+            result_column_name=request.result_column_name
+        ))
+        
+        if not validation_result.is_valid:
+            raise InvalidCalculationError(f"SQL validation failed: {'; '.join(validation_result.errors)}")
+        
+        # Prepare SQL parameters
+        sql_parameters = request.sql_parameters or {}
+        sql_parameters.update({
+            "placeholders_used": validation_result.placeholders_used,
+            "validation_info": {
+                "has_ctes": validation_result.has_ctes,
+                "has_subqueries": validation_result.has_subqueries,
+                "used_tables": validation_result.used_tables
+            }
+        })
+        
+        calculation = Calculation(
+            name=request.name,
+            description=request.description,
+            calculation_type=CalculationType.SYSTEM_SQL,
+            group_level=request.group_level,
             raw_sql=request.raw_sql,
             result_column_name=request.result_column_name,
+            sql_parameters=sql_parameters,
+            created_by=created_by
+        )
+        
+        self.config_db.add(calculation)
+        self.config_db.commit()
+        self.config_db.refresh(calculation)
+        
+        return self._to_response(calculation)
+
+    def create_cdi_variable_calculation(
+        self, 
+        request: CDIVariableCalculationCreate, 
+        created_by: str
+    ) -> CalculationResponse:
+        """Create a new CDI variable calculation"""
+        
+        # Generate SQL for CDI variable calculation
+        cdi_sql = self._generate_cdi_sql(request)
+        
+        calculation = Calculation(
+            name=request.name,
+            description=request.description,
+            calculation_type=CalculationType.CDI_VARIABLE,
             group_level=request.group_level,
-            metadata_config=request.metadata_config,
-            created_by=created_by,
-        )
-
-        return self.system_calc_dao.create(calculation)
-
-    def update_system_calculation(self, calc_id: int, request: SystemCalculationUpdate) -> SystemCalculation:
-        """Update an existing system calculation"""
-        calculation = self.get_system_calculation_by_id(calc_id)
-        if not calculation:
-            raise CalculationNotFoundError(f"System calculation with ID {calc_id} not found")
-
-        # Check if another calculation with the same name exists at this group level (excluding current one)
-        if request.name:
-            group_level = request.group_level or calculation.group_level
-            existing = self.system_calc_dao.get_by_name_and_group_level(request.name, group_level)
-            
-            if existing and existing.id != calc_id:
-                raise CalculationAlreadyExistsError(
-                    f"Another system calculation with name '{request.name}' already exists at that group level"
-                )
-
-        # If result_column_name is being updated, check for conflicts
-        if request.result_column_name and request.result_column_name != calculation.result_column_name:
-            existing_calc = self.get_system_calculation_by_result_column(request.result_column_name)
-            if existing_calc and existing_calc.id != calc_id:
-                raise ValueError(f"Result column '{request.result_column_name}' is already in use by calculation '{existing_calc.name}'")
-
-        # Validate SQL if being updated
-        if request.raw_sql:
-            group_level = request.group_level or calculation.group_level
-            result_column = request.result_column_name or calculation.result_column_name
-            self._validate_system_sql(request.raw_sql, group_level, result_column)
-
-        # Update fields that are provided
-        if request.name is not None:
-            calculation.name = request.name
-        if request.description is not None:
-            calculation.description = request.description
-        if request.raw_sql is not None:
-            calculation.raw_sql = request.raw_sql
-        if request.result_column_name is not None:
-            calculation.result_column_name = request.result_column_name
-        if request.group_level is not None:
-            calculation.group_level = request.group_level
-        if request.metadata_config is not None:
-            calculation.metadata_config = request.metadata_config
-
-        return self.system_calc_dao.update(calculation)
-
-    def approve_system_calculation(self, calc_id: int, approved_by: str) -> SystemCalculation:
-        """Approve a system calculation"""
-        calculation = self.get_system_calculation_by_id(calc_id)
-        if not calculation:
-            raise CalculationNotFoundError(f"System calculation with ID {calc_id} not found")
-
-        from datetime import datetime
-        calculation.approved_by = approved_by
-        calculation.approval_date = datetime.now()
-        
-        return self.system_calc_dao.update(calculation)
-
-    def delete_system_calculation(self, calc_id: int) -> Dict[str, str]:
-        """Soft delete a system calculation"""
-        calculation = self.get_system_calculation_by_id(calc_id)
-        if not calculation:
-            raise CalculationNotFoundError(f"System calculation with ID {calc_id} not found")
-
-        self.system_calc_dao.soft_delete(calculation)
-        return {"message": f"System calculation '{calculation.name}' deleted successfully"}
-
-    def get_system_calculation_usage(self, calc_id: int, report_scope: Optional[str] = None) -> Dict[str, Any]:
-        """Get usage information for a system calculation with scope awareness."""
-        calculation = self.get_system_calculation_by_id(calc_id)
-        if not calculation:
-            raise CalculationNotFoundError(f"System calculation with ID {calc_id} not found")
-        
-        from app.reporting.models import ReportCalculation, Report
-        from sqlalchemy.orm import joinedload
-        
-        # Find all reports that use this calculation using NEW FORMAT
-        new_calc_id = f"system.{calculation.result_column_name}"
-        
-        # Base query - filter by calculation ID and active reports
-        query = (
-            self.system_calc_dao.db
-            .query(ReportCalculation)
-            .join(Report)
-            .filter(
-                ReportCalculation.calculation_id == new_calc_id,
-                Report.is_active == True
-            )
-            .options(joinedload(ReportCalculation.report))
+            raw_sql=cdi_sql,
+            result_column_name=request.result_column_name,
+            metadata_config={
+                "variable_pattern": request.variable_pattern,
+                "tranche_mappings": request.tranche_mappings,
+                "calculation_type": "cdi_variable"
+            },
+            created_by=created_by
         )
         
-        # Apply scope filter if provided
-        if report_scope:
-            query = query.filter(Report.scope == report_scope.upper())
+        self.config_db.add(calculation)
+        self.config_db.commit()
+        self.config_db.refresh(calculation)
         
-        report_usages = query.all()
-        
-        reports = []
-        for usage in report_usages:
-            reports.append({
-                "report_id": usage.report.id,
-                "report_name": usage.report.name,
-                "report_scope": usage.report.scope,
-                "display_order": usage.display_order,
-                "display_name": usage.display_name
-            })
-        
-        # Return the NEW FORMAT calculation_id instead of the database ID
-        result = {
-            "calculation_id": new_calc_id,  # FIXED: Use new format instead of calc_id
-            "calculation_name": calculation.name,
-            "is_in_use": len(reports) > 0,
-            "report_count": len(reports),
-            "reports": reports,
-        }
-        
-        if report_scope:
-            result["scope_filter"] = report_scope.upper()
-            result["scope_specific_usage"] = True
-        
-        return result
+        return self._to_response(calculation)
 
-    def set_cdi_service(self, cdi_service: 'CDIVariableCalculationService'):
-        """Set the CDI service for integration (dependency injection)"""
-        self._cdi_service = cdi_service
-    
-    def is_cdi_variable_calculation(self, calc_id: int) -> bool:
-        """Check if a calculation is a CDI variable calculation"""
-        if not self._cdi_service:
-            return False
-        
-        calculation = self.get_system_calculation_by_id(calc_id)
-        if not calculation:
-            return False
-            
-        return (
-            calculation.metadata_config and 
-            calculation.metadata_config.get("calculation_type") == "cdi_variable"
-        )
-    
-    def get_calculation_type(self, calc_id: int) -> str:
-        """Get the type of calculation (regular, cdi_variable, etc.)"""
-        calculation = self.get_system_calculation_by_id(calc_id)
-        if not calculation:
-            return "unknown"
-        
-        if calculation.metadata_config:
-            return calculation.metadata_config.get("calculation_type", "regular")
-        
-        return "regular"
-    
-    def execute_calculation_by_type(self, calc_id: int, **execution_params) -> Any:
-        """Execute a calculation based on its type"""
-        calc_type = self.get_calculation_type(calc_id)
-        
-        if calc_type == "cdi_variable" and self._cdi_service:
-            # Extract parameters for CDI execution
-            cycle_code = execution_params.get("cycle_code")
-            deal_numbers = execution_params.get("deal_numbers", [])
-            
-            if not cycle_code or not deal_numbers:
-                raise InvalidCalculationError(
-                    "CDI variable calculations require 'cycle_code' and 'deal_numbers' parameters"
-                )
-            
-            return self._cdi_service.execute_cdi_variable_calculation(
-                calc_id, cycle_code, deal_numbers
-            )
-        
-        elif calc_type == "regular":
-            # Execute regular system calculation (your existing logic)
-            return self._execute_regular_calculation(calc_id, **execution_params)
-        
+    # === RETRIEVAL METHODS ===
+
+    def get_calculation_by_id(self, calc_id: int) -> Optional[CalculationResponse]:
+        """Get a calculation by ID"""
+        calculation = self.config_db.query(Calculation).filter_by(id=calc_id, is_active=True).first()
+        return self._to_response(calculation) if calculation else None
+
+    def get_user_calculation_by_id(self, calc_id: int) -> Optional[CalculationResponse]:
+        """Get a user calculation by ID"""
+        calculation = self.config_db.query(Calculation).filter_by(
+            id=calc_id, 
+            calculation_type=CalculationType.USER_AGGREGATION,
+            is_active=True
+        ).first()
+        return self._to_response(calculation) if calculation else None
+
+    def get_system_calculation_by_id(self, calc_id: int) -> Optional[CalculationResponse]:
+        """Get a system calculation by ID"""
+        calculation = self.config_db.query(Calculation).filter(
+            Calculation.id == calc_id,
+            Calculation.calculation_type.in_([CalculationType.SYSTEM_SQL, CalculationType.SYSTEM_FIELD]),
+            Calculation.is_active == True
+        ).first()
+        return self._to_response(calculation) if calculation else None
+
+    def get_user_calculation_by_source_field(self, source_field: str) -> Optional[CalculationResponse]:
+        """Get a user calculation by source field"""
+        calculation = self.config_db.query(Calculation).filter_by(
+            source_field=source_field,
+            calculation_type=CalculationType.USER_AGGREGATION,
+            is_active=True
+        ).first()
+        return self._to_response(calculation) if calculation else None
+
+    def get_user_calculation_by_source_field_and_scope(self, source_field: str, scope: str) -> Optional[CalculationResponse]:
+        """Get a user calculation by source field and scope (group level)"""
+        # Convert scope to group level
+        if scope.upper() == "DEAL":
+            group_level = GroupLevel.DEAL
+        elif scope.upper() == "TRANCHE":
+            group_level = GroupLevel.TRANCHE
         else:
-            raise InvalidCalculationError(f"Unknown calculation type: {calc_type}")
-    
-    def _execute_regular_calculation(self, calc_id: int, **execution_params) -> Any:
-        """Execute a regular system calculation (implement your existing logic here)"""
-        # This is where you'd put your existing system calculation execution logic
-        # For now, just return a placeholder
-        calculation = self.get_system_calculation_by_id(calc_id)
-        if not calculation:
-            raise CalculationNotFoundError(f"Calculation {calc_id} not found")
-        
-        # TODO: Implement your regular calculation execution logic
-        raise NotImplementedError("Regular calculation execution not implemented yet")
-    
-    def get_calculations_by_type(self, calc_type: str, group_level: Optional[str] = None) -> List[SystemCalculation]:
-        """Get calculations filtered by type"""
-        all_calcs = self.get_all_system_calculations(group_level)
-        
-        if calc_type == "cdi_variable":
-            return [
-                calc for calc in all_calcs 
-                if calc.metadata_config and calc.metadata_config.get("calculation_type") == "cdi_variable"
-            ]
-        elif calc_type == "regular":
-            return [
-                calc for calc in all_calcs 
-                if not calc.metadata_config or calc.metadata_config.get("calculation_type") != "cdi_variable"
-            ]
-        else:
-            return all_calcs
-
-    def _validate_system_sql(self, sql: str, group_level: GroupLevel, result_column_name: str):
-        """Enhanced validation for system SQL with CTE support"""
-        if not sql or not sql.strip():
-            raise InvalidCalculationError("raw_sql cannot be empty")
-        
-        sql_trimmed = sql.strip()
-        sql_lower = sql_trimmed.lower()
-        
-        # Check for CTEs first
-        has_ctes = sql_trimmed.upper().strip().startswith('WITH')
-        
-        if has_ctes:
-            # For CTEs, validate the structure but extract the final SELECT for field validation
-            if not self._validate_cte_structure(sql_trimmed):
-                raise InvalidCalculationError("Invalid CTE structure")
-            
-            # Extract final SELECT for field validation
-            final_select = self._extract_final_select_from_cte(sql_trimmed)
-            if not final_select:
-                raise InvalidCalculationError("Could not identify the final SELECT statement in CTE")
-            
-            # Validate the final SELECT
-            final_select_lower = final_select.lower()
-            if not final_select_lower.strip().startswith('select'):
-                raise InvalidCalculationError("Final query in CTE must be a SELECT statement")
-            
-            if 'from' not in final_select_lower:
-                raise InvalidCalculationError("Final SELECT in CTE must include a FROM clause")
-            
-            # Use final SELECT for field validation
-            validation_sql = final_select_lower
-        else:
-            # For simple queries, validate normally
-            if not sql_lower.startswith('select'):
-                raise InvalidCalculationError("System SQL must be a SELECT statement")
-            
-            if 'from' not in sql_lower:
-                raise InvalidCalculationError("System SQL must include a FROM clause")
-            
-            validation_sql = sql_lower
-        
-        # Check for dangerous operations on the entire SQL
-        dangerous_keywords = ['drop', 'delete', 'insert', 'update', 'alter', 'truncate']
-        for keyword in dangerous_keywords:
-            if keyword in sql_lower:
-                raise InvalidCalculationError(f"Dangerous operation '{keyword}' not allowed in system SQL")
-
-        # Check for required fields based on group level (use validation_sql which is the final SELECT)
-        if group_level == GroupLevel.DEAL:
-            if 'deal.dl_nbr' not in validation_sql and 'dl_nbr' not in validation_sql:
-                raise InvalidCalculationError("Deal-level SQL must include deal.dl_nbr for proper grouping")
-        
-        if group_level == GroupLevel.TRANCHE:
-            if 'deal.dl_nbr' not in validation_sql and 'dl_nbr' not in validation_sql:
-                raise InvalidCalculationError("Tranche-level SQL must include deal.dl_nbr for proper grouping")
-            if 'tranche.tr_id' not in validation_sql and 'tr_id' not in validation_sql:
-                raise InvalidCalculationError("Tranche-level SQL must include tranche.tr_id for proper grouping")
-    
-    def _validate_cte_structure(self, sql: str) -> bool:
-        """Validate CTE structure and syntax"""
-        import re
-        
-        # Check for basic CTE syntax
-        if not re.search(r'WITH\s+\w+\s+AS\s*\(', sql, re.IGNORECASE):
-            return False
-        
-        # Check for balanced parentheses
-        paren_count = 0
-        in_quotes = False
-        quote_char = ''
-        
-        for i, char in enumerate(sql):
-            prev_char = sql[i-1] if i > 0 else ''
-            
-            if (char == '"' or char == "'") and prev_char != '\\':
-                if not in_quotes:
-                    in_quotes = True
-                    quote_char = char
-                elif char == quote_char:
-                    in_quotes = False
-                    quote_char = ''
-            
-            if not in_quotes:
-                if char == '(':
-                    paren_count += 1
-                elif char == ')':
-                    paren_count -= 1
-        
-        return paren_count == 0
-    
-    def _extract_final_select_from_cte(self, sql: str) -> str:
-        """Extract the final SELECT statement from a CTE query"""
-        paren_count = 0
-        in_quotes = False
-        quote_char = ''
-        after_with = False
-        final_select_start = -1
-        
-        for i, char in enumerate(sql):
-            prev_char = sql[i-1] if i > 0 else ''
-            next_few_chars = sql[i:i+6].upper()
-            
-            # Handle quotes
-            if (char == '"' or char == "'") and prev_char != '\\':
-                if not in_quotes:
-                    in_quotes = True
-                    quote_char = char
-                elif char == quote_char:
-                    in_quotes = False
-                    quote_char = ''
-            
-            if not in_quotes:
-                # Track parentheses
-                if char == '(':
-                    paren_count += 1
-                elif char == ')':
-                    paren_count -= 1
-                
-                # Check for WITH keyword
-                if not after_with and next_few_chars.startswith('WITH '):
-                    after_with = True
-                
-                # Look for SELECT after we've closed all CTE parentheses
-                if (after_with and paren_count == 0 and 
-                    next_few_chars.startswith('SELECT') and final_select_start == -1):
-                    final_select_start = i
-                    break
-        
-        # If we found the final SELECT, extract it
-        if final_select_start != -1:
-            return sql[final_select_start:].strip()
-        
-        # Fallback: look for the last SELECT statement
-        import re
-        select_matches = list(re.finditer(r'\bSELECT\b', sql, re.IGNORECASE))
-        if select_matches:
-            last_select_pos = select_matches[-1].start()
-            return sql[last_select_pos:].strip()
-        
-        return None
-        
-
-class StaticFieldService:
-    """Service for static field information"""
-
-    @staticmethod
-    def get_all_static_fields() -> List[StaticFieldInfo]:
-        """Get all available static fields"""
-        fields = get_all_static_fields()
-        return [
-            StaticFieldInfo(
-                field_path=field_path,
-                name=info['name'],
-                description=info['description'],
-                type=info['type'],
-                required_models=info['required_models'],
-                nullable=info['nullable']
-            )
-            for field_path, info in fields.items()
-        ]
-
-    @staticmethod
-    def get_static_field_by_path(field_path: str) -> Optional[StaticFieldInfo]:
-        """Get static field information by path"""
-        info = get_static_field_info(field_path)
-        if not info or info.get('type') == 'unknown':
             return None
         
-        return StaticFieldInfo(
-            field_path=field_path,
-            name=info['name'],
-            description=info['description'],
-            type=info['type'],
-            required_models=info['required_models'],
-            nullable=info['nullable']
+        calculation = self.config_db.query(Calculation).filter_by(
+            source_field=source_field,
+            calculation_type=CalculationType.USER_AGGREGATION,
+            group_level=group_level,
+            is_active=True
+        ).first()
+        return self._to_response(calculation) if calculation else None
+
+    def get_system_calculation_by_result_column(self, result_column: str) -> Optional[CalculationResponse]:
+        """Get a system calculation by result column name"""
+        calculation = self.config_db.query(Calculation).filter(
+            Calculation.result_column_name == result_column,
+            Calculation.calculation_type.in_([CalculationType.SYSTEM_SQL, CalculationType.SYSTEM_FIELD]),
+            Calculation.is_active == True
+        ).first()
+        return self._to_response(calculation) if calculation else None
+
+    def list_calculations(
+        self, 
+        calculation_type: Optional[CalculationType] = None,
+        group_level: Optional[GroupLevel] = None,
+        search_term: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0
+    ) -> Dict[str, Any]:
+        """List calculations with filtering and pagination"""
+        
+        query = self.config_db.query(Calculation).filter_by(is_active=True)
+        
+        # Apply filters
+        if calculation_type:
+            query = query.filter(Calculation.calculation_type == calculation_type)
+        
+        if group_level:
+            query = query.filter(Calculation.group_level == group_level)
+        
+        if search_term:
+            search_filter = or_(
+                Calculation.name.ilike(f"%{search_term}%"),
+                Calculation.description.ilike(f"%{search_term}%")
+            )
+            query = query.filter(search_filter)
+        
+        # Get total count
+        total_count = query.count()
+        
+        # Apply pagination and ordering
+        calculations = query.order_by(Calculation.name).offset(offset).limit(limit).all()
+        
+        # Calculate statistics
+        active_count = self.config_db.query(Calculation).filter_by(is_active=True).count()
+        type_counts = {}
+        for calc_type in CalculationType:
+            count = self.config_db.query(Calculation).filter_by(
+                calculation_type=calc_type, is_active=True
+            ).count()
+            type_counts[calc_type.value] = count
+        
+        return {
+            "calculations": [self._to_response(calc) for calc in calculations],
+            "total_count": total_count,
+            "active_count": active_count,
+            "calculation_types": type_counts
+        }
+
+    def get_available_placeholders(self) -> List[PlaceholderInfo]:
+        """Get list of available SQL placeholders"""
+        # Create a dummy calculation to get placeholder info
+        dummy_calc = Calculation(
+            name="dummy",
+            description="dummy",
+            calculation_type=CalculationType.SYSTEM_SQL,
+            group_level=GroupLevel.DEAL,
+            created_by="system"
+        )
+        
+        placeholder_map = dummy_calc.get_available_placeholders()
+        
+        placeholders = []
+        example_values = {
+            "current_cycle": "202404",
+            "previous_cycle": "202403",
+            "cycle_minus_2": "202402",
+            "deal_filter": "dl_nbr IN (101, 102, 103)",
+            "tranche_filter": "(dl_nbr = 101 AND tr_id IN ('A', 'B'))",
+            "deal_tranche_filter": "((dl_nbr = 101 AND tr_id IN ('A', 'B')) OR (dl_nbr = 102))",
+            "deal_numbers": "101, 102, 103",
+            "tranche_ids": "A', 'B', 'C",
+        }
+        
+        for name, description in placeholder_map.items():
+            placeholders.append(PlaceholderInfo(
+                name=name,
+                description=description,
+                example_value=example_values.get(name, f"example_{name}")
+            ))
+        
+        return placeholders
+
+    # === UPDATE METHODS ===
+
+    def update_calculation(self, calc_id: int, request: CalculationUpdate) -> CalculationResponse:
+        """Update an existing calculation"""
+        
+        calculation = self.config_db.query(Calculation).filter_by(id=calc_id, is_active=True).first()
+        if not calculation:
+            raise CalculationNotFoundError(f"Calculation with ID {calc_id} not found")
+        
+        # Update fields
+        for field, value in request.model_dump(exclude_unset=True).items():
+            if hasattr(calculation, field):
+                setattr(calculation, field, value)
+        
+        calculation.updated_at = datetime.utcnow()
+        
+        # Re-validate SQL if it was updated
+        if request.raw_sql and calculation.calculation_type in [CalculationType.SYSTEM_SQL, CalculationType.CDI_VARIABLE]:
+            validation_result = self.validate_sql(SqlValidationRequest(
+                sql_text=request.raw_sql,
+                group_level=calculation.group_level,
+                result_column_name=calculation.result_column_name
+            ))
+            
+            if not validation_result.is_valid:
+                raise InvalidCalculationError(f"SQL validation failed: {'; '.join(validation_result.errors)}")
+        
+        self.config_db.commit()
+        self.config_db.refresh(calculation)
+        
+        return self._to_response(calculation)
+
+    def delete_calculation(self, calc_id: int) -> bool:
+        """Soft delete a calculation"""
+        calculation = self.config_db.query(Calculation).filter_by(id=calc_id, is_active=True).first()
+        if not calculation:
+            return False
+        
+        calculation.is_active = False
+        self.config_db.commit()
+        return True
+
+    # === VALIDATION METHODS ===
+
+    def validate_sql(self, request: SqlValidationRequest) -> SqlValidationResult:
+        """Validate SQL with placeholder support"""
+        
+        # Create a dummy calculation for validation
+        dummy_calc = Calculation(
+            name="validation",
+            description="validation",
+            calculation_type=CalculationType.SYSTEM_SQL,
+            group_level=request.group_level,
+            raw_sql=request.sql_text,
+            result_column_name=request.result_column_name,
+            created_by="validation"
+        )
+        
+        # Extract placeholders
+        placeholders_used = list(dummy_calc.get_used_placeholders())
+        
+        # Basic validation
+        errors = []
+        warnings = []
+        
+        # Check for dangerous operations
+        dangerous_patterns = [
+            r'\bDROP\b', r'\bDELETE\s+FROM\b', r'\bTRUNCATE\b',
+            r'\bINSERT\s+INTO\b', r'\bUPDATE\s+.*\bSET\b', r'\bALTER\b',
+            r'\bCREATE\b', r'\bEXEC\b', r'\bEXECUTE\b'
+        ]
+        
+        for pattern in dangerous_patterns:
+            if re.search(pattern, request.sql_text, re.IGNORECASE):
+                errors.append("SQL contains dangerous operations that are not allowed")
+                break
+        
+        # Validate placeholders
+        valid_placeholders = dummy_calc.get_available_placeholders()
+        for placeholder in placeholders_used:
+            if placeholder not in valid_placeholders:
+                errors.append(f"Invalid placeholder '{{{placeholder}}}'")
+        
+        # Check basic SQL structure
+        sql_upper = request.sql_text.upper().strip()
+        has_ctes = sql_upper.startswith('WITH')
+        has_subqueries = '(' in request.sql_text and 'SELECT' in sql_upper
+        
+        if not has_ctes and not sql_upper.startswith('SELECT'):
+            errors.append("SQL must be a SELECT statement or start with WITH for CTEs")
+        
+        # Validate required columns based on group level
+        if request.group_level == GroupLevel.DEAL:
+            if not re.search(r'\bdl_nbr\b', request.sql_text, re.IGNORECASE):
+                errors.append("Deal-level calculations must include dl_nbr in SELECT clause")
+        elif request.group_level == GroupLevel.TRANCHE:
+            if not re.search(r'\bdl_nbr\b', request.sql_text, re.IGNORECASE):
+                errors.append("Tranche-level calculations must include dl_nbr in SELECT clause")
+            if not re.search(r'\btr_id\b', request.sql_text, re.IGNORECASE):
+                errors.append("Tranche-level calculations must include tr_id in SELECT clause")
+        
+        # Check for result column
+        if not re.search(rf'\b{re.escape(request.result_column_name)}\b', request.sql_text, re.IGNORECASE):
+            errors.append(f"SQL must include result column '{request.result_column_name}'")
+        
+        # Extract table names and columns (simplified)
+        used_tables = []
+        table_pattern = r'(?:FROM|JOIN)\s+(\w+)'
+        for match in re.finditer(table_pattern, request.sql_text, re.IGNORECASE):
+            used_tables.append(match.group(1).lower())
+        
+        final_select_columns = []
+        select_match = re.search(r'SELECT\s+(.*?)\s+FROM', request.sql_text, re.IGNORECASE | re.DOTALL)
+        if select_match:
+            # Simplified column extraction
+            columns_text = select_match.group(1)
+            # This is a basic extraction - a full parser would be more robust
+            final_select_columns = [col.strip() for col in columns_text.split(',')]
+        
+        # Performance warnings
+        if len(placeholders_used) > 5:
+            warnings.append(f"High number of placeholders ({len(placeholders_used)}) may impact readability")
+        
+        if has_ctes and len(re.findall(r'WITH\s+\w+\s+AS', request.sql_text, re.IGNORECASE)) > 5:
+            warnings.append("High number of CTEs may impact performance")
+        
+        return SqlValidationResult(
+            is_valid=len(errors) == 0,
+            errors=errors,
+            warnings=warnings,
+            has_ctes=has_ctes,
+            has_subqueries=has_subqueries,
+            final_select_columns=final_select_columns,
+            used_tables=used_tables,
+            placeholders_used=placeholders_used
         )
 
-    @staticmethod
-    def get_static_fields_by_model(model_name: str) -> List[StaticFieldInfo]:
-        """Get static fields for a specific model"""
-        all_fields = StaticFieldService.get_all_static_fields()
-        return [
-            field for field in all_fields 
-            if field.field_path.startswith(f"{model_name.lower()}.")
-        ]
+    # === EXECUTION METHODS ===
 
+    def preview_calculation(
+        self,
+        calc_id: int,
+        deal_tranche_map: Dict[int, List[str]],
+        cycle_code: int,
+        report_scope: str = "TRANCHE"
+    ) -> Dict[str, Any]:
+        """Preview a single calculation with parameter injection"""
+        
+        calc_request = CalculationRequest(calc_id=calc_id, alias=f"calc_{calc_id}")
+        filters = QueryFilters(
+            deal_tranche_map=deal_tranche_map,
+            cycle_code=cycle_code,
+            report_scope=report_scope
+        )
+        
+        return self.resolver.resolve_single_calculation(calc_request, filters)
 
-class CalculationConfigService:
-    """Service for calculation configuration and metadata"""
+    def execute_report(
+        self,
+        calculation_requests: List[CalculationRequest],
+        deal_tranche_map: Dict[int, List[str]],
+        cycle_code: int,
+        report_scope: str = "TRANCHE"
+    ) -> Dict[str, Any]:
+        """Execute a full report with multiple calculations"""
+        
+        # calculation_requests is already a list of CalculationRequest objects
+        filters = QueryFilters(
+            deal_tranche_map=deal_tranche_map,
+            cycle_code=cycle_code,
+            report_scope=report_scope
+        )
+        
+        return self.resolver.resolve_report(calculation_requests, filters)
 
-    @staticmethod
-    def get_aggregation_functions() -> List[Dict[str, str]]:
-        """Get available aggregation functions"""
-        return [
-            {"value": "SUM", "label": "SUM - Total amount", "description": "Add all values together"},
-            {"value": "AVG", "label": "AVG - Average", "description": "Calculate average value"},
-            {"value": "COUNT", "label": "COUNT - Count records", "description": "Count number of records"},
-            {"value": "MIN", "label": "MIN - Minimum value", "description": "Find minimum value"},
-            {"value": "MAX", "label": "MAX - Maximum value", "description": "Find maximum value"},
-            {"value": "WEIGHTED_AVG", "label": "WEIGHTED_AVG - Weighted average", 
-             "description": "Calculate weighted average using specified weight field"},
-        ]
+    def preview_report_sql(
+        self,
+        calculation_requests: List[CalculationRequest],
+        deal_tranche_map: Dict[int, List[str]],
+        cycle_code: int,
+        report_scope: str = "TRANCHE"
+    ) -> Dict[str, Any]:
+        """Preview the SQL that would be generated for a report without executing it"""
+        
+        filters = QueryFilters(
+            deal_tranche_map=deal_tranche_map,
+            cycle_code=cycle_code,
+            report_scope=report_scope
+        )
+        
+        try:
+            # Initialize the parameter injector first
+            from .resolver import DynamicParameterInjector
+            self.resolver.parameter_injector = DynamicParameterInjector(filters)
+            
+            # Use the resolver to generate the unified SQL without execution
+            unified_sql = self.resolver._build_unified_query(calculation_requests, filters)
+            
+            return {
+                "sql_preview": unified_sql,
+                "parameters_used": self.resolver.parameter_injector.get_parameter_values(),
+                "calculation_count": len(calculation_requests),
+                "deal_count": len(deal_tranche_map),
+                "scope": report_scope
+            }
+        except Exception as e:
+            return {
+                "error": f"Failed to generate SQL preview: {str(e)}",
+                "calculation_requests": [{"calc_id": req.calc_id, "alias": req.alias} for req in calculation_requests],
+                "debug_info": {
+                    "deal_tranche_map": deal_tranche_map,
+                    "cycle_code": cycle_code,
+                    "report_scope": report_scope
+                }
+            }
 
-    @staticmethod
-    def get_source_models() -> List[Dict[str, str]]:
-        """Get available source models"""
-        return [
-            {"value": "Deal", "label": "Deal", "description": "Base deal information"},
-            {"value": "Tranche", "label": "Tranche", "description": "Tranche structure data"},
-            {"value": "TrancheBal", "label": "TrancheBal", "description": "Tranche balance and performance data"},
-        ]
+    # === UTILITY METHODS ===
 
-    @staticmethod
-    def get_group_levels() -> List[Dict[str, str]]:
-        """Get available group levels"""
-        return [
-            {"value": "deal", "label": "Deal Level", "description": "Aggregate to deal level"},
-            {"value": "tranche", "label": "Tranche Level", "description": "Aggregate to tranche level"},
-        ]
+    def _to_response(self, calculation: Calculation) -> CalculationResponse:
+        """Convert calculation model to response schema"""
+        return CalculationResponse(
+            id=calculation.id,
+            name=calculation.name,
+            description=calculation.description,
+            calculation_type=calculation.calculation_type,
+            group_level=calculation.group_level,
+            aggregation_function=calculation.aggregation_function,
+            source_model=calculation.source_model,
+            source_field=calculation.source_field,
+            weight_field=calculation.weight_field,
+            raw_sql=calculation.raw_sql,
+            result_column_name=calculation.result_column_name,
+            sql_parameters=calculation.sql_parameters,
+            metadata_config=calculation.metadata_config,
+            created_by=calculation.created_by,
+            approved_by=calculation.approved_by,
+            is_active=calculation.is_active,
+            display_formula=calculation.get_display_formula(),
+            complexity_score=calculation.get_complexity_score(),
+            used_placeholders=list(calculation.get_used_placeholders()),
+            required_models=calculation.get_required_models()
+        )
+
+    def _generate_cdi_sql(self, request: CDIVariableCalculationCreate) -> str:
+        """Generate SQL for CDI variable calculation"""
+        
+        if request.group_level == GroupLevel.DEAL:
+            # Deal-level CDI calculation
+            variable_name = request.variable_pattern  # Should be exact variable name for deal level
+            return f"""
+SELECT 
+    cdi.dl_nbr,
+    cdi.dl_cdi_var_value as {request.result_column_name}
+FROM deal_cdi_var_rpt cdi
+WHERE cdi.dl_cdi_var_nme = '{variable_name.ljust(32)}'
+    AND cdi.cycle_cde = {{current_cycle}}
+    AND {{deal_filter}}
+ORDER BY cdi.dl_nbr
+""".strip()
+        
+        else:
+            # Tranche-level CDI calculation with mappings
+            if not request.tranche_mappings:
+                raise InvalidCalculationError("Tranche mappings are required for tranche-level CDI calculations")
+            
+            union_queries = []
+            for suffix, tr_id_list in request.tranche_mappings.items():
+                variable_name = request.variable_pattern.replace("{tranche_suffix}", suffix)
+                tr_id_filter = "', '".join(tr_id_list)
+                
+                union_queries.append(f"""
+    SELECT 
+        cdi.dl_nbr,
+        tb.tr_id,
+        cdi.dl_cdi_var_value as {request.result_column_name}
+    FROM deal_cdi_var_rpt cdi
+    INNER JOIN tranchebal tb ON cdi.dl_nbr = tb.dl_nbr AND cdi.cycle_cde = tb.cycle_cde
+    WHERE cdi.dl_cdi_var_nme = '{variable_name.ljust(32)}'
+        AND cdi.cycle_cde = {{current_cycle}}
+        AND {{deal_tranche_filter}}
+        AND tb.tr_id IN ('{tr_id_filter}')""")
+            
+            return ("\nUNION ALL\n".join(union_queries) + "\nORDER BY dl_nbr, tr_id").strip()

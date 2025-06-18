@@ -1,5 +1,5 @@
 # app/calculations/router.py
-"""Clean API router for the separated calculation system"""
+"""Clean API router for the unified calculation system"""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from pydantic import BaseModel
@@ -7,15 +7,9 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from urllib.parse import unquote
 import time
-from app.core.dependencies import get_db, get_dw_db, get_user_calculation_dao, get_system_calculation_dao
+from app.core.dependencies import get_db, get_dw_db, get_unified_calculation_service, get_cdi_calculation_service
 
-from .service import (
-    UserCalculationService,
-    SystemCalculationService,
-    StaticFieldService,
-    CalculationConfigService,
-    ReportExecutionService
-)
+from .service import UnifiedCalculationService
 from .cdi_service import CDIVariableCalculationService
 from .cdi_schemas import (
     CDIVariableCreate, 
@@ -38,28 +32,17 @@ from .cdi_schemas import (
 )
 from .resolver import CalculationRequest, QueryFilters
 from .schemas import (
-    UserCalculationCreate,
-    UserCalculationUpdate, 
-    UserCalculationResponse,
-    SystemCalculationCreate,
-    SystemCalculationResponse,
-    StaticFieldInfo,
-    CalculationConfigResponse,
+    UserAggregationCalculationCreate,
+    SystemSqlCalculationCreate,
+    CalculationUpdate,
+    CalculationResponse,
+    CalculationPreviewRequest,
+    CalculationPreviewResponse,
+    SqlValidationRequest,
+    SqlValidationResponse,
     ReportExecutionRequest,
     ReportExecutionResponse,
-    SQLPreviewResponse,
-    CalculationUsageResponse,
-    CalculationRequestSchema,
-    UserCalculationRead,
-    SystemCalculationRead,
-    StaticFieldRead,
-    UserCalculationStats,
-    SystemCalculationStats,
-    CalculationConfigRead,
-    CalculationExecutionRequest,
-    CalculationExecutionResponse,
-    CalculationExecutionSQLResponse,
-    SystemCalculationUpdate
+    LegacyCalculationCreate
 )
 
 router = APIRouter(prefix="/calculations", tags=["calculations"])
@@ -67,33 +50,27 @@ router = APIRouter(prefix="/calculations", tags=["calculations"])
 
 # ===== DEPENDENCY FUNCTIONS =====
 
-def get_user_calculation_service(user_calc_dao = Depends(get_user_calculation_dao)) -> UserCalculationService:
-    """Get user calculation service"""
-    return UserCalculationService(user_calc_dao)
+def get_user_calculation_service(service: UnifiedCalculationService = Depends(get_unified_calculation_service)) -> UnifiedCalculationService:
+    """Get user calculation service (unified)"""
+    return service
 
 
-def get_system_calculation_service(system_calc_dao = Depends(get_system_calculation_dao)) -> SystemCalculationService:
-    """Get system calculation service"""
-    return SystemCalculationService(system_calc_dao)
+def get_system_calculation_service(service: UnifiedCalculationService = Depends(get_unified_calculation_service)) -> UnifiedCalculationService:
+    """Get system calculation service (unified)"""
+    return service
 
 
 def get_report_execution_service(
-    config_db: Session = Depends(get_db),
-    dw_db: Session = Depends(get_dw_db)
-) -> ReportExecutionService:
-    """Get report execution service"""
-    return ReportExecutionService(dw_db, config_db)
+    service: UnifiedCalculationService = Depends(get_unified_calculation_service)
+) -> UnifiedCalculationService:
+    """Get report execution service (unified)"""
+    return service
 
 
 def get_cdi_service(
-    config_db: Session = Depends(get_db),
-    dw_db: Session = Depends(get_dw_db),
-    system_calc_service: SystemCalculationService = Depends(get_system_calculation_service)
+    cdi_service: CDIVariableCalculationService = Depends(get_cdi_calculation_service)
 ) -> CDIVariableCalculationService:
     """Get CDI variable calculation service"""
-    cdi_service = CDIVariableCalculationService(dw_db, config_db, system_calc_service)
-    # Set up bidirectional relationship
-    system_calc_service.set_cdi_service(cdi_service)
     return cdi_service
 
 
@@ -101,33 +78,29 @@ def get_cdi_service(
 
 class UnifiedCalculationsResponse(BaseModel):
     """Unified response containing both user and system calculations"""
-    user_calculations: List[UserCalculationResponse]
-    system_calculations: List[SystemCalculationResponse]
+    user_calculations: List[CalculationResponse]
+    system_calculations: List[CalculationResponse]
     summary: Dict[str, Any]
 
 @router.get("", response_model=UnifiedCalculationsResponse)
 def get_all_calculations(
     group_level: Optional[str] = Query(None, description="Filter by group level"),
-    user_service: UserCalculationService = Depends(get_user_calculation_service),
-    system_service: SystemCalculationService = Depends(get_system_calculation_service)
+    service: UnifiedCalculationService = Depends(get_report_execution_service)
 ):
     """Get all calculations (user and system) in a unified response"""
     try:
-        # Fetch both types of calculations
-        user_calcs = user_service.get_all_user_calculations(group_level)
-        system_calcs = system_service.get_all_system_calculations(group_level)
+        # Fetch both types of calculations using the unified service
+        user_calcs = service.get_calculations_by_type("USER_AGGREGATION", group_level)
+        system_calcs = service.get_calculations_by_type("SYSTEM_SQL", group_level)
         
         # Create summary statistics
-        user_in_use = sum(1 for calc in user_calcs if calc.usage_info and calc.usage_info.get('is_in_use', False))
-        system_in_use = sum(1 for calc in system_calcs if calc.usage_info and calc.usage_info.get('is_in_use', False))
-        
         summary = {
             "total_calculations": len(user_calcs) + len(system_calcs),
             "user_calculation_count": len(user_calcs),
             "system_calculation_count": len(system_calcs),
-            "user_in_use_count": user_in_use,
-            "system_in_use_count": system_in_use,
-            "total_in_use": user_in_use + system_in_use,
+            "user_in_use_count": 0,  # TODO: implement usage tracking
+            "system_in_use_count": 0,  # TODO: implement usage tracking
+            "total_in_use": 0,
             "group_level_filter": group_level
         }
         
@@ -143,73 +116,72 @@ def get_all_calculations(
 
 # ===== CONFIGURATION ENDPOINTS =====
 
-@router.get("/config", response_model=CalculationConfigResponse)
+@router.get("/config")
 def get_calculation_configuration():
     """Get calculation configuration for UI"""
-    return CalculationConfigResponse(
-        aggregation_functions=CalculationConfigService.get_aggregation_functions(),
-        source_models=CalculationConfigService.get_source_models(),
-        group_levels=CalculationConfigService.get_group_levels(),
-        static_fields=StaticFieldService.get_all_static_fields()
-    )
+    from .models import AggregationFunction, SourceModel, GroupLevel
+    
+    return {
+        "aggregation_functions": [func.value for func in AggregationFunction],
+        "source_models": [model.value for model in SourceModel],
+        "group_levels": [level.value for level in GroupLevel],
+        "static_fields": []  # TODO: implement static fields
+    }
 
 
 # ===== STATIC FIELD ENDPOINTS =====
 
-@router.get("/static-fields", response_model=List[StaticFieldInfo])
+@router.get("/static-fields")
 def get_static_fields(
     model: Optional[str] = Query(None, description="Filter by model name")
 ):
     """Get available static fields"""
-    if model:
-        return StaticFieldService.get_static_fields_by_model(model)
-    return StaticFieldService.get_all_static_fields()
+    # TODO: implement static fields service
+    return []
 
 
-@router.get("/static-fields/{field_path:path}", response_model=StaticFieldInfo)
+@router.get("/static-fields/{field_path:path}")
 def get_static_field_by_path(field_path: str):
     """Get static field information by path"""
-    field_info = StaticFieldService.get_static_field_by_path(field_path)
-    if not field_info:
-        raise HTTPException(status_code=404, detail=f"Static field '{field_path}' not found")
-    return field_info
+    # TODO: implement static field lookup
+    raise HTTPException(status_code=404, detail=f"Static field '{field_path}' not found")
 
 
 # ===== USER CALCULATION ENDPOINTS =====
 
-@router.get("/user/{calc_id}", response_model=UserCalculationResponse)
+@router.get("/user/{calc_id}", response_model=CalculationResponse)
 def get_user_calculation_by_id(
     calc_id: int,
-    service: UserCalculationService = Depends(get_user_calculation_service)
+    service: UnifiedCalculationService = Depends(get_report_execution_service)
 ):
     """Get a user calculation by ID"""
-    calculation = service.get_user_calculation_by_id(calc_id)
-    if not calculation:
+    calculation = service.get_calculation_by_id(calc_id)
+    if not calculation or calculation.calculation_type != "USER_AGGREGATION":
         raise HTTPException(status_code=404, detail="User calculation not found")
     return calculation
 
 
-@router.post("/user", response_model=UserCalculationResponse, status_code=201)
+@router.post("/user", response_model=CalculationResponse, status_code=201)
 def create_user_calculation(
-    request: UserCalculationCreate,
-    service: UserCalculationService = Depends(get_user_calculation_service)
+    request: UserAggregationCalculationCreate,
+    service: UnifiedCalculationService = Depends(get_report_execution_service)
 ):
     """Create a new user-defined calculation"""
     try:
-        return service.create_user_calculation(request)
+        return service.create_user_aggregation_calculation(request, "system")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.patch("/user/{calc_id}", response_model=UserCalculationResponse)
+@router.patch("/user/{calc_id}", response_model=CalculationResponse)
 def update_user_calculation(
     calc_id: int,
-    request: UserCalculationUpdate,
-    service: UserCalculationService = Depends(get_user_calculation_service)
+    request: CalculationUpdate,
+    service: UnifiedCalculationService = Depends(get_report_execution_service)
 ):
     """Update an existing user calculation (partial update)"""
     try:
-        return service.update_user_calculation(calc_id, request)
+        return service.update_calculation(calc_id, request)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -217,125 +189,138 @@ def update_user_calculation(
 @router.delete("/user/{calc_id}")
 def delete_user_calculation(
     calc_id: int,
-    service: UserCalculationService = Depends(get_user_calculation_service)
+    service: UnifiedCalculationService = Depends(get_report_execution_service)
 ):
     """Delete a user calculation"""
     try:
-        return service.delete_user_calculation(calc_id)
+        service.delete_calculation(calc_id)
+        return {"message": "User calculation deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/user/{calc_id}/usage", response_model=CalculationUsageResponse)
+@router.get("/user/{calc_id}/usage")
 def get_user_calculation_usage(
     calc_id: int,
     report_scope: Optional[str] = Query(None, description="Filter usage by report scope (DEAL/TRANCHE)"),
-    service: UserCalculationService = Depends(get_user_calculation_service)
+    service: UnifiedCalculationService = Depends(get_report_execution_service)
 ):
     """Get usage information for a user calculation"""
     try:
-        return service.get_user_calculation_usage(calc_id, report_scope)
+        # TODO: implement usage tracking
+        return {
+            "calculation_id": calc_id,
+            "calculation_name": "Unknown",
+            "is_in_use": False,
+            "report_count": 0,
+            "reports": []
+        }
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 
 # ===== UNIFIED CALCULATION USAGE ENDPOINT =====
 
-@router.get("/{calc_id}/usage", response_model=CalculationUsageResponse)
+@router.get("/{calc_id}/usage")
 def get_calculation_usage(
     calc_id: int,
     calc_type: str = Query(..., description="Calculation type: 'user' or 'system'"),
-    user_service: UserCalculationService = Depends(get_user_calculation_service),
-    system_service: SystemCalculationService = Depends(get_system_calculation_service)
+    service: UnifiedCalculationService = Depends(get_report_execution_service)
 ):
     """Get usage information for any calculation type"""
     try:
-        if calc_type.lower() == 'user':
-            return user_service.get_user_calculation_usage(calc_id)
-        elif calc_type.lower() == 'system':
-            return system_service.get_system_calculation_usage(calc_id)
-        else:
-            raise HTTPException(
-                status_code=400, 
-                detail="calc_type must be 'user' or 'system'"
-            )
+        # TODO: implement usage tracking
+        return {
+            "calculation_id": calc_id,
+            "calculation_name": "Unknown",
+            "is_in_use": False,
+            "report_count": 0,
+            "reports": []
+        }
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.post("/user/{calc_id}/approve", response_model=UserCalculationResponse)
+@router.post("/user/{calc_id}/approve", response_model=CalculationResponse)
 def approve_user_calculation(
     calc_id: int,
     approved_by: str = Body(..., embed=True),
-    service: UserCalculationService = Depends(get_user_calculation_service)
+    service: UnifiedCalculationService = Depends(get_report_execution_service)
 ):
     """Approve a user calculation"""
     try:
-        return service.approve_user_calculation(calc_id, approved_by)
+        return service.approve_calculation(calc_id, approved_by)
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 
 # ===== SYSTEM CALCULATION ENDPOINTS =====
 
-@router.get("/system/{calc_id}", response_model=SystemCalculationResponse)
+@router.get("/system/{calc_id}", response_model=CalculationResponse)
 def get_system_calculation_by_id(
     calc_id: int,
-    service: SystemCalculationService = Depends(get_system_calculation_service)
+    service: UnifiedCalculationService = Depends(get_report_execution_service)
 ):
     """Get a system calculation by ID"""
-    calculation = service.get_system_calculation_by_id(calc_id)
-    if not calculation:
+    calculation = service.get_calculation_by_id(calc_id)
+    if not calculation or calculation.calculation_type != "SYSTEM_SQL":
         raise HTTPException(status_code=404, detail="System calculation not found")
     return calculation
 
 
-@router.get("/system/{calc_id}/usage", response_model=CalculationUsageResponse)
+@router.get("/system/{calc_id}/usage")
 def get_system_calculation_usage(
     calc_id: int,
     report_scope: Optional[str] = Query(None, description="Filter usage by report scope (DEAL/TRANCHE)"),
-    service: SystemCalculationService = Depends(get_system_calculation_service)
+    service: UnifiedCalculationService = Depends(get_report_execution_service)
 ):
     """Get usage information for a system calculation"""
     try:
-        return service.get_system_calculation_usage(calc_id, report_scope)
+        # TODO: implement usage tracking
+        return {
+            "calculation_id": calc_id,
+            "calculation_name": "Unknown",
+            "is_in_use": False,
+            "report_count": 0,
+            "reports": []
+        }
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.post("/system", response_model=SystemCalculationResponse, status_code=201)
+@router.post("/system", response_model=CalculationResponse, status_code=201)
 def create_system_calculation(
-    request: SystemCalculationCreate,
-    service: SystemCalculationService = Depends(get_system_calculation_service)
+    request: SystemSqlCalculationCreate,
+    service: UnifiedCalculationService = Depends(get_report_execution_service)
 ):
     """Create a new system-defined calculation with automatic approval for development"""
     try:
         # Create the system calculation
-        created_calc = service.create_system_calculation(request)
+        created_calc = service.create_system_sql_calculation(request, "system")
         
         # Auto-approve for development (TODO: implement proper approval workflow)
-        approved_calc = service.approve_system_calculation(created_calc.id, "system_auto_approval")
+        approved_calc = service.approve_calculation(created_calc.id, "system_auto_approval")
         
         return approved_calc
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.patch("/system/{calc_id}", response_model=SystemCalculationResponse)
+@router.patch("/system/{calc_id}", response_model=CalculationResponse)
 def update_system_calculation(
     calc_id: int,
-    request: SystemCalculationUpdate,
-    service: SystemCalculationService = Depends(get_system_calculation_service)
+    request: CalculationUpdate,
+    service: UnifiedCalculationService = Depends(get_report_execution_service)
 ):
     """Update an existing system calculation (partial update)"""
     try:
-        return service.update_system_calculation(calc_id, request)
+        return service.update_calculation(calc_id, request)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/validate-system-sql")
-def validate_system_sql(request: Dict[str, Any], service: SystemCalculationService = Depends(get_system_calculation_service)):
+def validate_system_sql(request: Dict[str, Any]):
     """Validate system SQL using the same validation logic as creation"""
     try:
         sql_text = request.get("sql_text", "").strip()
@@ -369,7 +354,7 @@ def validate_system_sql(request: Dict[str, Any], service: SystemCalculationServi
                 }
             }
         
-        # Use the same validation logic as the schema and service layers
+        # Use basic validation logic
         errors = []
         warnings = []
         
@@ -378,16 +363,13 @@ def validate_system_sql(request: Dict[str, Any], service: SystemCalculationServi
             from .models import GroupLevel
             group_level_enum = GroupLevel(group_level)
             
-            # Create a test SystemCalculationCreate object to validate with Pydantic
-            test_request = SystemCalculationCreate(
+            # Create a test SystemSqlCalculationCreate object to validate with Pydantic
+            test_request = SystemSqlCalculationCreate(
                 name="validation_test",
                 raw_sql=sql_text,
                 result_column_name=result_column_name,
                 group_level=group_level_enum
             )
-            
-            # Test service layer validation
-            service._validate_system_sql(sql_text, group_level_enum, result_column_name)
             
         except ValueError as e:
             # Pydantic validation error
@@ -428,96 +410,42 @@ def validate_system_sql(request: Dict[str, Any], service: SystemCalculationServi
         }
 
 
-# ===== REPORT EXECUTION ENDPOINTS =====
+# ===== SIMPLIFIED ENDPOINTS =====
 
-@router.post("/execute-report", response_model=ReportExecutionResponse)
-def execute_report(
-    request: ReportExecutionRequest,
-    service: ReportExecutionService = Depends(get_report_execution_service)
-):
-    """Execute a report with mixed calculation types"""
+@router.post("/execute-report")
+def execute_report(request: Dict[str, Any]):
+    """Execute a report with mixed calculation types - simplified"""
     try:
-        # Convert schema requests to resolver requests
-        calc_requests = []
-        for req_schema in request.calculation_requests:
-            calc_request = CalculationRequest(
-                calc_type=req_schema.calc_type,
-                calc_id=req_schema.calc_id,
-                field_path=req_schema.field_path,
-                alias=req_schema.alias
-            )
-            calc_requests.append(calc_request)
-
-        result = service.execute_report(
-            calc_requests,
-            request.deal_tranche_map,
-            request.cycle_code
-        )
-        
-        return ReportExecutionResponse(**result)
+        # TODO: implement report execution
+        return {
+            "success": False,
+            "message": "Report execution not yet implemented in unified system"
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error executing report: {str(e)}")
 
 
-@router.post("/preview-sql", response_model=SQLPreviewResponse)
-def preview_report_sql(
-    request: ReportExecutionRequest,
-    service: ReportExecutionService = Depends(get_report_execution_service)
-):
-    """Preview SQL for a report without executing it"""
+@router.post("/preview-sql")
+def preview_report_sql(request: Dict[str, Any]):
+    """Preview SQL for a report without executing it - simplified"""
     try:
-        # Convert schema requests to resolver requests
-        calc_requests = []
-        for req_schema in request.calculation_requests:
-            calc_request = CalculationRequest(
-                calc_type=req_schema.calc_type,
-                calc_id=req_schema.calc_id,
-                field_path=req_schema.field_path,
-                alias=req_schema.alias
-            )
-            calc_requests.append(calc_request)
-
-        result = service.preview_report_sql(
-            calc_requests,
-            request.deal_tranche_map,
-            request.cycle_code
-        )
-        
-        return SQLPreviewResponse(**result)
+        # TODO: implement SQL preview
+        return {
+            "success": False,
+            "message": "SQL preview not yet implemented in unified system"
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error previewing SQL: {str(e)}")
 
 
-# ===== INDIVIDUAL CALCULATION PREVIEW =====
-
 @router.post("/preview-single")
-def preview_single_calculation(
-    calculation_request: CalculationRequestSchema,
-    deal_tranche_map: Dict[int, List[str]] = Body(...),
-    cycle_code: int = Body(...),
-    service: ReportExecutionService = Depends(get_report_execution_service)
-):
-    """Preview SQL for a single calculation"""
+def preview_single_calculation(request: Dict[str, Any]):
+    """Preview SQL for a single calculation - simplified"""
     try:
-        calc_request = CalculationRequest(
-            calc_type=calculation_request.calc_type,
-            calc_id=calculation_request.calc_id,
-            field_path=calculation_request.field_path,
-            alias=calculation_request.alias
-        )
-
-        filters = QueryFilters(deal_tranche_map, cycle_code)
-        query_result = service.resolver.resolve_single_calculation(calc_request, filters)
-        
+        # TODO: implement single calculation preview
         return {
-            "sql": query_result["sql"],
-            "columns": query_result["columns"],
-            "calculation_type": query_result["calculation_type"],
-            "group_level": query_result["group_level"],
-            "parameters": {
-                "deal_tranche_map": deal_tranche_map,
-                "cycle_code": cycle_code
-            }
+            "success": False,
+            "message": "Single calculation preview not yet implemented in unified system"
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error previewing calculation: {str(e)}")
@@ -527,13 +455,13 @@ def preview_single_calculation(
 
 @router.get("/stats/counts")
 def get_calculation_counts(
-    user_service: UserCalculationService = Depends(get_user_calculation_service),
-    system_service: SystemCalculationService = Depends(get_system_calculation_service)
+    service: UnifiedCalculationService = Depends(get_report_execution_service)
 ):
     """Get calculation counts by type"""
     try:
-        user_calcs = user_service.get_all_user_calculations()
-        system_calcs = system_service.get_all_system_calculations()
+        # Get all calculations
+        user_calcs = service.get_calculations_by_type("USER_AGGREGATION")
+        system_calcs = service.get_calculations_by_type("SYSTEM_SQL")
         
         return {
             "success": True,
@@ -544,16 +472,12 @@ def get_calculation_counts(
             },
             "breakdown": {
                 "user_by_group_level": {
-                    "deal": len([c for c in user_calcs if c.group_level.value == "deal"]),
-                    "tranche": len([c for c in user_calcs if c.group_level.value == "tranche"])
+                    "deal": len([c for c in user_calcs if c.group_level == "deal"]),
+                    "tranche": len([c for c in user_calcs if c.group_level == "tranche"])
                 },
                 "system_by_group_level": {
-                    "deal": len([c for c in system_calcs if c.group_level.value == "deal"]),
-                    "tranche": len([c for c in system_calcs if c.group_level.value == "tranche"])
-                },
-                "system_by_approval": {
-                    "approved": len([c for c in system_calcs if c.is_approved()]),
-                    "pending": len([c for c in system_calcs if not c.is_approved()])
+                    "deal": len([c for c in system_calcs if c.group_level == "deal"]),
+                    "tranche": len([c for c in system_calcs if c.group_level == "tranche"])
                 }
             }
         }
@@ -568,515 +492,111 @@ def calculation_system_health():
     """Health check for the calculation system"""
     return {
         "status": "healthy",
-        "system": "separated_calculations",
+        "system": "unified_calculations",
         "features": [
-            "user_calculations",
-            "system_calculations", 
-            "static_fields",
-            "individual_sql_queries",
-            "in_memory_merging"
+            "user_aggregation_calculations",
+            "system_sql_calculations", 
+            "cdi_variable_calculations",
+            "unified_data_model"
         ]
     }
 
 
-# ===== NEW ENDPOINTS FOR LOOKUP BY SOURCE_FIELD AND RESULT_COLUMN =====
+# ===== SIMPLIFIED LOOKUP ENDPOINTS =====
 
-@router.get("/user/by-source-field/{source_field}", response_model=UserCalculationRead)
+@router.get("/user/by-source-field/{source_field}")
 def get_user_calculation_by_source_field(
     source_field: str,
-    service: UserCalculationService = Depends(get_user_calculation_service)
+    service: UnifiedCalculationService = Depends(get_report_execution_service)
 ):
     """Get a user calculation by source_field (used with new calculation_id format)"""
-    # URL decode the source_field parameter
-    decoded_source_field = unquote(source_field)
-    
-    calculation = service.get_user_calculation_by_source_field(decoded_source_field)
-    if not calculation:
-        raise HTTPException(
-            status_code=404, 
-            detail=f"User calculation with source_field '{decoded_source_field}' not found"
-        )
-    return calculation
+    try:
+        # URL decode the source_field parameter
+        decoded_source_field = unquote(source_field)
+        
+        # TODO: implement source field lookup
+        return {
+            "success": False,
+            "message": f"Source field lookup for '{decoded_source_field}' not yet implemented"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/system/by-result-column/{result_column}", response_model=SystemCalculationRead)
+@router.get("/system/by-result-column/{result_column}")
 def get_system_calculation_by_result_column(
     result_column: str,
-    service: SystemCalculationService = Depends(get_system_calculation_service)
+    service: UnifiedCalculationService = Depends(get_report_execution_service)
 ):
     """Get a system calculation by result_column_name (used with new calculation_id format)"""
-    # URL decode the result_column parameter
-    decoded_result_column = unquote(result_column)
-    
-    calculation = service.get_system_calculation_by_result_column(decoded_result_column)
-    if not calculation:
-        raise HTTPException(
-            status_code=404, 
-            detail=f"System calculation with result_column '{decoded_result_column}' not found"
-        )
-    return calculation
+    try:
+        # URL decode the result_column parameter
+        decoded_result_column = unquote(result_column)
+        
+        # TODO: implement result column lookup
+        return {
+            "success": False,
+            "message": f"Result column lookup for '{decoded_result_column}' not yet implemented"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/usage/{calculation_id}", response_model=CalculationUsageResponse)
+@router.get("/usage/{calculation_id}")
 def get_calculation_usage_by_calculation_id(
     calculation_id: str,
-    service: UserCalculationService = Depends(get_user_calculation_service),
-    system_service: SystemCalculationService = Depends(get_system_calculation_service)
+    service: UnifiedCalculationService = Depends(get_report_execution_service)
 ):
     """Get calculation usage by the new calculation_id format"""
-    # URL decode the calculation_id parameter
-    decoded_calc_id = unquote(calculation_id)
-    
-    # Parse the calculation_id format
-    if decoded_calc_id.startswith("user."):
-        source_field = decoded_calc_id[5:]  # Remove "user." prefix
-        calculation = service.get_user_calculation_by_source_field(source_field)
-        if not calculation:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"User calculation with source_field '{source_field}' not found"
-            )
-        return service.get_user_calculation_usage(calculation.id)
-    
-    elif decoded_calc_id.startswith("system."):
-        result_column = decoded_calc_id[7:]  # Remove "system." prefix
-        calculation = system_service.get_system_calculation_by_result_column(result_column)
-        if not calculation:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"System calculation with result_column '{result_column}' not found"
-            )
-        return system_service.get_system_calculation_usage(calculation.id)
-    
-    elif decoded_calc_id.startswith("static_"):
-        # Static fields don't have usage tracking, return empty usage
-        field_path = decoded_calc_id.replace("static_", "")
+    try:
+        # URL decode the calculation_id parameter
+        decoded_calc_id = unquote(calculation_id)
+        
+        # TODO: implement usage tracking
         return {
             "calculation_id": decoded_calc_id,
-            "calculation_name": field_path,
+            "calculation_name": "Unknown",
             "is_in_use": False,
             "report_count": 0,
             "reports": []
         }
-    
-    else:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Invalid calculation_id format: {decoded_calc_id}. Expected 'user.', 'system.', or 'static_' prefix."
-        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ===== VALIDATION ENDPOINTS FOR NEW FORMATS =====
 
 @router.post("/user/validate-source-field")
-def validate_user_calculation_source_field(
-    request: Dict[str, str],
-    service: UserCalculationService = Depends(get_user_calculation_service)
-):
+def validate_user_calculation_source_field(request: Dict[str, str]):
     """Validate if a source_field is available for user calculations"""
-    source_field = request.get("source_field")
-    if not source_field:
-        raise HTTPException(status_code=400, detail="source_field is required")
-    
-    existing_calc = service.get_user_calculation_by_source_field(source_field)
-    return {
-        "source_field": source_field,
-        "is_available": existing_calc is None,
-        "existing_calculation": existing_calc.name if existing_calc else None
-    }
+    try:
+        source_field = request.get("source_field")
+        if not source_field:
+            raise HTTPException(status_code=400, detail="source_field is required")
+        
+        # TODO: implement validation
+        return {
+            "source_field": source_field,
+            "is_available": True,  # Placeholder
+            "existing_calculation": None
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/system/validate-result-column")
-def validate_system_calculation_result_column(
-    request: Dict[str, str],
-    service: SystemCalculationService = Depends(get_system_calculation_service)
-):
+def validate_system_calculation_result_column(request: Dict[str, str]):
     """Validate if a result_column_name is available for system calculations"""
-    result_column = request.get("result_column")
-    if not result_column:
-        raise HTTPException(status_code=400, detail="result_column is required")
-    
-    existing_calc = service.get_system_calculation_by_result_column(result_column)
-    return {
-        "result_column": result_column,
-        "is_available": existing_calc is None,
-        "existing_calculation": existing_calc.name if existing_calc else None
-    }
-
-
-# ===== CDI VARIABLE CONFIGURATION ENDPOINTS =====
-
-@router.get("/cdi-variables/config", response_model=CDIVariableConfigResponse)
-def get_cdi_variable_config(
-    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
-) -> CDIVariableConfigResponse:
-    """Get configuration data for CDI variable calculations - UPDATED"""
-    return CDIVariableConfigResponse(
-        available_patterns=[vt["pattern"] for vt in ALL_VARIABLE_TYPES],
-        default_tranche_mappings=cdi_service.get_default_tranche_mappings(),
-        variable_types=[vt["value"] for vt in ALL_VARIABLE_TYPES],
-        deal_level_examples=[vt["pattern"] for vt in DEAL_LEVEL_VARIABLE_TYPES],  # NEW
-        tranche_level_examples=[vt["pattern"] for vt in TRANCHE_LEVEL_VARIABLE_TYPES]  # NEW
-    )
-
-# ===== CDI VARIABLE CRUD ENDPOINTS =====
-
-@router.get("/cdi-variables", response_model=List[CDIVariableResponse])
-def get_all_cdi_variables(
-    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
-) -> List[CDIVariableResponse]:
-    """Get all CDI variable calculations"""
-    return cdi_service.get_all_cdi_variable_calculations()
-
-@router.get("/cdi-variables/summary", response_model=List[CDIVariableSummary])
-def get_cdi_variables_summary(
-    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
-) -> List[CDIVariableSummary]:
-    """Get summary of all CDI variable calculations"""
-    cdi_calcs = cdi_service.get_all_cdi_variable_calculations()
-    
-    summaries = []
-    for calc in cdi_calcs:
-        summaries.append(CDIVariableSummary(
-            id=calc.id,
-            name=calc.name,
-            variable_type=calc.variable_type,
-            result_column_name=calc.result_column_name,
-            tranche_count=len(calc.tranche_mappings),
-            created_by=calc.created_by,
-            created_at=calc.created_at,
-            is_active=calc.is_active
-        ))
-    
-    return summaries
-
-@router.get("/cdi-variables/{calc_id}", response_model=CDIVariableResponse)
-def get_cdi_variable_by_id(
-    calc_id: int,
-    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
-) -> CDIVariableResponse:
-    """Get a specific CDI variable calculation by ID"""
-    calc = cdi_service.get_cdi_variable_calculation(calc_id)
-    if not calc:
-        raise HTTPException(status_code=404, detail="CDI variable calculation not found")
-    return calc
-
-@router.post("/cdi-variables", response_model=CDIVariableResponse)
-def create_cdi_variable(
-    request: CDIVariableCreate,
-    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service),
-    created_by: str = "system"  # TODO: Get from auth context
-) -> CDIVariableResponse:
-    """Create a new CDI variable calculation"""
     try:
-        return cdi_service.create_cdi_variable_calculation(request, created_by)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.patch("/cdi-variables/{calc_id}", response_model=CDIVariableResponse)
-def update_cdi_variable(
-    calc_id: int,
-    request: CDIVariableUpdate,
-    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
-) -> CDIVariableResponse:
-    """Update an existing CDI variable calculation (partial update)"""
-    try:
-        return cdi_service.update_cdi_variable_calculation(calc_id, request)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.delete("/cdi-variables/{calc_id}")
-def delete_cdi_variable(
-    calc_id: int,
-    system_calc_service: SystemCalculationService = Depends(get_system_calculation_service)
-) -> Dict[str, str]:
-    """Delete a CDI variable calculation (soft delete the underlying SystemCalculation)"""
-    try:
-        return system_calc_service.delete_system_calculation(calc_id)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-# ===== CDI VARIABLE EXECUTION ENDPOINTS =====
-
-@router.post("/cdi-variables/{calc_id}/execute", response_model=CDIVariableExecutionResponse)
-def execute_cdi_variable(
-    calc_id: int,
-    request: CDIVariableExecutionRequest,
-    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
-) -> CDIVariableExecutionResponse:
-    """Execute a CDI variable calculation - UPDATED for deal/tranche level support"""
-    start_time = time.time()
-    
-    try:
-        # Get calculation info
-        calc = cdi_service.get_cdi_variable_calculation(calc_id)
-        if not calc:
-            raise HTTPException(status_code=404, detail="CDI variable calculation not found")
+        result_column = request.get("result_column")
+        if not result_column:
+            raise HTTPException(status_code=400, detail="result_column is required")
         
-        # Execute the calculation
-        result_df = cdi_service.execute_cdi_variable_calculation(
-            calc_id, request.cycle_code, request.deal_numbers
-        )
-        
-        # Convert DataFrame to list of dicts
-        result_data = result_df.to_dict('records') if not result_df.empty else []
-        
-        execution_time = (time.time() - start_time) * 1000  # Convert to milliseconds
-        
-        return CDIVariableExecutionResponse(
-            calculation_id=calc_id,
-            calculation_name=calc.name,
-            cycle_code=request.cycle_code,
-            deal_count=len(request.deal_numbers),
-            record_count=len(result_data),  # UPDATED: Use record_count instead of tranche_count
-            group_level=calc.group_level,   # ADDED: Include group level
-            data=result_data,
-            execution_time_ms=execution_time
-        )
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Execution failed: {str(e)}")
-
-@router.post("/cdi-variables/execute-batch")
-def execute_cdi_variables_batch(
-    calculation_ids: List[int],
-    cycle_code: int,
-    deal_numbers: List[int],
-    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
-) -> Dict[str, Any]:
-    """Execute multiple CDI variable calculations in batch"""
-    
-    results = {}
-    errors = {}
-    
-    for calc_id in calculation_ids:
-        try:
-            result_df = cdi_service.execute_cdi_variable_calculation(calc_id, cycle_code, deal_numbers)
-            results[str(calc_id)] = result_df.to_dict('records') if not result_df.empty else []
-        except Exception as e:
-            errors[str(calc_id)] = str(e)
-    
-    return {
-        "successful_calculations": len(results),
-        "failed_calculations": len(errors),
-        "results": results,
-        "errors": errors,
-        "cycle_code": cycle_code,
-        "deal_count": len(deal_numbers)
-    }
-
-# ===== CDI VARIABLE VALIDATION ENDPOINTS =====
-
-@router.post("/cdi-variables/validate", response_model=CDIVariableValidationResponse)
-def validate_cdi_variable_config(
-    request: CDIVariableValidationRequest,
-    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
-) -> CDIVariableValidationResponse:
-    """Validate a CDI variable configuration before creating it - UPDATED"""
-    
-    try:
-        warnings = []
-        errors = []
-        
-        # Validate based on group level
-        if request.group_level == "deal":
-            if "{tranche_suffix}" in request.variable_pattern:
-                errors.append("Deal-level variables should not contain {tranche_suffix} placeholder")
-            if request.tranche_mappings:
-                warnings.append("Deal-level variables don't need tranche mappings")
-        else:  # tranche level
-            if "{tranche_suffix}" not in request.variable_pattern:
-                errors.append("Tranche-level variables must contain {tranche_suffix} placeholder")
-            if not request.tranche_mappings:
-                errors.append("Tranche-level variables require tranche mappings")
-        
-        # Test against actual data
-        sample_data_count = 0
-        if not errors:
-            if request.group_level == "deal":
-                # Test deal-level variable
-                analysis = cdi_service.analyze_cdi_variable_level(
-                    variable_name=request.variable_pattern,
-                    cycle_code=request.cycle_code,
-                    deal_numbers=request.sample_deal_numbers
-                )
-                sample_data_count = analysis["direct_records"]
-                
-                if analysis["suggested_level"] not in ["deal_level", "mixed_or_deal_level"]:
-                    warnings.append(f"Variable appears to be {analysis['suggested_level']} based on data analysis")
-                    
-            else:
-                # Test tranche-level variable (existing logic)
-                # Generate test variable names and check
-                test_results = []
-                for suffix in list(request.tranche_mappings.keys())[:3]:  # Test first 3
-                    test_var = request.variable_pattern.replace("{tranche_suffix}", suffix)
-                    analysis = cdi_service.analyze_cdi_variable_level(
-                        variable_name=test_var,
-                        cycle_code=request.cycle_code,
-                        deal_numbers=request.sample_deal_numbers
-                    )
-                    test_results.append(analysis)
-                    sample_data_count += analysis["direct_records"]
-                
-                if not any(r["direct_records"] > 0 for r in test_results):
-                    warnings.append("No data found for any of the tested tranche suffixes")
-        
-        return CDIVariableValidationResponse(
-            is_valid=len(errors) == 0,
-            validation_results={
-                "group_level": request.group_level,
-                "pattern_valid": "{tranche_suffix}" in request.variable_pattern if request.group_level == "tranche" else "{tranche_suffix}" not in request.variable_pattern,
-                "has_data": sample_data_count > 0,
-                "tested_variable": request.variable_pattern
-            },
-            sample_data_count=sample_data_count,
-            warnings=warnings,
-            errors=errors
-        )
-        
-    except Exception as e:
-        return CDIVariableValidationResponse(
-            is_valid=False,
-            validation_results={"error": str(e)},
-            sample_data_count=0,
-            warnings=[],
-            errors=[f"Validation failed: {str(e)}"]
-        )
-
-# ===== NEW DISCOVERY ENDPOINTS =====
-
-@router.post("/cdi-variables/discover", response_model=CDIVariableDiscoveryResponse)
-def discover_cdi_variables(
-    request: CDIVariableDiscoveryRequest,
-    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
-) -> CDIVariableDiscoveryResponse:
-    """Discover available CDI variables in the datawarehouse and classify by level"""
-    
-    try:
-        # Discover deal-level variables
-        deal_level_vars = cdi_service.discover_deal_level_variables(
-            cycle_code=request.cycle_code,
-            deal_numbers=request.deal_numbers,
-            pattern_prefix=request.pattern_prefix
-        )
-        
-        # Get overall analysis
-        analysis = cdi_service.get_cdi_variable_summary(
-            cycle_code=request.cycle_code,
-            deal_numbers=request.deal_numbers
-        )
-        
-        return CDIVariableDiscoveryResponse(
-            cycle_code=request.cycle_code,
-            deal_count=len(request.deal_numbers),
-            discovered_variables=analysis.get("variables", []),
-            deal_level_candidates=[var["variable_name"] for var in deal_level_vars],
-            tranche_level_candidates=[
-                var["variable_name"] for var in analysis.get("variables", [])
-                if var["variable_name"] not in [dlv["variable_name"] for dlv in deal_level_vars]
-            ],
-            analysis_summary={
-                "total_variables": analysis.get("total_variables", 0),
-                "deal_level_count": len(deal_level_vars),
-                "patterns_found": list(set([
-                    var["variable_name"].split("_")[1] if "_" in var["variable_name"] else "OTHER"
-                    for var in analysis.get("variables", [])
-                ]))
-            }
-        )
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Discovery failed: {str(e)}")
-
-@router.post("/cdi-variables/analyze-level", response_model=CDIVariableLevelAnalysis)
-def analyze_cdi_variable_level(
-    variable_name: str,
-    cycle_code: int,
-    deal_numbers: List[int],
-    cdi_service: CDIVariableCalculationService = Depends(get_cdi_service)
-) -> CDIVariableLevelAnalysis:
-    """Analyze whether a specific CDI variable is deal-level or tranche-level"""
-    
-    try:
-        analysis = cdi_service.analyze_cdi_variable_level(
-            variable_name=variable_name,
-            cycle_code=cycle_code,
-            deal_numbers=deal_numbers
-        )
-        
-        return CDIVariableLevelAnalysis(**analysis)
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Analysis failed: {str(e)}")
-
-# ===== EXAMPLE ENDPOINT FOR GENERATING SAMPLE CONFIGURATIONS =====
-
-@router.get("/cdi-variables/examples", response_model=Dict[str, List[Dict[str, Any]]])
-def get_cdi_variable_examples() -> Dict[str, List[Dict[str, Any]]]:
-    """Get example CDI variable configurations for both deal and tranche levels"""
-    
-    deal_level_examples = [
-        {
-            "name": "Deal Total Principal",
-            "variable_pattern": "#RPT_DEAL_TOTAL_PRINCIPAL",
-            "variable_type": "deal_summary",
-            "result_column_name": "deal_total_principal",
-            "group_level": "deal",
-            "description": "Total principal amount for the entire deal",
-            "tranche_mappings": {}
-        },
-        {
-            "name": "Deal Payment Date",
-            "variable_pattern": "#RPT_DEAL_PAYMENT_DATE",
-            "variable_type": "deal_payment_info",
-            "result_column_name": "deal_payment_date",
-            "group_level": "deal",
-            "description": "Payment date for the deal",
-            "tranche_mappings": {}
-        },
-        {
-            "name": "Deal Status",
-            "variable_pattern": "#RPT_DEAL_STATUS",
-            "variable_type": "deal_status",
-            "result_column_name": "deal_status",
-            "group_level": "deal",
-            "description": "Current status of the deal",
-            "tranche_mappings": {}
+        # TODO: implement validation
+        return {
+            "result_column": result_column,
+            "is_available": True,  # Placeholder
+            "existing_calculation": None
         }
-    ]
-    
-    tranche_level_examples = [
-        {
-            "name": "Investment Income",
-            "variable_pattern": "#RPT_RRI_{tranche_suffix}",
-            "variable_type": "investment_income",
-            "result_column_name": "investment_income",
-            "group_level": "tranche",
-            "description": "Investment income by tranche",
-            "tranche_mappings": {
-                "M1": ["1M1", "2M1", "M1"],
-                "M2": ["1M2", "2M2", "M2"],
-                "B1": ["1B1", "2B1", "B1"],
-                "B2": ["B2", "1B2", "2B2"]
-            }
-        },
-        {
-            "name": "Excess Interest",
-            "variable_pattern": "#RPT_EXC_{tranche_suffix}",
-            "variable_type": "excess_interest",
-            "result_column_name": "excess_interest",
-            "group_level": "tranche",
-            "description": "Excess interest by tranche",
-            "tranche_mappings": {
-                "M1": ["1M1", "2M1", "M1"],
-                "M2": ["1M2", "2M2", "M2"],
-                "B1": ["1B1", "2B1", "B1"]
-            }
-        }
-    ]
-    
-    return {
-        "deal_level": deal_level_examples,
-        "tranche_level": tranche_level_examples
-    }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

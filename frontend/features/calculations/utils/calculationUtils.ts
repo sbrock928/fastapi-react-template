@@ -532,8 +532,8 @@ const validateSystemSqlCalculation = (calculation: CalculationForm): string | nu
     return 'Result column name is required';
   }
   
-  // Use the enhanced validation
-  const parseResult = parseAndValidateComplexSQL(
+  // Use the enhanced validation with placeholder support
+  const parseResult = parseAndValidateComplexSQLWithPlaceholders(
     calculation.source_field.trim(),
     calculation.level,
     calculation.weight_field.trim()
@@ -552,419 +552,283 @@ const validateSystemSqlCalculation = (calculation: CalculationForm): string | nu
 };
 
 /**
- * Get calculation type info for UI display
+ * Enhanced SQL parsing and validation with placeholder support
  */
-export const getCalculationTypeInfo = (modalType: 'user-defined' | 'system-field' | 'system-sql') => {
+export const parseAndValidateComplexSQLWithPlaceholders = (sql: string, groupLevel: string, resultColumn: string): SQLParseResult => {
+  const result: SQLParseResult = {
+    isValid: true,
+    errors: [],
+    warnings: [],
+    hasCTEs: false,
+    hasSubqueries: false,
+    finalSelectColumns: [],
+    usedTables: []
+  };
+
+  if (!sql?.trim()) {
+    result.isValid = false;
+    result.errors.push('SQL query cannot be empty');
+    return result;
+  }
+
+  const sqlTrimmed = sql.trim();
+
+  // Security validation - dangerous operations
+  const dangerousPatterns = [
+    /\bDROP\b/i, /\bDELETE\s+FROM\b/i, /\bTRUNCATE\b/i,
+    /\bINSERT\s+INTO\b/i, /\bUPDATE\s+.*\bSET\b/i, /\bALTER\b/i,
+    /\bCREATE\b/i, /\bEXEC\b/i, /\bEXECUTE\b/i,
+    /\bxp_\w+/i, /\bsp_\w+/i, /\bGRANT\b/i, /\bREVOKE\b/i
+  ];
+
+  for (const pattern of dangerousPatterns) {
+    if (pattern.test(sqlTrimmed)) {
+      result.isValid = false;
+      result.errors.push('SQL contains dangerous operations that are not allowed');
+      return result;
+    }
+  }
+
+  // Check for CTEs
+  result.hasCTEs = /^\s*WITH\b/i.test(sqlTrimmed);
+  
+  // Check for subqueries
+  result.hasSubqueries = /\(\s*SELECT\b/i.test(sqlTrimmed);
+
+  // Validate placeholders
+  const placeholderValidation = validatePlaceholders(sqlTrimmed);
+  if (!placeholderValidation.isValid) {
+    result.isValid = false;
+    result.errors.push(...placeholderValidation.errors);
+  }
+  result.warnings.push(...placeholderValidation.warnings);
+
+  try {
+    // Extract final SELECT statement (after placeholder replacement for validation)
+    const sqlForValidation = replacePlaceholdersForValidation(sqlTrimmed);
+    const finalSelect = extractFinalSelect(sqlForValidation);
+    if (!finalSelect) {
+      result.isValid = false;
+      result.errors.push('Could not identify the final SELECT statement');
+      return result;
+    }
+
+    // Validate final SELECT structure
+    const selectValidation = validateFinalSelect(finalSelect, groupLevel, resultColumn);
+    result.errors.push(...selectValidation.errors);
+    result.warnings.push(...selectValidation.warnings);
+    result.finalSelectColumns = selectValidation.columns;
+    result.usedTables = selectValidation.tables;
+
+    if (selectValidation.errors.length > 0) {
+      result.isValid = false;
+    }
+
+    // Additional validation for complex queries
+    if (result.hasCTEs) {
+      const cteValidation = validateCTEStructure(sqlForValidation);
+      result.warnings.push(...cteValidation.warnings);
+      if (cteValidation.errors.length > 0) {
+        result.errors.push(...cteValidation.errors);
+        result.isValid = false;
+      }
+    }
+
+  } catch (error) {
+    result.isValid = false;
+    result.errors.push(`SQL parsing error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+
+  return result;
+};
+
+/**
+ * Validate SQL placeholders
+ */
+function validatePlaceholders(sql: string): { isValid: boolean; errors: string[]; warnings: string[] } {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  
+  // Extract placeholders from SQL
+  const placeholderPattern = /\{([^}]+)\}/g;
+  const placeholders = [...sql.matchAll(placeholderPattern)].map(match => match[1]);
+  
+  // Define valid placeholders with proper typing
+  const validPlaceholders: Record<string, string> = {
+    'current_cycle': 'The selected reporting cycle code',
+    'previous_cycle': 'The previous reporting cycle (current_cycle - 1)',
+    'cycle_minus_2': 'Two cycles before current (current_cycle - 2)',
+    'deal_filter': 'WHERE clause for selected deal numbers',
+    'tranche_filter': 'WHERE clause for selected tranche IDs',
+    'deal_tranche_filter': 'Combined WHERE clause for deal and tranche selections',
+    'deal_numbers': 'Comma-separated list of selected deal numbers',
+    'tranche_ids': 'Comma-separated list of selected tranche IDs (quoted)',
+  };
+  
+  // Check each placeholder
+  for (const placeholder of placeholders) {
+    if (!(placeholder in validPlaceholders)) {
+      errors.push(`Invalid placeholder '{${placeholder}}'. Valid placeholders: ${Object.keys(validPlaceholders).join(', ')}`);
+    }
+  }
+  
+  // Warnings for placeholder usage
+  if (placeholders.includes('deal_tranche_filter') && (placeholders.includes('deal_filter') || placeholders.includes('tranche_filter'))) {
+    warnings.push('Using both deal_tranche_filter and individual deal/tranche filters may create redundant conditions');
+  }
+  
+  if (placeholders.includes('previous_cycle') || placeholders.includes('cycle_minus_2')) {
+    warnings.push('Previous cycle placeholders may return empty results if historical data is not available');
+  }
+  
+  return {
+    isValid: errors.length === 0,
+    errors,
+    warnings
+  };
+}
+
+/**
+ * Replace placeholders with sample values for validation purposes
+ */
+function replacePlaceholdersForValidation(sql: string): string {
+  const placeholderValues = {
+    '{current_cycle}': '202404',
+    '{previous_cycle}': '202403',
+    '{cycle_minus_2}': '202402',
+    '{deal_filter}': 'dl_nbr IN (101, 102, 103)',
+    '{tranche_filter}': '(dl_nbr = 101 AND tr_id IN (\'A\', \'B\')) OR (dl_nbr = 102 AND tr_id IN (\'C\', \'D\'))',
+    '{deal_tranche_filter}': '((dl_nbr = 101 AND tr_id IN (\'A\', \'B\')) OR (dl_nbr = 102 AND tr_id IN (\'C\', \'D\')))',
+    '{deal_numbers}': '101, 102, 103',
+    '{tranche_ids}': 'A\', \'B\', \'C\', \'D',
+  };
+  
+  let validationSql = sql;
+  for (const [placeholder, value] of Object.entries(placeholderValues)) {
+    validationSql = validationSql.replace(new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), value);
+  }
+  
+  return validationSql;
+}
+
+/**
+ * Get enhanced SQL template with placeholder examples
+ */
+export const getSqlTemplateWithPlaceholders = (groupLevel: string, resultColumn: string = 'result_column'): string => {
+  if (groupLevel === 'deal') {
+    return `-- Deal-level calculation with placeholders
+WITH current_balances AS (
+    SELECT 
+        deal.dl_nbr,
+        SUM(tranchebal.tr_end_bal_amt) as current_balance
+    FROM deal
+    JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
+    JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
+        AND tranche.tr_id = tranchebal.tr_id
+    WHERE tranchebal.cycle_cde = {current_cycle}
+        AND {deal_tranche_filter}
+    GROUP BY deal.dl_nbr
+),
+previous_balances AS (
+    SELECT 
+        deal.dl_nbr,
+        SUM(tranchebal.tr_end_bal_amt) as previous_balance
+    FROM deal
+    JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
+    JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
+        AND tranche.tr_id = tranchebal.tr_id
+    WHERE tranchebal.cycle_cde = {previous_cycle}
+        AND {deal_tranche_filter}
+    GROUP BY deal.dl_nbr
+)
+SELECT 
+    c.dl_nbr,
+    CASE 
+        WHEN p.previous_balance IS NULL THEN 'New Deal'
+        WHEN c.current_balance > p.previous_balance * 1.1 THEN 'Growing'
+        WHEN c.current_balance < p.previous_balance * 0.9 THEN 'Declining'
+        ELSE 'Stable'
+    END AS ${resultColumn}
+FROM current_balances c
+LEFT JOIN previous_balances p ON c.dl_nbr = p.dl_nbr`;
+  } else {
+    return `-- Tranche-level calculation with placeholders
+WITH tranche_performance AS (
+    SELECT 
+        deal.dl_nbr,
+        tranche.tr_id,
+        tranchebal.tr_end_bal_amt,
+        tranchebal.tr_pass_thru_rte,
+        LAG(tranchebal.tr_end_bal_amt) OVER (
+            PARTITION BY deal.dl_nbr, tranche.tr_id 
+            ORDER BY tranchebal.cycle_cde
+        ) as previous_balance
+    FROM deal
+    JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
+    JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
+        AND tranche.tr_id = tranchebal.tr_id
+    WHERE tranchebal.cycle_cde IN ({current_cycle}, {previous_cycle})
+        AND {deal_tranche_filter}
+)
+SELECT 
+    dl_nbr,
+    tr_id,
+    CASE 
+        WHEN tr_end_bal_amt >= 25000000 THEN 'Large'
+        WHEN tr_pass_thru_rte > 0.05 THEN 'High Rate'
+        WHEN previous_balance IS NOT NULL AND tr_end_bal_amt > previous_balance * 1.2 THEN 'Fast Growing'
+        ELSE 'Standard'
+    END AS ${resultColumn}
+FROM tranche_performance
+WHERE cycle_cde = {current_cycle}`;
+  }
+};
+
+/**
+ * Get available placeholders with descriptions
+ */
+export const getAvailablePlaceholders = (): { [key: string]: string } => {
+  return {
+    'current_cycle': 'The selected reporting cycle code',
+    'previous_cycle': 'The previous reporting cycle (current_cycle - 1)',
+    'cycle_minus_2': 'Two cycles before current (current_cycle - 2)',
+    'deal_filter': 'WHERE clause for selected deal numbers (e.g., "dl_nbr IN (101, 102)")',
+    'tranche_filter': 'WHERE clause for selected tranche IDs (e.g., "(dl_nbr = 101 AND tr_id IN (\'A\', \'B\'))")',
+    'deal_tranche_filter': 'Combined WHERE clause for deal and tranche selections',
+    'deal_numbers': 'Comma-separated list of selected deal numbers (e.g., "101, 102, 103")',
+    'tranche_ids': 'Comma-separated list of selected tranche IDs, quoted (e.g., "A\', \'B\', \'C")',
+  };
+};
+
+/**
+ * Enhanced validation for calculation forms with placeholder support
+ */
+export const validateCalculationFormEnhanced = (
+  calculation: CalculationForm, 
+  modalType: 'user-defined' | 'system-field' | 'system-sql'
+): string | null => {
+  // Basic validation for all types
+  if (!calculation.name?.trim()) {
+    return 'Calculation name is required';
+  }
+  
+  if (calculation.name.trim().length < 3) {
+    return 'Calculation name must be at least 3 characters long';
+  }
+  
+  if (!calculation.level) {
+    return 'Group level is required';
+  }
+
+  // Type-specific validation
   switch (modalType) {
     case 'user-defined':
-      return {
-        title: 'User Defined Calculation',
-        description: 'Create aggregated calculations using functions like SUM, AVG, COUNT, etc.',
-        icon: 'bi-person-gear',
-        color: 'primary',
-        examples: [
-          'Total Ending Balance (SUM)',
-          'Average Pass Through Rate (WEIGHTED_AVG)',
-          'Tranche Count (COUNT)'
-        ]
-      };
+      return validateUserDefinedCalculation(calculation);
     case 'system-field':
-      return {
-        title: 'System Field Calculation',
-        description: 'Expose raw model fields for use in reports and other calculations',
-        icon: 'bi-database',
-        color: 'success',
-        examples: [
-          'Deal Number (Deal.dl_nbr)',
-          'Tranche ID (Tranche.tr_id)',
-          'Issuer Code (Deal.issr_cde)'
-        ]
-      };
+      return validateSystemFieldCalculation(calculation);
     case 'system-sql':
-      return {
-        title: 'System SQL Calculation',
-        description: 'Advanced custom calculations using validated SQL queries',
-        icon: 'bi-code-square',
-        color: 'warning',
-        examples: [
-          'Issuer Type Classification',
-          'Performance Category',
-          'Custom Business Logic'
-        ]
-      };
+      return validateSystemSqlCalculation(calculation);
     default:
-      return {
-        title: 'Calculation',
-        description: '',
-        icon: 'bi-question-circle',
-        color: 'secondary',
-        examples: []
-      };
-  }
-};
-
-/**
- * Format field name for display
- */
-export const formatFieldName = (fieldName: string): string => {
-  return fieldName
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, l => l.toUpperCase());
-};
-
-/**
- * Get SQL template based on group level and result column
- */
-export const getSqlTemplate = (groupLevel: string, resultColumn: string = 'result_column'): string => {
-  if (groupLevel === 'deal') {
-    return `-- Deal-level calculation template
-SELECT 
-    deal.dl_nbr,
-    CASE 
-        WHEN deal.issr_cde LIKE '%FHLMC%' THEN 'GSE'
-        WHEN deal.issr_cde LIKE '%GNMA%' THEN 'Government'
-        ELSE 'Private'
-    END AS ${resultColumn}
-FROM deal
-WHERE deal.dl_nbr IN (101, 102, 103)`;
-  } else {
-    return `-- Tranche-level calculation template
-SELECT 
-    deal.dl_nbr,
-    tranche.tr_id,
-    CASE 
-        WHEN tranchebal.tr_end_bal_amt >= 25000000 THEN 'Large'
-        WHEN tranchebal.tr_end_bal_amt >= 10000000 THEN 'Medium'
-        ELSE 'Small'
-    END AS ${resultColumn}
-FROM deal
-JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
-JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
-    AND tranche.tr_id = tranchebal.tr_id
-WHERE deal.dl_nbr IN (101, 102, 103)
-    AND tranche.tr_id IN ('A', 'B')
-    AND tranchebal.cycle_cde = 202404`;
-  }
-};
-
-/**
- * Enhanced SQL templates for complex queries including CTEs
- */
-export const getCTESqlTemplate = (groupLevel: string, resultColumn: string = 'result_column'): string => {
-  if (groupLevel === 'deal') {
-    return `-- CTE Example: Deal-level with complex business logic
-WITH deal_metrics AS (
-    SELECT 
-        deal.dl_nbr,
-        COUNT(tranche.tr_id) as tranche_count,
-        SUM(tranchebal.tr_end_bal_amt) as total_balance
-    FROM deal
-    JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
-    JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
-        AND tranche.tr_id = tranchebal.tr_id
-    GROUP BY deal.dl_nbr
-),
-issuer_categories AS (
-    SELECT 
-        dl_nbr,
-        CASE 
-            WHEN issr_cde LIKE '%FHLMC%' THEN 'GSE'
-            WHEN issr_cde LIKE '%GNMA%' THEN 'Government'
-            ELSE 'Private'
-        END as issuer_type
-    FROM deal
-)
-SELECT 
-    dm.dl_nbr,
-    CASE 
-        WHEN dm.total_balance >= 100000000 AND ic.issuer_type = 'GSE' THEN 'Large GSE'
-        WHEN dm.total_balance >= 50000000 AND ic.issuer_type = 'Government' THEN 'Large Gov'
-        WHEN dm.tranche_count > 5 THEN 'Complex Structure'
-        ELSE 'Standard'
-    END AS ${resultColumn}
-FROM deal_metrics dm
-JOIN issuer_categories ic ON dm.dl_nbr = ic.dl_nbr`;
-  } else {
-    return `-- CTE Example: Tranche-level with window functions
-WITH tranche_rankings AS (
-    SELECT 
-        deal.dl_nbr,
-        tranche.tr_id,
-        tranchebal.tr_end_bal_amt,
-        ROW_NUMBER() OVER (
-            PARTITION BY deal.dl_nbr 
-            ORDER BY tranchebal.tr_end_bal_amt DESC
-        ) as size_rank
-    FROM deal
-    JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
-    JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
-        AND tranche.tr_id = tranchebal.tr_id
-),
-deal_totals AS (
-    SELECT 
-        dl_nbr,
-        SUM(tr_end_bal_amt) as deal_total
-    FROM tranche_rankings
-    GROUP BY dl_nbr
-)
-SELECT 
-    tr.dl_nbr,
-    tr.tr_id,
-    CASE 
-        WHEN tr.size_rank = 1 THEN 'Senior'
-        WHEN tr.tr_end_bal_amt / dt.deal_total > 0.3 THEN 'Major'
-        WHEN tr.tr_end_bal_amt / dt.deal_total > 0.1 THEN 'Minor'
-        ELSE 'Residual'
-    END AS ${resultColumn}
-FROM tranche_rankings tr
-JOIN deal_totals dt ON tr.dl_nbr = dt.dl_nbr`;
-  }
-};
-
-/**
- * Get advanced SQL example templates
- */
-export const getAdvancedSqlExamples = (): { [key: string]: string } => {
-  return {
-    'Recursive CTE': `-- Recursive CTE example (use with caution)
-WITH RECURSIVE hierarchy AS (
-    -- Base case
-    SELECT dl_nbr, tr_id, 1 as level
-    FROM tranche 
-    WHERE tr_id = 'A'
-    
-    UNION ALL
-    
-    -- Recursive case
-    SELECT t.dl_nbr, t.tr_id, h.level + 1
-    FROM tranche t
-    JOIN hierarchy h ON t.dl_nbr = h.dl_nbr
-    WHERE t.tr_id > h.tr_id AND h.level < 5
-)
-SELECT 
-    dl_nbr,
-    tr_id,
-    CASE 
-        WHEN level = 1 THEN 'Senior'
-        WHEN level <= 3 THEN 'Mezzanine'
-        ELSE 'Subordinate'
-    END AS tranche_level
-FROM hierarchy`,
-
-    'Multiple CTEs with Joins': `-- Complex multi-CTE analysis
-WITH performance_metrics AS (
-    SELECT 
-        deal.dl_nbr,
-        AVG(tranchebal.tr_pass_thru_rte) as avg_rate,
-        STDDEV(tranchebal.tr_pass_thru_rte) as rate_volatility
-    FROM deal
-    JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
-    JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
-        AND tranche.tr_id = tranchebal.tr_id
-    GROUP BY deal.dl_nbr
-),
-size_categories AS (
-    SELECT 
-        dl_nbr,
-        CASE 
-            WHEN SUM(tr_end_bal_amt) >= 100000000 THEN 'Large'
-            WHEN SUM(tr_end_bal_amt) >= 25000000 THEN 'Medium'
-            ELSE 'Small'
-        END as size_category
-    FROM tranchebal
-    GROUP BY dl_nbr
-)
-SELECT 
-    pm.dl_nbr,
-    CASE 
-        WHEN pm.avg_rate > 0.05 AND pm.rate_volatility < 0.01 AND sc.size_category = 'Large' THEN 'Premium'
-        WHEN pm.avg_rate > 0.03 AND sc.size_category IN ('Large', 'Medium') THEN 'Standard'
-        WHEN pm.rate_volatility > 0.02 THEN 'High Risk'
-        ELSE 'Basic'
-    END AS risk_rating
-FROM performance_metrics pm
-JOIN size_categories sc ON pm.dl_nbr = sc.dl_nbr`,
-
-    'Window Functions': `-- Advanced window function example
-WITH ranked_tranches AS (
-    SELECT 
-        deal.dl_nbr,
-        tranche.tr_id,
-        tranchebal.tr_end_bal_amt,
-        RANK() OVER (PARTITION BY deal.dl_nbr ORDER BY tranchebal.tr_end_bal_amt DESC) as balance_rank,
-        LAG(tranchebal.tr_end_bal_amt) OVER (PARTITION BY deal.dl_nbr ORDER BY tranche.tr_id) as prev_balance,
-        FIRST_VALUE(tranchebal.tr_end_bal_amt) OVER (
-            PARTITION BY deal.dl_nbr 
-            ORDER BY tranchebal.tr_end_bal_amt DESC
-            ROWS UNBOUNDED PRECEDING
-        ) as largest_balance
-    FROM deal
-    JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
-    JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
-        AND tranche.tr_id = tranchebal.tr_id
-)
-SELECT 
-    dl_nbr,
-    tr_id,
-    CASE 
-        WHEN balance_rank = 1 THEN 'Dominant'
-        WHEN tr_end_bal_amt / largest_balance > 0.5 THEN 'Significant'
-        WHEN prev_balance IS NOT NULL AND tr_end_bal_amt < prev_balance * 0.5 THEN 'Step Down'
-        ELSE 'Standard'
-    END AS tranche_profile
-FROM ranked_tranches`
-  };
-};
-
-/**
- * Enhanced SQL syntax validation for the editor
- */
-export const validateSqlSyntax = (sql: string): { isValid: boolean; errors: string[]; warnings?: string[] } => {
-  if (!sql?.trim()) {
-    return { isValid: false, errors: ['SQL query cannot be empty'] };
-  }
-
-  const parseResult = parseAndValidateComplexSQL(sql, 'deal', 'result_column');
-  
-  return {
-    isValid: parseResult.isValid,
-    errors: parseResult.errors,
-    warnings: parseResult.warnings
-  };
-};
-
-/**
- * Get calculation complexity score for sorting/display purposes
- */
-export const getCalculationComplexity = (calculation: CalculationForm): number => {
-  let complexity = 0;
-  
-  // Base complexity by type
-  switch (calculation.function_type) {
-    case 'SYSTEM_FIELD':
-      complexity = 1; // Simplest
-      break;
-    case 'SUM':
-    case 'COUNT':
-    case 'MIN':
-    case 'MAX':
-      complexity = 2; // Simple aggregations
-      break;
-    case 'AVG':
-      complexity = 3; // Medium complexity
-      break;
-    case 'WEIGHTED_AVG':
-      complexity = 4; // More complex
-      break;
-    case 'SYSTEM_SQL':
-      complexity = 5; // Most complex
-      break;
-    default:
-      complexity = 2;
-  }
-  
-  // Add complexity for weight fields
-  if (calculation.weight_field && calculation.function_type !== 'SYSTEM_SQL') {
-    complexity += 1;
-  }
-  
-  // Add complexity for tranche level (more data)
-  if (calculation.level === 'tranche') {
-    complexity += 1;
-  }
-  
-  return complexity;
-};
-
-/**
- * Generate a suggested calculation name based on configuration
- */
-export const suggestCalculationName = (calculation: CalculationForm): string => {
-  if (calculation.function_type === 'SYSTEM_FIELD') {
-    if (calculation.source && calculation.source_field) {
-      return formatFieldName(calculation.source_field);
-    }
-    return 'System Field';
-  }
-  
-  if (calculation.function_type === 'SYSTEM_SQL') {
-    return 'Custom SQL Calculation';
-  }
-  
-  // User-defined calculations
-  if (!calculation.function_type || !calculation.source_field) {
-    return 'New Calculation';
-  }
-  
-  const fieldName = formatFieldName(calculation.source_field);
-  const functionName = calculation.function_type.replace('_', ' ');
-  
-  if (calculation.function_type === 'WEIGHTED_AVG') {
-    return `Weighted Average ${fieldName}`;
-  }
-  
-  return `${functionName} ${fieldName}`;
-};
-
-/**
- * Check if calculation has unsaved changes
- */
-export const hasUnsavedChanges = (
-  current: CalculationForm, 
-  original: CalculationForm | null
-): boolean => {
-  if (!original) {
-    // New calculation - check if any meaningful data is entered
-    return !!(
-      current.name?.trim() ||
-      current.description?.trim() ||
-      (current.function_type && current.function_type !== 'SUM') ||
-      current.source ||
-      current.source_field ||
-      current.weight_field?.trim()
-    );
-  }
-
-  // Compare with original
-  return (
-    current.name !== original.name ||
-    current.description !== original.description ||
-    current.function_type !== original.function_type ||
-    current.source !== original.source ||
-    current.source_field !== original.source_field ||
-    current.level !== original.level ||
-    current.weight_field !== original.weight_field
-  );
-};
-
-/**
- * Get SQL template for editor based on group level
- */
-export const getSqlTemplateForEditor = (groupLevel: string): string => {
-  if (groupLevel === 'deal') {
-    return `-- SQL Template: Deal-level
-SELECT 
-    deal.dl_nbr,
-    deal.issr_cde,
-    SUM(tranchebal.tr_end_bal_amt) AS total_balance
-FROM deal
-JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
-JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
-    AND tranche.tr_id = tranchebal.tr_id
-GROUP BY deal.dl_nbr, deal.issr_cde
-ORDER BY deal.dl_nbr`;
-  } else {
-    return `-- SQL Template: Tranche-level
-SELECT 
-    deal.dl_nbr,
-    tranche.tr_id,
-    tranchebal.tr_end_bal_amt,
-    tranchebal.tr_pass_thru_rte
-FROM deal
-JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
-JOIN tranchebal ON tranche.dl_nbr = tranchebal.dl_nbr 
-    AND tranche.tr_id = tranchebal.tr_id
-WHERE tranchebal.cycle_cde = 202404
-ORDER BY deal.dl_nbr, tranche.tr_id`;
+      return 'Invalid calculation type';
   }
 };

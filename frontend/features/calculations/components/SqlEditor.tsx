@@ -1,5 +1,6 @@
 // frontend/features/calculations/components/SqlEditor.tsx
 import React, { useState, useRef, useEffect } from 'react';
+import { getSqlTemplateWithPlaceholders, getAvailablePlaceholders } from '../utils/calculationUtils';
 
 interface SqlEditorProps {
   value: string;
@@ -8,6 +9,9 @@ interface SqlEditorProps {
   disabled?: boolean;
   placeholder?: string;
   height?: string;
+  resultColumnName?: string;
+  onValidate?: (sql: string) => void;
+  validationResult?: any;
 }
 
 const SqlEditor: React.FC<SqlEditorProps> = ({
@@ -16,27 +20,36 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
   groupLevel,
   disabled = false,
   placeholder = '',
-  height = '300px'
+  height = '300px',
+  resultColumnName = 'result_column',
+  onValidate,
+  validationResult
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const highlightRef = useRef<HTMLDivElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
   const [focused, setFocused] = useState(false);
+  const [showPlaceholderHelp, setShowPlaceholderHelp] = useState(false);
 
-  // SQL keywords for highlighting - Enhanced for CTEs and complex queries
+  // Enhanced SQL keywords for highlighting - includes placeholders
   const SQL_KEYWORDS = [
     'SELECT', 'FROM', 'WHERE', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'OUTER', 'ON',
     'GROUP', 'BY', 'ORDER', 'HAVING', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
     'AS', 'AND', 'OR', 'NOT', 'IN', 'LIKE', 'BETWEEN', 'IS', 'NULL', 'DISTINCT',
     'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'CAST', 'COALESCE', 'NULLIF',
-    'WITH', 'RECURSIVE', 'UNION', 'ALL', 'EXCEPT', 'INTERSECT', 'EXISTS'
+    'WITH', 'RECURSIVE', 'UNION', 'ALL', 'EXCEPT', 'INTERSECT', 'EXISTS',
+    'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'LEAD', 'LAG', 'FIRST_VALUE', 'LAST_VALUE',
+    'PARTITION', 'OVER', 'WINDOW', 'RANGE', 'ROWS', 'PRECEDING', 'FOLLOWING', 'UNBOUNDED'
   ];
 
-  const FUNCTIONS = ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'CASE', 'CAST', 'COALESCE', 'NULLIF', 'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'LEAD', 'LAG', 'FIRST_VALUE', 'LAST_VALUE'];
-  const TABLES = ['deal', 'tranche', 'tranchebal'];
-  const COMMON_FIELDS = ['dl_nbr', 'tr_id', 'issr_cde', 'cdi_file_nme', 'tr_end_bal_amt', 'tr_pass_thru_rte', 'cycle_cde'];
+  const FUNCTIONS = ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'CASE', 'CAST', 'COALESCE', 'NULLIF', 'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'LEAD', 'LAG', 'FIRST_VALUE', 'LAST_VALUE', 'STDDEV', 'VARIANCE', 'NTILE'];
+  const TABLES = ['deal', 'tranche', 'tranchebal', 'deal_cdi_var_rpt'];
+  const COMMON_FIELDS = ['dl_nbr', 'tr_id', 'issr_cde', 'cdi_file_nme', 'CDB_cdi_file_nme', 'tr_cusip_id', 'tr_end_bal_amt', 'tr_pass_thru_rte', 'cycle_cde', 'dl_cdi_var_nme', 'dl_cdi_var_value'];
 
-  // Highlight SQL syntax (enhanced for CTEs)
+  // Get available placeholders
+  const availablePlaceholders = getAvailablePlaceholders();
+
+  // Enhanced highlighting with placeholder support
   const highlightSql = (sql: string): string => {
     if (!sql) return '';
 
@@ -47,6 +60,13 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
+
+    // Highlight placeholders first (before other patterns)
+    highlighted = highlighted.replace(/\{([^}]+)\}/g, (match, placeholder) => {
+      const isValid = Object.keys(availablePlaceholders).includes(placeholder);
+      const className = isValid ? 'sql-placeholder' : 'sql-placeholder-invalid';
+      return `<span class="${className}" title="${isValid ? availablePlaceholders[placeholder] : 'Invalid placeholder'}">${match}</span>`;
+    });
 
     // Highlight CTE names (identifiers followed by AS)
     highlighted = highlighted.replace(/\b(\w+)\s+AS\s*\(/gi, '<span class="sql-cte">$1</span> <span class="sql-keyword">AS</span> (');
@@ -134,12 +154,73 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
         }
       }, 0);
     }
+
+    // Ctrl+Space for placeholder suggestions
+    if (e.key === ' ' && e.ctrlKey) {
+      e.preventDefault();
+      setShowPlaceholderHelp(true);
+    }
+
+    // Auto-close braces for placeholders
+    if (e.key === '{') {
+      const start = e.currentTarget.selectionStart;
+      const end = e.currentTarget.selectionEnd;
+      const newValue = value.substring(0, start) + '{}' + value.substring(end);
+      onChange(newValue);
+      
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + 1;
+        }
+      }, 0);
+      e.preventDefault();
+    }
   };
 
+  // Insert placeholder at cursor position
+  const insertPlaceholder = (placeholderName: string) => {
+    if (!textareaRef.current) return;
+    
+    const start = textareaRef.current.selectionStart;
+    const end = textareaRef.current.selectionEnd;
+    const placeholder = `{${placeholderName}}`;
+    const newValue = value.substring(0, start) + placeholder + value.substring(end);
+    onChange(newValue);
+    
+    setTimeout(() => {
+      if (textareaRef.current) {
+        const newPosition = start + placeholder.length;
+        textareaRef.current.selectionStart = textareaRef.current.selectionEnd = newPosition;
+        textareaRef.current.focus();
+      }
+    }, 0);
+    
+    setShowPlaceholderHelp(false);
+  };
+
+  // Insert template SQL
+  const insertTemplate = () => {
+    const template = getSqlTemplateWithPlaceholders(groupLevel, resultColumnName);
+    onChange(template);
+    setShowPlaceholderHelp(false);
+  };
+
+  // Enhanced formatting with placeholder awareness
   const formatSql = () => {
     if (!value.trim()) return;
     
     let formatted = value;
+    
+    // Preserve placeholders during formatting
+    const placeholders: { [key: string]: string } = {};
+    let placeholderIndex = 0;
+    
+    // Extract placeholders
+    formatted = formatted.replace(/\{[^}]+\}/g, (match) => {
+      const key = `__PLACEHOLDER_${placeholderIndex++}__`;
+      placeholders[key] = match;
+      return key;
+    });
     
     // Remove extra whitespace and normalize
     formatted = formatted.replace(/\s+/g, ' ').trim();
@@ -157,6 +238,7 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
       .replace(/\bORDER\s+BY\b/gi, '\nORDER BY')
       .replace(/\bHAVING\b/gi, '\nHAVING')
       .replace(/\bUNION\b/gi, '\nUNION')
+      .replace(/\bWITH\b/gi, '\nWITH')
       .replace(/\bCASE\b/gi, '\n        CASE')
       .replace(/\bWHEN\b/gi, '\n            WHEN')
       .replace(/\bTHEN\b/gi, ' THEN')
@@ -205,12 +287,17 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
       .map(line => line.trimEnd())
       .join('\n');
     
+    // Restore placeholders
+    Object.keys(placeholders).forEach(key => {
+      formatted = formatted.replace(new RegExp(key, 'g'), placeholders[key]);
+    });
+    
     onChange(formatted);
   };
 
   return (
     <div>
-      {/* Global CSS for syntax highlighting */}
+      {/* Enhanced CSS for syntax highlighting with placeholder support */}
       <style dangerouslySetInnerHTML={{
         __html: `
           .sql-editor-container {
@@ -342,6 +429,12 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
             background: #505050;
             cursor: not-allowed;
           }
+          .sql-btn.success {
+            background: #198754;
+          }
+          .sql-btn.success:hover:not(:disabled) {
+            background: #157347;
+          }
           .sql-keyword {
             color: #569cd6;
             font-weight: bold;
@@ -372,11 +465,62 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
             font-weight: bold;
             text-decoration: underline;
           }
+          .sql-placeholder {
+            color: #ff79c6;
+            background: rgba(255, 121, 198, 0.1);
+            padding: 1px 2px;
+            border-radius: 2px;
+            font-weight: bold;
+            cursor: help;
+          }
+          .sql-placeholder-invalid {
+            color: #ff5555;
+            background: rgba(255, 85, 85, 0.1);
+            padding: 1px 2px;
+            border-radius: 2px;
+            font-weight: bold;
+            text-decoration: underline wavy;
+          }
+          .placeholder-help {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: #2d2d30;
+            border: 1px solid #404040;
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+            z-index: 1000;
+            max-height: 300px;
+            overflow-y: auto;
+          }
+          .placeholder-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid #404040;
+            color: #cccccc;
+          }
+          .placeholder-item:hover {
+            background: #404040;
+          }
+          .placeholder-item:last-child {
+            border-bottom: none;
+          }
+          .placeholder-name {
+            color: #ff79c6;
+            font-weight: bold;
+            font-family: monospace;
+          }
+          .placeholder-desc {
+            color: #999;
+            font-size: 11px;
+            margin-top: 2px;
+          }
         `
       }} />
       
-      <div className={`sql-editor-container ${focused ? 'focused' : ''} ${disabled ? 'disabled' : ''}`}>
-        {/* Toolbar */}
+      <div className={`sql-editor-container ${focused ? 'focused' : ''} ${disabled ? 'disabled' : ''}`} style={{ position: 'relative' }}>
+        {/* Enhanced Toolbar */}
         <div className="sql-toolbar">
           <div className="sql-status">
             <span>SQL Editor</span>
@@ -388,26 +532,92 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
                 <span>{value.split('\n').length} lines</span>
               </>
             )}
+            {validationResult && (
+              <>
+                <span className="text-muted">•</span>
+                <span className={validationResult.is_valid ? 'text-success' : 'text-danger'}>
+                  {validationResult.is_valid ? '✓ Valid' : '✗ Invalid'}
+                </span>
+              </>
+            )}
           </div>
           <div className="sql-actions">
+            <button
+              className="sql-btn"
+              type="button"
+              onClick={() => setShowPlaceholderHelp(!showPlaceholderHelp)}
+              disabled={disabled}
+              title="Show available placeholders (Ctrl+Space)"
+            >
+              <i className="bi bi-braces"></i> Placeholders
+            </button>
+            <button
+              className="sql-btn success"
+              type="button"
+              onClick={insertTemplate}
+              disabled={disabled}
+              title="Insert template SQL with placeholders"
+            >
+              <i className="bi bi-code-square"></i> Template
+            </button>
             <button
               className="sql-btn"
               type="button"
               onClick={formatSql}
               disabled={disabled || !value}
             >
-              Format
+              <i className="bi bi-code"></i> Format
             </button>
+            {onValidate && (
+              <button
+                className="sql-btn"
+                type="button"
+                onClick={() => onValidate(value)}
+                disabled={disabled || !value}
+              >
+                <i className="bi bi-check-circle"></i> Validate
+              </button>
+            )}
             <button
               className="sql-btn"
               type="button"
               onClick={() => onChange('')}
               disabled={disabled || !value}
             >
-              Clear
+              <i className="bi bi-trash"></i> Clear
             </button>
           </div>
         </div>
+
+        {/* Placeholder Help Panel */}
+        {showPlaceholderHelp && (
+          <div className="placeholder-help">
+            <div className="placeholder-item" style={{ background: '#404040', fontWeight: 'bold' }}>
+              <div style={{ color: '#ff79c6' }}>Available SQL Placeholders</div>
+              <div style={{ color: '#999', fontSize: '10px' }}>Click to insert, or use Ctrl+Space</div>
+            </div>
+            {Object.entries(availablePlaceholders).map(([name, description]) => (
+              <div
+                key={name}
+                className="placeholder-item"
+                onClick={() => insertPlaceholder(name)}
+              >
+                <div className="placeholder-name">{`{${name}}`}</div>
+                <div className="placeholder-desc">{description}</div>
+              </div>
+            ))}
+            <div className="placeholder-item" style={{ background: '#2d4a3e' }}>
+              <div style={{ color: '#4ec9b0', fontWeight: 'bold' }}>
+                <i className="bi bi-lightbulb me-1"></i>
+                Pro Tip
+              </div>
+              <div style={{ color: '#999', fontSize: '10px' }}>
+                These placeholders will be replaced with actual values when the report runs.
+                Use {`{deal_tranche_filter}`} for comprehensive filtering.
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Editor */}
         <div className="sql-editor-wrapper">
@@ -448,13 +658,20 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
           </div>
         </div>
 
-        {/* Footer with tips */}
+        {/* Enhanced Footer with placeholder usage */}
         <div className="sql-toolbar">
           <div className="sql-status">
             <small className="text-muted">
               <i className="bi bi-lightbulb me-1"></i>
-              Tips: Use Tab for indentation, Ctrl+A to select all, include required fields for {groupLevel} level
+              Tips: Use Tab for indentation, {`{placeholders}`} for dynamic values, Ctrl+Space for placeholder help
             </small>
+          </div>
+          <div className="sql-actions">
+            {value && (
+              <small className="text-muted">
+                Placeholders used: {(value.match(/\{[^}]+\}/g) || []).length}
+              </small>
+            )}
           </div>
         </div>
       </div>

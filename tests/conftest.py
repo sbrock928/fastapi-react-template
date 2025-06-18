@@ -16,7 +16,7 @@ from datetime import datetime
 from app.app import create_app
 from app.core.database import Base, DWBase, get_db, get_dw_db
 from app.datawarehouse.models import Deal, Tranche, TrancheBal
-from app.calculations.models import UserCalculation, SystemCalculation, AggregationFunction, SourceModel, GroupLevel
+from app.calculations.models import Calculation, CalculationType, AggregationFunction, SourceModel, GroupLevel
 from app.reporting.models import Report, ReportDeal, ReportTranche, ReportCalculation
 
 
@@ -31,7 +31,7 @@ def config_engine():
         poolclass=StaticPool,
     )
     # Import all config models to register them
-    from app.calculations.models import UserCalculation, SystemCalculation  # noqa: F401
+    from app.calculations.models import Calculation  # noqa: F401
     from app.reporting.models import Report, ReportDeal, ReportTranche, ReportCalculation  # noqa: F401
     Base.metadata.create_all(bind=engine)
     return engine
@@ -184,12 +184,14 @@ def sample_tranche_balances(dw_db_session, sample_tranches) -> List[TrancheBal]:
 
 
 @pytest.fixture
-def sample_user_calculations(config_db_session) -> List[UserCalculation]:
-    """Create sample user calculations for testing"""
+def sample_calculations(config_db_session) -> List[Calculation]:
+    """Create sample calculations for testing"""
     calculations = [
-        UserCalculation(
+        # User aggregation calculation
+        Calculation(
             name="Total Balance",
             description="Sum of ending balances",
+            calculation_type=CalculationType.USER_AGGREGATION,
             aggregation_function=AggregationFunction.SUM,
             source_model=SourceModel.TRANCHE_BAL,
             source_field="tr_end_bal_amt",
@@ -199,9 +201,11 @@ def sample_user_calculations(config_db_session) -> List[UserCalculation]:
             approved_by="test_user",
             approval_date=datetime.now()
         ),
-        UserCalculation(
+        # Weighted average user calculation
+        Calculation(
             name="Average Rate", 
             description="Weighted average pass-through rate",
+            calculation_type=CalculationType.USER_AGGREGATION,
             aggregation_function=AggregationFunction.WEIGHTED_AVG,
             source_model=SourceModel.TRANCHE_BAL,
             source_field="tr_pass_thru_rte",
@@ -212,9 +216,11 @@ def sample_user_calculations(config_db_session) -> List[UserCalculation]:
             approved_by="test_user",
             approval_date=datetime.now()
         ),
-        UserCalculation(
+        # Tranche-level user calculation  
+        Calculation(
             name="Tranche Balance",
             description="Individual tranche balance",
+            calculation_type=CalculationType.USER_AGGREGATION,
             aggregation_function=AggregationFunction.SUM,
             source_model=SourceModel.TRANCHE_BAL,
             source_field="tr_end_bal_amt",
@@ -223,23 +229,12 @@ def sample_user_calculations(config_db_session) -> List[UserCalculation]:
             is_active=True,
             approved_by="test_user",
             approval_date=datetime.now()
-        )
-    ]
-    
-    for calc in calculations:
-        config_db_session.add(calc)
-    config_db_session.commit()
-    
-    return calculations
-
-
-@pytest.fixture
-def sample_system_calculations(config_db_session) -> List[SystemCalculation]:
-    """Create sample system calculations for testing"""
-    calculations = [
-        SystemCalculation(
+        ),
+        # System SQL calculation
+        Calculation(
             name="Issuer Type",
             description="Categorize deals by issuer type",
+            calculation_type=CalculationType.SYSTEM_SQL,
             raw_sql="""
                 SELECT 
                     deal.dl_nbr,
@@ -249,6 +244,7 @@ def sample_system_calculations(config_db_session) -> List[SystemCalculation]:
                         ELSE 'Private'
                     END AS issuer_type
                 FROM deal
+                WHERE {deal_filter}
             """,
             result_column_name="issuer_type",
             group_level=GroupLevel.DEAL,
@@ -257,9 +253,11 @@ def sample_system_calculations(config_db_session) -> List[SystemCalculation]:
             approved_by="test_system",
             approval_date=datetime.now()
         ),
-        SystemCalculation(
+        # Another system SQL calculation
+        Calculation(
             name="Deal Status",
             description="Determine deal status based on data availability",
+            calculation_type=CalculationType.SYSTEM_SQL,
             raw_sql="""
                 SELECT 
                     deal.dl_nbr,
@@ -268,6 +266,7 @@ def sample_system_calculations(config_db_session) -> List[SystemCalculation]:
                         ELSE 'Partial'
                     END AS deal_status
                 FROM deal
+                WHERE {deal_filter}
             """,
             result_column_name="deal_status",
             group_level=GroupLevel.DEAL,
@@ -286,7 +285,7 @@ def sample_system_calculations(config_db_session) -> List[SystemCalculation]:
 
 
 @pytest.fixture 
-def sample_report_deal_scope(config_db_session, sample_user_calculations, sample_system_calculations) -> Report:
+def sample_report_deal_scope(config_db_session, sample_calculations) -> Report:
     """Create a sample deal-scoped report for testing"""
     report = Report(
         name="Test Deal Report",
@@ -304,14 +303,14 @@ def sample_report_deal_scope(config_db_session, sample_user_calculations, sample
                     "format_type": "number"
                 },
                 {
-                    "column_id": f"user.{sample_user_calculations[0].source_field}",
+                    "column_id": f"user.{sample_calculations[0].source_field}",
                     "display_name": "Total Balance",
                     "is_visible": True,
                     "display_order": 1,
                     "format_type": "currency"
                 },
                 {
-                    "column_id": f"system.{sample_system_calculations[0].result_column_name}",
+                    "column_id": f"system.{sample_calculations[3].result_column_name}",
                     "display_name": "Issuer Type",
                     "is_visible": True,
                     "display_order": 2,
@@ -341,14 +340,14 @@ def sample_report_deal_scope(config_db_session, sample_user_calculations, sample
     )
     calc2 = ReportCalculation(
         report_id=report.id,
-        calculation_id=f"user.{sample_user_calculations[0].source_field}",
+        calculation_id=f"user.{sample_calculations[0].source_field}",
         calculation_type="user",
         display_order=1,
         display_name="Total Balance"
     )
     calc3 = ReportCalculation(
         report_id=report.id,
-        calculation_id=f"system.{sample_system_calculations[0].result_column_name}",
+        calculation_id=f"system.{sample_calculations[3].result_column_name}",
         calculation_type="system", 
         display_order=2,
         display_name="Issuer Type"
@@ -363,7 +362,7 @@ def sample_report_deal_scope(config_db_session, sample_user_calculations, sample
 
 
 @pytest.fixture
-def sample_report_tranche_scope(config_db_session, sample_user_calculations, sample_system_calculations) -> Report:
+def sample_report_tranche_scope(config_db_session, sample_calculations) -> Report:
     """Create a sample tranche-scoped report for testing"""
     report = Report(
         name="Test Tranche Report", 
@@ -388,7 +387,7 @@ def sample_report_tranche_scope(config_db_session, sample_user_calculations, sam
                     "format_type": "text"
                 },
                 {
-                    "column_id": f"user.{sample_user_calculations[2].source_field}",  # Tranche-level calc
+                    "column_id": f"user.{sample_calculations[2].source_field}",  # Tranche-level calc
                     "display_name": "Tranche Balance",
                     "is_visible": True,
                     "display_order": 2,
@@ -429,7 +428,7 @@ def sample_report_tranche_scope(config_db_session, sample_user_calculations, sam
     )
     calc3 = ReportCalculation(
         report_id=report.id,
-        calculation_id=f"user.{sample_user_calculations[2].source_field}",
+        calculation_id=f"user.{sample_calculations[2].source_field}",
         calculation_type="user",
         display_order=2,
         display_name="Tranche Balance"

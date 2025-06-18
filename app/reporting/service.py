@@ -14,16 +14,48 @@ from app.reporting.schemas import (
     ReportColumnPreferences, ColumnPreference, ColumnFormat
 )
 from app.calculations.resolver import CalculationRequest
-from app.calculations.service import (
-    UserCalculationService, 
-    SystemCalculationService, 
-    StaticFieldService,
-    ReportExecutionService
+from app.calculations import (
+    UnifiedCalculationService as UserCalculationService,
+    UnifiedCalculationService as SystemCalculationService, 
+    UnifiedCalculationService as ReportExecutionService
 )
-from app.calculations.models import GroupLevel
+from app.calculations.models import GroupLevel, CalculationType, STATIC_FIELD_INFO, get_static_field_info
 
 
 logger = logging.getLogger(__name__)
+
+# Helper class to provide static field functionality
+class StaticFieldHelper:
+    """Helper class to work with static field information."""
+    
+    @staticmethod
+    def get_all_static_fields():
+        """Get all static fields as objects with field_path, name, description, etc."""
+        fields = []
+        for field_path, info in STATIC_FIELD_INFO.items():
+            field_obj = type('StaticField', (), {
+                'field_path': field_path,
+                'name': info['name'],
+                'description': info['description'],
+                'type': info['type'],
+                'required_models': info['required_models'],
+                'nullable': info.get('nullable', True)
+            })()
+            fields.append(field_obj)
+        return fields
+    
+    @staticmethod
+    def get_static_field_by_path(field_path: str):
+        """Get a single static field by its path."""
+        info = get_static_field_info(field_path)
+        return type('StaticField', (), {
+            'field_path': field_path,
+            'name': info['name'],
+            'description': info['description'],
+            'type': info['type'],
+            'required_models': info['required_models'],
+            'nullable': info.get('nullable', True)
+        })()
 
 class ReportService:
     """Complete report service with calculation management and column preferences support."""
@@ -200,15 +232,21 @@ class ReportService:
 
         # Add user calculations with new format
         if self.user_calc_service:
-            user_calcs = self.user_calc_service.get_all_user_calculations()
+            # Use the correct method from UnifiedCalculationService
+            user_calcs_result = self.user_calc_service.list_calculations(
+                calculation_type=CalculationType.USER_AGGREGATION,
+                limit=1000  # Get all user calculations
+            )
+            user_calcs = user_calcs_result.get('calculations', [])
+            
             for calc in user_calcs:
                 if self._is_calculation_compatible_with_scope(calc.group_level.value, scope):
                     available_calcs.append(AvailableCalculation(
                         id=f"user.{calc.source_field}",  # NEW FORMAT
                         name=calc.name,
                         description=calc.description,
-                        aggregation_function=calc.aggregation_function.value,
-                        source_model=calc.source_model.value,
+                        aggregation_function=calc.aggregation_function.value if calc.aggregation_function else None,
+                        source_model=calc.source_model.value if calc.source_model else None,
                         source_field=calc.source_field,
                         group_level=calc.group_level.value,
                         weight_field=calc.weight_field,
@@ -220,7 +258,13 @@ class ReportService:
 
         # Add system calculations with new format
         if self.system_calc_service:
-            system_calcs = self.system_calc_service.get_all_system_calculations()
+            # Use the correct method from UnifiedCalculationService
+            system_calcs_result = self.system_calc_service.list_calculations(
+                calculation_type=CalculationType.SYSTEM_SQL,
+                limit=1000  # Get all system calculations
+            )
+            system_calcs = system_calcs_result.get('calculations', [])
+            
             for calc in system_calcs:
                 if self._is_calculation_compatible_with_scope(calc.group_level.value, scope):
                     available_calcs.append(AvailableCalculation(
@@ -238,8 +282,8 @@ class ReportService:
                         calculation_type="SYSTEM_SQL"
                     ))
 
-        # Add static fields (keep existing format)
-        static_fields = StaticFieldService.get_all_static_fields()
+        # Add static fields (keep existing format) - FIXED: Use StaticFieldHelper
+        static_fields = StaticFieldHelper.get_all_static_fields()
         for field in static_fields:
             field_group_level = "tranche" if any(field.field_path.startswith(prefix) 
                                                for prefix in ("tranche.", "tranchebal.")) else "deal"
@@ -327,10 +371,10 @@ class ReportService:
                     return system_calc.name
             return f"System Calc: {result_column}"
         
-        # Handle static fields
+        # Handle static fields - FIXED: Use StaticFieldHelper
         elif calculation_id.startswith("static_"):
             field_path = calculation_id.replace("static_", "")
-            static_fields = StaticFieldService.get_all_static_fields()
+            static_fields = StaticFieldHelper.get_all_static_fields()
             for field in static_fields:
                 if field.field_path == field_path:
                     return field.name
@@ -417,7 +461,7 @@ class ReportService:
             # DEBUG: Log the calculation requests being sent
             print("=== DEBUG: Calculation Requests ===")
             for req in calculation_requests:
-                print(f"  - Type: {req.calc_type}, ID: {req.calc_id}, Alias: {req.alias}")
+                print(f"  - ID: {req.calc_id}, Alias: {req.alias}")
 
             # Execute via new system
             result = self.report_execution_service.execute_report(
@@ -427,11 +471,40 @@ class ReportService:
                 report.scope  # Pass the report scope to fix tranche_id appearing in deal reports
             )
 
+            # Check if there was an execution error in the result
+            if 'error' in result:
+                error_message = result['error']
+                debug_info = result.get('debug_info', {})
+                
+                # Log the failed execution
+                await self._log_execution(
+                    report_id, cycle_code, "api_user",
+                    (time.time() - start_time) * 1000,
+                    0, False, error_message
+                )
+                
+                # Create a detailed error response for the frontend
+                raise HTTPException(
+                    status_code=400, 
+                    detail={
+                        "error": "SQL Execution Failed",
+                        "message": error_message,
+                        "sql_query": result.get('unified_sql', 'Query not available'),
+                        "debug_info": debug_info,
+                        "suggestions": [
+                            "Check if all selected calculations are compatible with the report scope",
+                            "Verify that the selected deals and tranches exist in the current cycle",
+                            "Try removing recently added calculations to isolate the issue"
+                        ]
+                    }
+                )
+
             # DEBUG: Log the raw data keys
             print("=== DEBUG: Raw Data Keys ===")
-            if result['data']:
-                print(f"Raw data keys: {list(result['data'][0].keys())}")
-                print(f"First row sample: {result['data'][0]}")
+            raw_data = result.get('merged_data', [])  # FIXED: Use 'merged_data' key
+            if raw_data:
+                print(f"Raw data keys: {list(raw_data[0].keys())}")
+                print(f"First row sample: {raw_data[0]}")
             else:
                 print("No raw data returned!")
 
@@ -443,10 +516,10 @@ class ReportService:
                     if col_pref.is_visible:
                         print(f"  - Column ID: {col_pref.column_id}, Display Name: {col_pref.display_name}")
 
-            print(f"Debug: Raw data before column preferences: {result['data'][:1] if result['data'] else 'No data'}")
+            print(f"Debug: Raw data before column preferences: {raw_data[:1] if raw_data else 'No data'}")
 
             # Apply column preferences to the result
-            formatted_data = self._apply_column_preferences(result['data'], report)
+            formatted_data = self._apply_column_preferences(raw_data, report)  # FIXED: Use raw_data
 
             # DEBUG: Log formatted data keys
             print("=== DEBUG: Formatted Data Keys ===")
@@ -455,7 +528,7 @@ class ReportService:
             else:
                 print("No formatted data!")
 
-            # Log execution
+            # Log successful execution
             await self._log_execution(
                 report_id, cycle_code, "api_user",
                 (time.time() - start_time) * 1000,
@@ -464,13 +537,35 @@ class ReportService:
 
             return formatted_data
 
+        except HTTPException:
+            # Re-raise HTTP exceptions as they already have proper error details
+            raise
         except Exception as e:
+            # Log the failed execution
             await self._log_execution(
                 report_id, cycle_code, "api_user",
                 (time.time() - start_time) * 1000,
                 0, False, str(e)
             )
-            raise
+            
+            # Create a detailed error response for unexpected errors
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "Report Execution Failed",
+                    "message": str(e),
+                    "debug_info": {
+                        "report_id": report_id,
+                        "cycle_code": cycle_code,
+                        "error_type": type(e).__name__
+                    },
+                    "suggestions": [
+                        "Check the server logs for more detailed error information",
+                        "Verify that the report configuration is valid",
+                        "Try running the report with a smaller set of calculations"
+                    ]
+                }
+            )
 
     async def preview_report_sql(self, report_id: int, cycle_code: int) -> Dict[str, Any]:
         """Preview SQL for a report with complete runtime SQL generation."""
@@ -611,16 +706,10 @@ class ReportService:
                         # Use the display name from the report calculation
                         raw_data_key = static_calc.display_name
                     else:
-                        # Fallback: try to get the display name from static field registry
+                        # Fallback: try to get the display name from static field registry - FIXED: Use StaticFieldHelper
                         field_path = column_id.replace("static_", "")
-                        static_fields = StaticFieldService.get_all_static_fields()
-                        for field in static_fields:
-                            if field.field_path == field_path:
-                                raw_data_key = field.name
-                                break
-                        else:
-                            # Last resort: use the column ID with dots converted to underscores
-                            raw_data_key = column_id.replace(".", "_")
+                        field = StaticFieldHelper.get_static_field_by_path(field_path)
+                        raw_data_key = field.name
                 elif column_id.replace(".", "_") in ["deal_number", "tranche_id", "cycle_code"]:
                     # Default columns - convert dots to underscores for raw data lookup
                     raw_data_key = column_id.replace(".", "_")
@@ -796,9 +885,10 @@ class ReportService:
             for field_info in default_fields:
                 if field_info:  # Skip None entries
                     field_path, alias = field_info
+                    # FIXED: Only use calc_id and alias for CalculationRequest
+                    # For static fields, use a special calc_id format that the resolver can understand
                     calc_request = CalculationRequest(
-                        calc_type="static_field",
-                        field_path=field_path,
+                        calc_id=f"static_field:{field_path}",  # Use a special format for static fields
                         alias=alias
                     )
                     calculation_requests.append(calc_request)
@@ -826,8 +916,7 @@ class ReportService:
                         # FIXED: Use report_calc.display_name as alias to match column preferences
                         display_name = report_calc.display_name or user_calc.name
                         calc_request = CalculationRequest(
-                            calc_type="user_calculation",
-                            calc_id=user_calc.id,
+                            calc_id=user_calc.id,  # Use the actual numeric ID
                             alias=display_name  # Use the display name from the report
                         )
                         print(f"Debug: Found user calculation - {user_calc.name} (level: {user_calc.group_level.value}) using alias: '{display_name}'")
@@ -843,8 +932,7 @@ class ReportService:
                         # FIXED: Use report_calc.display_name as alias
                         display_name = report_calc.display_name or system_calc.name
                         calc_request = CalculationRequest(
-                            calc_type="system_calculation",
-                            calc_id=system_calc.id,
+                            calc_id=system_calc.id,  # Use the actual numeric ID
                             alias=display_name  # Use the display name from the report
                         )
                         print(f"Debug: Found system calculation - {system_calc.name} using alias: '{display_name}'")
@@ -866,30 +954,14 @@ class ReportService:
                     field_path = calc_id_str.replace("static_", "")
                     alias = calc_id_str.replace(".", "_")
                 
-                # FIXED: Use report_calc.display_name as alias for static fields too
-                static_fields = StaticFieldService.get_all_static_fields()
-                field_found = False
-                for field in static_fields:
-                    if field.field_path == field_path:
-                        display_name = report_calc.display_name or field.name
-                        calc_request = CalculationRequest(
-                            calc_type="static_field",
-                            field_path=field_path,
-                            alias=display_name  # Use the display name from the report
-                        )
-                        print(f"Debug: Found static field - {field.name} using alias: '{display_name}'")
-                        field_found = True
-                        break
-                
-                if not field_found:
-                    # Fallback for unknown static fields
-                    display_name = report_calc.display_name or field_path
-                    calc_request = CalculationRequest(
-                        calc_type="static_field",
-                        field_path=field_path,
-                        alias=display_name
-                    )
-                    print(f"Debug: Added fallback static field request - Field: {field_path}, Alias: {display_name}")
+                # FIXED: Use StaticFieldHelper for static fields
+                field = StaticFieldHelper.get_static_field_by_path(field_path)
+                display_name = report_calc.display_name or field.name
+                calc_request = CalculationRequest(
+                    calc_id=f"static_field:{field_path}",  # Use special format for static fields
+                    alias=display_name  # Use the display name from the report
+                )
+                print(f"Debug: Found static field - {field.name} using alias: '{display_name}'")
             
             # Handle legacy numeric calculation IDs
             else:
@@ -902,7 +974,6 @@ class ReportService:
                             user_calc = self.user_calc_service.get_user_calculation_by_id(numeric_id)
                             if user_calc:
                                 calc_request = CalculationRequest(
-                                    calc_type="user_calculation",
                                     calc_id=numeric_id,
                                     alias=user_calc.name
                                 )
@@ -911,7 +982,6 @@ class ReportService:
                             system_calc = self.system_calc_service.get_system_calculation_by_id(numeric_id)
                             if system_calc:
                                 calc_request = CalculationRequest(
-                                    calc_type="system_calculation",
                                     calc_id=numeric_id,
                                     alias=system_calc.name
                                 )
@@ -924,7 +994,6 @@ class ReportService:
                             user_calc = self.user_calc_service.get_user_calculation_by_id(numeric_id)
                             if user_calc:
                                 calc_request = CalculationRequest(
-                                    calc_type="user_calculation",
                                     calc_id=numeric_id,
                                     alias=user_calc.name
                                 )
@@ -935,7 +1004,6 @@ class ReportService:
                             system_calc = self.system_calc_service.get_system_calculation_by_id(numeric_id)
                             if system_calc:
                                 calc_request = CalculationRequest(
-                                    calc_type="system_calculation",
                                     calc_id=numeric_id,
                                     alias=system_calc.name
                                 )
@@ -991,8 +1059,7 @@ class ReportService:
                 if field_info:
                     field_path, alias = field_info
                     calc_request = CalculationRequest(
-                        calc_type="static_field",
-                        field_path=field_path,
+                        calc_id=f"static_field:{field_path}",  # Use a special format for static fields
                         alias=alias
                     )
                     calculation_requests.append(calc_request)
@@ -1020,8 +1087,7 @@ class ReportService:
                         # FIXED: Use report_calc.display_name as alias to match column preferences
                         display_name = report_calc.display_name or user_calc.name
                         calc_request = CalculationRequest(
-                            calc_type="user_calculation",
-                            calc_id=user_calc.id,
+                            calc_id=user_calc.id,  # Use the actual numeric ID
                             alias=display_name  # Use the display name from the report
                         )
                         print(f"Debug: Found user calculation - {user_calc.name} (level: {user_calc.group_level.value}) using alias: '{display_name}'")
@@ -1037,8 +1103,7 @@ class ReportService:
                         # FIXED: Use report_calc.display_name as alias
                         display_name = report_calc.display_name or system_calc.name
                         calc_request = CalculationRequest(
-                            calc_type="system_calculation",
-                            calc_id=system_calc.id,
+                            calc_id=system_calc.id,  # Use the actual numeric ID
                             alias=display_name  # Use the display name from the report
                         )
                         print(f"Debug: Found system calculation - {system_calc.name} using alias: '{display_name}'")
@@ -1050,29 +1115,13 @@ class ReportService:
                 field_path = calc_id_str.replace("static_", "")
                 
                 # FIXED: Use display_name from report_calc like other calculation types
-                static_fields = StaticFieldService.get_all_static_fields()
-                field_found = False
-                for field in static_fields:
-                    if field.field_path == field_path:
-                        display_name = report_calc.display_name or field.name
-                        calc_request = CalculationRequest(
-                            calc_type="static_field",
-                            field_path=field_path,
-                            alias=display_name  # Use the display name from the report
-                        )
-                        print(f"Debug: Found static field - {field.name} using alias: '{display_name}'")
-                        field_found = True
-                        break
-                
-                if not field_found:
-                    # Fallback for unknown static fields
-                    display_name = report_calc.display_name or field_path
-                    calc_request = CalculationRequest(
-                        calc_type="static_field",
-                        field_path=field_path,
-                        alias=display_name
-                    )
-                    print(f"Debug: Added fallback static field request - Field: {field_path}, Alias: {display_name}")
+                field = StaticFieldHelper.get_static_field_by_path(field_path)
+                display_name = report_calc.display_name or field.name
+                calc_request = CalculationRequest(
+                    calc_id=f"static_field:{field_path}",  # Use special format for static fields
+                    alias=display_name  # Use the display name from the report
+                )
+                print(f"Debug: Found static field - {field.name} using alias: '{display_name}'")
             
             else:
                 # Legacy numeric ID handling
@@ -1084,7 +1133,6 @@ class ReportService:
                             user_calc = self.user_calc_service.get_user_calculation_by_id(numeric_id)
                             if user_calc:
                                 calc_request = CalculationRequest(
-                                    calc_type="user_calculation",
                                     calc_id=numeric_id,
                                     alias=user_calc.name
                                 )
@@ -1093,7 +1141,6 @@ class ReportService:
                             system_calc = self.system_calc_service.get_system_calculation_by_id(numeric_id)
                             if system_calc:
                                 calc_request = CalculationRequest(
-                                    calc_type="system_calculation",
                                     calc_id=numeric_id,
                                     alias=system_calc.name
                                 )
@@ -1103,7 +1150,6 @@ class ReportService:
                             user_calc = self.user_calc_service.get_user_calculation_by_id(numeric_id)
                             if user_calc:
                                 calc_request = CalculationRequest(
-                                    calc_type="user_calculation",
                                     calc_id=numeric_id,
                                     alias=user_calc.name
                                 )
@@ -1113,7 +1159,6 @@ class ReportService:
                             system_calc = self.system_calc_service.get_system_calculation_by_id(numeric_id)
                             if system_calc:
                                 calc_request = CalculationRequest(
-                                    calc_type="system_calculation",
                                     calc_id=numeric_id,
                                     alias=system_calc.name
                                 )
@@ -1284,14 +1329,11 @@ class ReportService:
                         actual_column_name = display_name
                         break
                 
-                # If not found in mapping, try to find by display name directly
+                # If not found in mapping, try to find by display name directly - FIXED: Use StaticFieldHelper
                 if not actual_column_name:
                     field_path = column_id.replace("static_", "")
-                    static_fields = StaticFieldService.get_all_static_fields()
-                    for field in static_fields:
-                        if field.field_path == field_path:
-                            actual_column_name = field.name
-                            break
+                    field = StaticFieldHelper.get_static_field_by_path(field_path)
+                    actual_column_name = field.name
             
             # Fallback - check if column_id itself is a display name in the data
             if not actual_column_name and data:

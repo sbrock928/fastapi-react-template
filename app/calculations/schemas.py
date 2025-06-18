@@ -1,665 +1,313 @@
-# app/calculations/schemas.py
-"""Pydantic schemas for the new separated calculation system"""
+"""Enhanced schemas for the unified calculation system with dynamic SQL parameter injection"""
 
-from pydantic import BaseModel, Field, field_validator, ConfigDict
-from typing import Optional, Dict, Any, List, Union, Literal
-from datetime import datetime
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional, List, Dict, Any, Set
 from enum import Enum
-from .models import AggregationFunction, SourceModel, GroupLevel
+import re
+
+from .models import CalculationType, AggregationFunction, SourceModel, GroupLevel
 
 
-# ===== USER CALCULATION SCHEMAS =====
-
-class UserCalculationBase(BaseModel):
-    """Base schema for user calculations"""
-    name: str = Field(..., min_length=1, max_length=100)
-    description: Optional[str] = Field(None, max_length=500)
-    aggregation_function: AggregationFunction
-    source_model: SourceModel
-    source_field: str = Field(..., min_length=1, max_length=100)
-    weight_field: Optional[str] = Field(None, max_length=100)
-    group_level: GroupLevel
-    advanced_config: Optional[Dict[str, Any]] = None
-
-    class Config:
-        from_attributes = True
+class CalculationBase(BaseModel):
+    """Base schema for calculation data"""
+    name: str = Field(..., min_length=3, max_length=100, description="Calculation name")
+    description: Optional[str] = Field(None, max_length=500, description="Calculation description")
+    group_level: GroupLevel = Field(..., description="Aggregation level (deal or tranche)")
 
 
-class UserCalculationCreate(UserCalculationBase):
-    """Schema for creating user calculations"""
+class UserAggregationCalculationCreate(CalculationBase):
+    """Schema for creating user aggregation calculations"""
+    calculation_type: CalculationType = Field(default=CalculationType.USER_AGGREGATION)
+    aggregation_function: AggregationFunction = Field(..., description="Aggregation function to apply")
+    source_model: SourceModel = Field(..., description="Source data model")
+    source_field: str = Field(..., min_length=1, description="Source field name")
+    weight_field: Optional[str] = Field(None, description="Weight field for weighted averages")
     
     @field_validator("weight_field")
     @classmethod
-    def validate_weight_field_for_weighted_avg(cls, v, info):
-        """Validate weight field is provided for weighted averages."""
+    def validate_weight_field(cls, v, info):
+        """Validate weight field is provided for weighted averages"""
         if info.data.get("aggregation_function") == AggregationFunction.WEIGHTED_AVG and not v:
             raise ValueError("weight_field is required for weighted average calculations")
         return v
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "name": "Total Ending Balance",
-                "description": "Sum of all tranche ending balance amounts",
-                "aggregation_function": "SUM",
-                "source_model": "TrancheBal",
-                "source_field": "tr_end_bal_amt",
-                "group_level": "deal",
-                "advanced_config": {
-                    "filters": [
-                        {"field": "deal.issr_cde", "operator": "=", "value": "FHLMC"}
-                    ]
-                }
-            }
-        }
+
+class SystemFieldCalculationCreate(CalculationBase):
+    """Schema for creating system field calculations"""
+    calculation_type: CalculationType = Field(default=CalculationType.SYSTEM_FIELD)
+    field_path: str = Field(..., description="Field path (e.g., 'deal.dl_nbr')")
+    
+    @field_validator("field_path")
+    @classmethod
+    def validate_field_path(cls, v):
+        """Validate field path format"""
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*$", v):
+            raise ValueError("field_path must be in format 'model.field'")
+        return v
 
 
-class UserCalculationUpdate(BaseModel):
-    """Schema for updating user calculations"""
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
-    description: Optional[str] = Field(None, max_length=500)
-    aggregation_function: Optional[AggregationFunction] = None
-    source_model: Optional[SourceModel] = None
-    source_field: Optional[str] = Field(None, min_length=1, max_length=100)
-    weight_field: Optional[str] = Field(None, max_length=100)
-    group_level: Optional[GroupLevel] = None
-    advanced_config: Optional[Dict[str, Any]] = None
-
-    class Config:
-        from_attributes = True
-
-
-class UserCalculationResponse(UserCalculationBase):
-    """Response schema for user calculations"""
-    id: int
-    calculation_type: str = "USER_DEFINED"  # Added for frontend compatibility
-    approved_by: Optional[str] = None
-    approval_date: Optional[datetime] = None
-    created_by: str
-    created_at: datetime
-    updated_at: datetime
-    is_active: bool
-    usage_info: Optional[Dict[str, Any]] = None  # Include usage information
-
-    def get_display_type(self) -> str:
-        """Get display type for UI"""
-        return f"User Defined ({self.aggregation_function.value})"
-
-    def get_source_description(self) -> str:
-        """Get source description for UI"""
-        return f"{self.source_model.value}.{self.source_field}"
-
-    def is_approved(self) -> bool:
-        """Check if calculation is approved"""
-        return self.approved_by is not None
-
-    class Config:
-        from_attributes = True
-
-
-# ===== SYSTEM CALCULATION SCHEMAS =====
-
-class SystemCalculationBase(BaseModel):
-    """Base schema for system calculations"""
-    name: str = Field(..., min_length=1, max_length=100)
-    description: Optional[str] = Field(None, max_length=500)
-    raw_sql: str = Field(..., min_length=10)
-    result_column_name: str = Field(..., min_length=1, max_length=100, pattern=r"^[a-zA-Z][a-zA-Z0-9_]*$")
-    group_level: GroupLevel
-    metadata_config: Optional[Dict[str, Any]] = None
-
-    class Config:
-        from_attributes = True
-
-
-class SystemCalculationCreate(SystemCalculationBase):
-    """Schema for creating system calculations"""
+class SystemSqlCalculationCreate(CalculationBase):
+    """Schema for creating system SQL calculations with placeholder support"""
+    calculation_type: CalculationType = Field(default=CalculationType.SYSTEM_SQL)
+    raw_sql: str = Field(..., min_length=10, description="SQL query with placeholder support")
+    result_column_name: str = Field(..., description="Name of the result column in the SQL")
+    sql_parameters: Optional[Dict[str, Any]] = Field(default=None, description="SQL parameter configuration")
+    
+    @field_validator("result_column_name")
+    @classmethod
+    def validate_result_column_name(cls, v):
+        """Validate result column name format"""
+        if not re.match(r"^[a-zA-Z][a-zA-Z0-9_]*$", v):
+            raise ValueError("result_column_name must be a valid SQL identifier")
+        return v
     
     @field_validator("raw_sql")
     @classmethod
-    def validate_sql_basic(cls, v):
-        """Enhanced SQL validation with CTE support and better error messages"""
-        if not v or not v.strip():
+    def validate_raw_sql(cls, v):
+        """Basic SQL validation"""
+        if not v.strip():
             raise ValueError("raw_sql cannot be empty")
         
-        sql_trimmed = v.strip()
-        
-        # Check for CTEs first
-        has_ctes = sql_trimmed.upper().strip().startswith('WITH')
-        
-        if has_ctes:
-            # For CTEs, validate the structure but don't require it to start with SELECT
-            try:
-                if not cls._validate_cte_structure(sql_trimmed):
-                    # Provide more detailed error information
-                    import re
-                    sql_clean = re.sub(r'--.*$', '', sql_trimmed, flags=re.MULTILINE)
-                    sql_clean = re.sub(r'/\*.*?\*/', '', sql_clean, flags=re.DOTALL)
-                    sql_clean = ' '.join(sql_clean.split())
-                    
-                    if not re.search(r'WITH\s+\w+\s+AS\s*\(', sql_clean, re.IGNORECASE):
-                        raise ValueError("CTE must have format: WITH cte_name AS (...)")
-                    
-                    # Check for balanced parentheses
-                    paren_count = sql_trimmed.count('(') - sql_trimmed.count(')')
-                    if paren_count != 0:
-                        raise ValueError(f"Unbalanced parentheses in CTE (difference: {paren_count})")
-                    
-                    # Check for final SELECT
-                    if 'SELECT' not in sql_clean.upper():
-                        raise ValueError("CTE must end with a SELECT statement")
-                    
-                    raise ValueError("Invalid CTE structure - unknown validation error")
-            except ValueError as e:
-                # Re-raise with more context
-                raise ValueError(f"CTE validation failed: {str(e)}")
-        else:
-            # For simple queries, require SELECT start
-            sql_lower = sql_trimmed.lower()
-            if not sql_lower.startswith('select'):
-                raise ValueError("SQL must be a SELECT statement")
-            
-            if 'from' not in sql_lower:
-                raise ValueError("SQL must include a FROM clause")
-        
         # Check for dangerous operations
-        dangerous_keywords = ['drop', 'delete', 'insert', 'update', 'alter', 'truncate', 'create']
-        sql_lower = sql_trimmed.lower()
-        for keyword in dangerous_keywords:
-            if keyword in sql_lower:
-                raise ValueError(f"Dangerous operation '{keyword.upper()}' not allowed")
+        dangerous_patterns = [
+            r'\bDROP\b', r'\bDELETE\s+FROM\b', r'\bTRUNCATE\b',
+            r'\bINSERT\s+INTO\b', r'\bUPDATE\s+.*\bSET\b', r'\bALTER\b',
+            r'\bCREATE\b', r'\bEXEC\b', r'\bEXECUTE\b'
+        ]
         
-        return sql_trimmed
+        for pattern in dangerous_patterns:
+            if re.search(pattern, v, re.IGNORECASE):
+                raise ValueError("SQL contains dangerous operations that are not allowed")
+        
+        return v.strip()
+
+
+class CDIVariableCalculationCreate(CalculationBase):
+    """Schema for creating CDI variable calculations"""
+    calculation_type: CalculationType = Field(default=CalculationType.CDI_VARIABLE)
+    variable_pattern: str = Field(..., description="CDI variable pattern (e.g., '#RPT_RRI_{tranche_suffix}')")
+    result_column_name: str = Field(..., description="Name of the result column")
+    tranche_mappings: Optional[Dict[str, List[str]]] = Field(default=None, description="Tranche suffix mappings")
     
-    @staticmethod
-    def _validate_cte_structure(sql: str) -> bool:
-        """Enhanced CTE structure validation with better comment and formatting support"""
-        import re
+    @field_validator("variable_pattern")
+    @classmethod
+    def validate_variable_pattern(cls, v, info):
+        """Validate variable pattern format"""
+        if not v.strip():
+            raise ValueError("variable_pattern cannot be empty")
         
-        # Remove comments first for validation
-        # Remove single-line comments (-- comment)
-        sql_clean = re.sub(r'--.*$', '', sql, flags=re.MULTILINE)
-        # Remove multi-line comments (/* comment */)
-        sql_clean = re.sub(r'/\*.*?\*/', '', sql_clean, flags=re.DOTALL)
+        group_level = info.data.get("group_level")
+        if group_level == GroupLevel.TRANCHE and "{tranche_suffix}" not in v:
+            raise ValueError("Tranche-level variable pattern must contain {tranche_suffix} placeholder")
+        elif group_level == GroupLevel.DEAL and "{tranche_suffix}" in v:
+            raise ValueError("Deal-level variable pattern should not contain {tranche_suffix} placeholder")
         
-        # Remove extra whitespace and normalize
-        sql_clean = ' '.join(sql_clean.split())
-        
-        # More flexible CTE pattern that handles various formatting styles
-        # This pattern looks for: WITH (optional whitespace) word (optional whitespace) AS (optional whitespace) (
-        cte_pattern = r'WITH\s+\w+(?:\s*,\s*\w+)*\s+AS\s*\('
-        
-        # Check for basic CTE syntax
-        if not re.search(cte_pattern, sql_clean, re.IGNORECASE):
-            # Try a more lenient pattern for single CTE
-            simple_cte_pattern = r'WITH\s+\w+\s+AS\s*\('
-            if not re.search(simple_cte_pattern, sql_clean, re.IGNORECASE):
-                return False
-        
-        # Verify it ends with a SELECT statement (after all CTEs)
-        # Find the final SELECT that's not inside parentheses at the root level
-        paren_depth = 0
-        in_quotes = False
-        quote_char = ''
-        final_select_found = False
-        
-        i = 0
-        while i < len(sql_clean):
-            char = sql_clean[i]
-            
-            # Handle quotes
-            if (char == '"' or char == "'") and (i == 0 or sql_clean[i-1] != '\\'):
-                if not in_quotes:
-                    in_quotes = True
-                    quote_char = char
-                elif char == quote_char:
-                    in_quotes = False
-                    quote_char = ''
-            
-            if not in_quotes:
-                if char == '(':
-                    paren_depth += 1
-                elif char == ')':
-                    paren_depth -= 1
-                elif paren_depth == 0 and sql_clean[i:i+6].upper() == 'SELECT':
-                    # Found a SELECT at root level (not inside CTE parentheses)
-                    final_select_found = True
-            
-            i += 1
-        
-        if not final_select_found:
-            return False
-        
-        # Check for balanced parentheses in original SQL
-        paren_count = 0
-        in_quotes = False
-        quote_char = ''
-        
-        for i, char in enumerate(sql):
-            prev_char = sql[i-1] if i > 0 else ''
-            
-            if (char == '"' or char == "'") and prev_char != '\\':
-                if not in_quotes:
-                    in_quotes = True
-                    quote_char = char
-                elif char == quote_char:
-                    in_quotes = False
-                    quote_char = ''
-            
-            if not in_quotes:
-                if char == '(':
-                    paren_count += 1
-                elif char == ')':
-                    paren_count -= 1
-                    # Early detection of unbalanced parens
-                    if paren_count < 0:
-                        return False
-        
-        return paren_count == 0
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "name": "Issuer Type Classification",
-                "description": "Categorizes deals by issuer type",
-                "group_level": "deal",
-                "raw_sql": """
-                    SELECT 
-                        deal.dl_nbr,
-                        CASE 
-                            WHEN deal.issr_cde LIKE '%FHLMC%' THEN 'GSE'
-                            WHEN deal.issr_cde LIKE '%GNMA%' THEN 'Government'
-                            ELSE 'Private'
-                        END AS issuer_type
-                    FROM deal
-                """,
-                "result_column_name": "issuer_type",
-                "metadata_config": {
-                    "required_models": ["Deal"],
-                    "performance_hints": {"complexity": "low"}
-                }
-            }
-        }
+        return v.strip()
 
 
-class SystemCalculationUpdate(BaseModel):
-    """Schema for updating system calculations"""
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
+class CalculationUpdate(BaseModel):
+    """Schema for updating calculations"""
+    name: Optional[str] = Field(None, min_length=3, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
-    raw_sql: Optional[str] = Field(None, min_length=10)
-    result_column_name: Optional[str] = Field(None, min_length=1, max_length=100, pattern=r"^[a-zA-Z][a-zA-Z0-9_]*$")
     group_level: Optional[GroupLevel] = None
+    
+    # User aggregation fields
+    aggregation_function: Optional[AggregationFunction] = None
+    source_model: Optional[SourceModel] = None
+    source_field: Optional[str] = None
+    weight_field: Optional[str] = None
+    
+    # System SQL fields
+    raw_sql: Optional[str] = None
+    result_column_name: Optional[str] = None
+    sql_parameters: Optional[Dict[str, Any]] = None
+    
+    # Metadata
     metadata_config: Optional[Dict[str, Any]] = None
 
-    class Config:
-        from_attributes = True
 
-
-class SystemCalculationResponse(SystemCalculationBase):
-    """Response schema for system calculations"""
+class CalculationResponse(BaseModel):
+    """Schema for calculation responses"""
     id: int
-    calculation_type: str = "SYSTEM_SQL"  # Added for frontend compatibility
+    name: str
+    description: Optional[str]
+    calculation_type: CalculationType
+    group_level: GroupLevel
+    
+    # User aggregation fields
+    aggregation_function: Optional[AggregationFunction]
+    source_model: Optional[SourceModel]
+    source_field: Optional[str]
+    weight_field: Optional[str]
+    
+    # System SQL fields
+    raw_sql: Optional[str]
+    result_column_name: Optional[str]
+    sql_parameters: Optional[Dict[str, Any]]
+    
+    # Metadata and audit
+    metadata_config: Optional[Dict[str, Any]]
     created_by: str
-    approved_by: Optional[str] = None
-    approval_date: Optional[datetime] = None
-    created_at: datetime
-    updated_at: datetime
+    approved_by: Optional[str]
     is_active: bool
-    usage_info: Optional[Dict[str, Any]] = None  # Include usage information
-
-    def get_display_type(self) -> str:
-        """Get display type for UI"""
-        return "System SQL"
-
-    def get_source_description(self) -> str:
-        """Get source description for UI"""
-        return f"Custom SQL ({self.result_column_name})"
-
-    def is_approved(self) -> bool:
-        """Check if calculation is approved"""
-        return self.approved_by is not None
-
+    
+    # Computed fields
+    display_formula: str = Field(..., description="Human-readable formula")
+    complexity_score: int = Field(..., description="Complexity score for sorting")
+    used_placeholders: List[str] = Field(..., description="SQL placeholders used")
+    required_models: List[str] = Field(..., description="Required data models")
+    
     class Config:
         from_attributes = True
 
 
-# ===== STATIC FIELD SCHEMAS =====
-
-class StaticFieldInfo(BaseModel):
-    """Schema for static field information"""
-    field_path: str  # e.g., "deal.dl_nbr", "tranche.tr_id"
-    name: str
-    description: str
-    type: str  # "number", "string", "currency", "percentage", etc.
-    required_models: List[str]
-    nullable: bool
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "field_path": "deal.dl_nbr",
-                "name": "Deal Number",
-                "description": "Unique identifier for the deal",
-                "type": "number",
-                "required_models": ["Deal"],
-                "nullable": False
-            }
-        }
+class CalculationPreviewRequest(BaseModel):
+    """Schema for calculation preview requests"""
+    calculation_id: int
+    deal_tranche_map: Dict[int, List[str]] = Field(..., description="Deal to tranche mappings")
+    cycle_code: int = Field(..., description="Reporting cycle")
+    report_scope: Optional[str] = Field("TRANCHE", description="Report scope (DEAL or TRANCHE)")
 
 
-# ===== CALCULATION REQUEST SCHEMAS =====
+class CalculationPreviewResponse(BaseModel):
+    """Schema for calculation preview responses"""
+    sql: str = Field(..., description="Generated SQL with parameters injected")
+    calculation_type: str = Field(..., description="Type of calculation")
+    group_level: str = Field(..., description="Aggregation level")
+    alias: str = Field(..., description="Column alias")
+    parameter_injections: Dict[str, Any] = Field(..., description="Parameter injection debug info")
+    placeholders_used: List[str] = Field(..., description="Placeholders used in SQL")
+    error: Optional[str] = Field(None, description="Error message if preview failed")
 
-class CalculationRequestSchema(BaseModel):
-    """Schema for calculation requests in reports"""
-    calc_type: str = Field(..., pattern="^(static_field|user_calculation|system_calculation)$")
-    calc_id: Optional[int] = None  # Required for user_calculation and system_calculation
-    field_path: Optional[str] = None  # Required for static_field
-    alias: Optional[str] = None  # Custom alias for result column
 
-    @field_validator("calc_id")
+class SqlValidationRequest(BaseModel):
+    """Schema for SQL validation requests"""
+    sql_text: str = Field(..., min_length=1, description="SQL to validate")
+    group_level: GroupLevel = Field(..., description="Expected group level")
+    result_column_name: str = Field(..., description="Expected result column name")
+
+
+class SqlValidationResult(BaseModel):
+    """Schema for SQL validation results"""
+    is_valid: bool = Field(..., description="Whether the SQL is valid")
+    errors: List[str] = Field(default_factory=list, description="Validation errors")
+    warnings: List[str] = Field(default_factory=list, description="Validation warnings")
+    has_ctes: bool = Field(default=False, description="Whether SQL contains CTEs")
+    has_subqueries: bool = Field(default=False, description="Whether SQL contains subqueries")
+    final_select_columns: List[str] = Field(default_factory=list, description="Columns in final SELECT")
+    used_tables: List[str] = Field(default_factory=list, description="Tables used in SQL")
+    placeholders_used: List[str] = Field(default_factory=list, description="Placeholders found in SQL")
+
+
+class SqlValidationResponse(BaseModel):
+    """Schema for SQL validation responses"""
+    validation_result: SqlValidationResult
+
+
+class PlaceholderInfo(BaseModel):
+    """Schema for placeholder information"""
+    name: str = Field(..., description="Placeholder name")
+    description: str = Field(..., description="Placeholder description")
+    example_value: str = Field(..., description="Example value")
+
+
+class PlaceholderListResponse(BaseModel):
+    """Schema for listing available placeholders"""
+    placeholders: List[PlaceholderInfo]
+
+
+class CalculationListResponse(BaseModel):
+    """Schema for calculation list responses"""
+    calculations: List[CalculationResponse]
+    total_count: int
+    active_count: int
+    calculation_types: Dict[str, int] = Field(..., description="Count by calculation type")
+
+
+class BulkCalculationOperation(BaseModel):
+    """Schema for bulk operations on calculations"""
+    calculation_ids: List[int] = Field(..., min_items=1, description="List of calculation IDs")
+    operation: str = Field(..., description="Operation to perform (activate, deactivate, delete)")
+    
+    @field_validator("operation")
     @classmethod
-    def validate_calc_id_when_required(cls, v, info):
-        """Validate calc_id is provided when needed"""
-        calc_type = info.data.get("calc_type")
-        if calc_type in ["user_calculation", "system_calculation"] and not v:
-            raise ValueError(f"calc_id is required for {calc_type}")
+    def validate_operation(cls, v):
+        """Validate operation type"""
+        valid_operations = ["activate", "deactivate", "delete", "approve"]
+        if v not in valid_operations:
+            raise ValueError(f"operation must be one of: {', '.join(valid_operations)}")
         return v
 
-    @field_validator("field_path")
-    @classmethod
-    def validate_field_path_when_required(cls, v, info):
-        """Validate field_path is provided when needed"""
-        calc_type = info.data.get("calc_type")
-        if calc_type == "static_field" and not v:
-            raise ValueError("field_path is required for static_field")
-        return v
 
-    class Config:
-        json_schema_extra = {
-            "examples": [
-                {
-                    "calc_type": "static_field",
-                    "field_path": "deal.dl_nbr",
-                    "alias": "deal_number"
-                },
-                {
-                    "calc_type": "user_calculation", 
-                    "calc_id": 1,
-                    "alias": "total_balance"
-                },
-                {
-                    "calc_type": "system_calculation",
-                    "calc_id": 1,
-                    "alias": "issuer_type"
-                }
-            ]
-        }
+class BulkCalculationResponse(BaseModel):
+    """Schema for bulk operation responses"""
+    success_count: int = Field(..., description="Number of successful operations")
+    failed_count: int = Field(..., description="Number of failed operations")
+    failed_ids: List[int] = Field(default_factory=list, description="IDs that failed")
+    errors: List[str] = Field(default_factory=list, description="Error messages")
 
 
-# ===== REPORT EXECUTION SCHEMAS =====
-
+# Report execution schemas
 class ReportExecutionRequest(BaseModel):
     """Schema for report execution requests"""
-    calculation_requests: List[CalculationRequestSchema]
-    deal_tranche_map: Dict[int, List[str]]  # deal_id -> [tranche_ids] or [] for all
-    cycle_code: int
-
-    @field_validator("calculation_requests")
-    @classmethod
-    def validate_calculation_requests_not_empty(cls, v):
-        """Validate at least one calculation is requested"""
-        if not v:
-            raise ValueError("At least one calculation must be requested")
-        return v
-
-    @field_validator("deal_tranche_map")
-    @classmethod
-    def validate_deal_tranche_map_not_empty(cls, v):
-        """Validate at least one deal is specified"""
-        if not v:
-            raise ValueError("At least one deal must be specified")
-        return v
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "calculation_requests": [
-                    {"calc_type": "static_field", "field_path": "deal.dl_nbr", "alias": "deal_number"},
-                    {"calc_type": "user_calculation", "calc_id": 1, "alias": "total_balance"},
-                    {"calc_type": "system_calculation", "calc_id": 1, "alias": "issuer_type"}
-                ],
-                "deal_tranche_map": {
-                    1001: ["A", "B"],  # Specific tranches
-                    1002: []  # All tranches
-                },
-                "cycle_code": 202404
-            }
-        }
+    calculation_requests: List[Dict[str, Any]] = Field(..., description="List of calculation requests")
+    deal_tranche_map: Dict[int, List[str]] = Field(..., description="Deal to tranche mappings")
+    cycle_code: int = Field(..., description="Reporting cycle")
+    report_scope: str = Field(..., description="Report scope (DEAL or TRANCHE)")
 
 
 class ReportExecutionResponse(BaseModel):
     """Schema for report execution responses"""
-    data: List[Dict[str, Any]]
-    metadata: Dict[str, Any]
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "data": [
-                    {
-                        "deal_number": 1001,
-                        "cycle_code": 202404,
-                        "tranche_id": "A",
-                        "total_balance": 1000000.00,
-                        "issuer_type": "GSE"
-                    }
-                ],
-                "metadata": {
-                    "total_rows": 1,
-                    "calculations_executed": 3,
-                    "debug_info": {
-                        "total_calculations": 3,
-                        "static_fields": 1,
-                        "user_calculations": 1,
-                        "system_calculations": 1,
-                        "errors": []
-                    },
-                    "individual_sql_queries": {
-                        "deal_number": "SELECT DISTINCT deal.dl_nbr AS deal_number...",
-                        "total_balance": "SELECT deal.dl_nbr AS deal_number, SUM(...)...",
-                        "issuer_type": "SELECT deal.dl_nbr, CASE WHEN..."
-                    }
-                }
-            }
-        }
+    merged_data: List[Dict[str, Any]] = Field(..., description="Merged calculation results")
+    unified_sql: str = Field(..., description="Generated unified SQL")
+    debug_info: Dict[str, Any] = Field(..., description="Debug information")
+    error: Optional[str] = Field(None, description="Error message if execution failed")
 
 
-# ===== SQL PREVIEW SCHEMAS =====
-
-class SQLPreviewResponse(BaseModel):
-    """Schema for SQL preview responses"""
-    sql_previews: Dict[str, Dict[str, Any]]
-    parameters: Dict[str, Any]
-    summary: Dict[str, Any]
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "sql_previews": {
-                    "deal_number": {
-                        "sql": "SELECT DISTINCT deal.dl_nbr AS deal_number...",
-                        "columns": ["deal_number", "cycle_code"],
-                        "calculation_type": "static_field"
-                    },
-                    "total_balance": {
-                        "sql": "SELECT deal.dl_nbr AS deal_number, SUM(...)...",
-                        "columns": ["deal_number", "cycle_code", "total_balance"],
-                        "calculation_type": "user_calculation",
-                        "group_level": "deal"
-                    }
-                },
-                "parameters": {
-                    "deal_tranche_map": {1001: ["A", "B"]},
-                    "cycle_code": 202404
-                },
-                "summary": {
-                    "total_calculations": 2,
-                    "static_fields": 1,
-                    "user_calculations": 1,
-                    "system_calculations": 0
-                }
-            }
-        }
-
-
-# ===== CONFIGURATION SCHEMAS =====
-
-class CalculationConfigResponse(BaseModel):
-    """Schema for calculation configuration responses"""
-    aggregation_functions: List[Dict[str, str]]
-    source_models: List[Dict[str, str]]
-    group_levels: List[Dict[str, str]]
-    static_fields: List[StaticFieldInfo]
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "aggregation_functions": [
-                    {"value": "SUM", "label": "SUM - Total amount", "description": "Add all values together"}
-                ],
-                "source_models": [
-                    {"value": "Deal", "label": "Deal", "description": "Base deal information"}
-                ],
-                "group_levels": [
-                    {"value": "deal", "label": "Deal Level", "description": "Aggregate to deal level"}
-                ],
-                "static_fields": [
-                    {
-                        "field_path": "deal.dl_nbr",
-                        "name": "Deal Number",
-                        "description": "Unique identifier for the deal",
-                        "type": "number",
-                        "required_models": ["Deal"],
-                        "nullable": False
-                    }
-                ]
-            }
-        }
-
-
-# ===== USAGE INFORMATION SCHEMAS =====
-
-class CalculationUsageResponse(BaseModel):
-    """Response schema for calculation usage information"""
-    calculation_id: Union[int, str]  # Can be numeric (legacy) or string (new format)
-    calculation_name: str
-    is_in_use: bool
-    report_count: int
-    reports: List[Dict[str, Any]]
-
-
-class AvailableCalculationResponse(BaseModel):
-    """Response schema for available calculations with new format"""
-    id: str  # Always string with new format: "user.{source_field}", "system.{result_column}", "static_{table}.{field}"
+# Legacy compatibility schemas (for migration)
+class LegacyCalculationCreate(BaseModel):
+    """Legacy schema for backward compatibility during migration"""
     name: str
     description: Optional[str] = None
-    aggregation_function: Optional[str] = None
-    source_model: Optional[str] = None
+    function_type: str  # Maps to calculation_type
+    level: str  # Maps to group_level
+    source: Optional[str] = None  # Maps to source_model
     source_field: Optional[str] = None
-    group_level: str
     weight_field: Optional[str] = None
-    scope: str
-    category: str
-    is_default: bool
-    calculation_type: Literal["USER_DEFINED", "SYSTEM_SQL", "STATIC_FIELD"]
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "examples": [
-                {
-                    "id": "user.current_balance",
-                    "name": "Current Balance Sum",
-                    "description": "Sum of current balances",
-                    "aggregation_function": "SUM",
-                    "source_model": "TrancheBal", 
-                    "source_field": "current_balance",
-                    "group_level": "deal",
-                    "weight_field": None,
-                    "scope": "DEAL",
-                    "category": "Balance & Amount Calculations",
-                    "is_default": False,
-                    "calculation_type": "USER_DEFINED"
-                },
-                {
-                    "id": "system.total_wac",
-                    "name": "Total Weighted Average Coupon",
-                    "description": "Custom calculated WAC",
-                    "aggregation_function": None,
-                    "source_model": None,
-                    "source_field": "total_wac",
-                    "group_level": "deal", 
-                    "weight_field": None,
-                    "scope": "DEAL",
-                    "category": "System Calculations",
-                    "is_default": False,
-                    "calculation_type": "SYSTEM_SQL"
-                },
-                {
-                    "id": "static_deal.dl_nbr",
-                    "name": "Deal Number",
-                    "description": "Unique deal identifier",
-                    "aggregation_function": None,
-                    "source_model": None,
-                    "source_field": "deal.dl_nbr",
-                    "group_level": "deal",
-                    "weight_field": None,
-                    "scope": "DEAL", 
-                    "category": "Deal Information",
-                    "is_default": True,
-                    "calculation_type": "STATIC_FIELD"
-                }
-            ]
+    
+    def to_modern_schema(self) -> Dict[str, Any]:
+        """Convert legacy schema to modern unified schema"""
+        # Map legacy function_type to calculation_type
+        type_mapping = {
+            "SUM": CalculationType.USER_AGGREGATION,
+            "AVG": CalculationType.USER_AGGREGATION,
+            "COUNT": CalculationType.USER_AGGREGATION,
+            "MIN": CalculationType.USER_AGGREGATION,
+            "MAX": CalculationType.USER_AGGREGATION,
+            "WEIGHTED_AVG": CalculationType.USER_AGGREGATION,
+            "RAW": CalculationType.SYSTEM_FIELD,
+            "SYSTEM_SQL": CalculationType.SYSTEM_SQL,
         }
-    )
-
-
-# ===== READ SCHEMAS (for backward compatibility) =====
-
-# Alias for backward compatibility
-UserCalculationRead = UserCalculationResponse
-SystemCalculationRead = SystemCalculationResponse
-StaticFieldRead = StaticFieldInfo
-CalculationConfigRead = CalculationConfigResponse
-
-# ===== MISSING SCHEMAS FOR ROUTER COMPATIBILITY =====
-
-class UserCalculationStats(BaseModel):
-    """Statistics for user calculations"""
-    total_count: int
-    active_count: int
-    approved_count: int
-    in_use_count: int
-
-class SystemCalculationStats(BaseModel):
-    """Statistics for system calculations"""
-    total_count: int
-    active_count: int
-    approved_count: int
-    in_use_count: int
-
-class CalculationExecutionRequest(BaseModel):
-    """Request schema for calculation execution"""
-    calculation_requests: List[CalculationRequestSchema]
-    deal_tranche_map: Dict[int, List[str]]
-    cycle_code: int
-
-class CalculationExecutionResponse(BaseModel):
-    """Response schema for calculation execution"""
-    data: List[Dict[str, Any]]
-    metadata: Dict[str, Any]
-
-class CalculationExecutionSQLResponse(BaseModel):
-    """SQL preview response for calculation execution"""
-    sql_previews: Dict[str, Dict[str, Any]]
-    parameters: Dict[str, Any]
-    summary: Dict[str, Any]
+        
+        calc_type = type_mapping.get(self.function_type, CalculationType.USER_AGGREGATION)
+        
+        base_data = {
+            "name": self.name,
+            "description": self.description,
+            "calculation_type": calc_type,
+            "group_level": GroupLevel.DEAL if self.level == "deal" else GroupLevel.TRANCHE,
+        }
+        
+        if calc_type == CalculationType.USER_AGGREGATION:
+            base_data.update({
+                "aggregation_function": AggregationFunction(self.function_type),
+                "source_model": SourceModel(self.source) if self.source else None,
+                "source_field": self.source_field,
+                "weight_field": self.weight_field,
+            })
+        elif calc_type == CalculationType.SYSTEM_FIELD:
+            base_data.update({
+                "field_path": f"{self.source.lower()}.{self.source_field}" if self.source and self.source_field else "",
+            })
+        
+        return base_data

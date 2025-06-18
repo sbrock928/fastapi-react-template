@@ -6,8 +6,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text, and_, or_
 import pandas as pd
 from app.core.exceptions import CalculationNotFoundError, InvalidCalculationError
-from .models import SystemCalculation, GroupLevel
-from .service import SystemCalculationService
+from .models import Calculation, GroupLevel
+from .service import UnifiedCalculationService
 from .cdi_schemas import CDIVariableCreate, CDIVariableResponse, CDIVariableUpdate
 
 # Import the datawarehouse models
@@ -17,7 +17,7 @@ from app.datawarehouse.models import DealCdiVarRpt, TrancheBal
 class CDIVariableCalculationService:
     """Service for managing CDI Variable calculations supporting both deal and tranche level"""
     
-    def __init__(self, dw_db: Session, config_db: Session, system_calc_service: SystemCalculationService):
+    def __init__(self, dw_db: Session, config_db: Session, system_calc_service: UnifiedCalculationService):
         self.dw_db = dw_db
         self.config_db = config_db
         self.system_calc_service = system_calc_service
@@ -496,14 +496,14 @@ class CDIVariableCalculationService:
             FROM dbo.deal_cdi_var_rpt 
             WHERE 1=0"""
     
-    def _is_cdi_variable_calculation(self, system_calc: SystemCalculation) -> bool:
+    def _is_cdi_variable_calculation(self, system_calc: Calculation) -> bool:
         """Check if a SystemCalculation is a CDI variable calculation"""
         return (
             system_calc.metadata_config and 
             system_calc.metadata_config.get("calculation_type") == "cdi_variable"
         )
     
-    def _convert_to_cdi_response(self, system_calc: SystemCalculation) -> CDIVariableResponse:
+    def _convert_to_cdi_response(self, system_calc: Calculation) -> CDIVariableResponse:
         """Convert SystemCalculation to CDIVariableResponse"""
         metadata = system_calc.metadata_config
         

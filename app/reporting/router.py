@@ -18,7 +18,11 @@ from app.reporting.schemas import (
 )
 from app.core.dependencies import SessionDep, DWSessionDep, get_user_calculation_service, get_system_calculation_service, get_report_execution_service, get_cdi_calculation_service
 from app.datawarehouse.dao import DatawarehouseDAO
-from app.calculations.service import UserCalculationService, SystemCalculationService, ReportExecutionService
+from app.calculations import (
+    UnifiedCalculationService as UserCalculationService,
+    UnifiedCalculationService as SystemCalculationService, 
+    UnifiedCalculationService as ReportExecutionService
+)
 from app.calculations.cdi_service import CDIVariableCalculationService
 import io
 import pandas as pd
@@ -43,18 +47,8 @@ def get_report_service(
     user_calc_service: UserCalculationService = Depends(get_user_calculation_service),
     system_calc_service: SystemCalculationService = Depends(get_system_calculation_service),
     report_execution_service: ReportExecutionService = Depends(get_report_execution_service),
-    cdi_service: CDIVariableCalculationService = Depends(get_cdi_calculation_service)  # ADD CDI SERVICE
+    cdi_service: CDIVariableCalculationService = Depends(get_cdi_calculation_service)
 ) -> ReportService:
-    # DEBUG: Check if CDI service is properly initialized
-    print(f"=== ROUTER DEBUG ===")
-    print(f"ReportExecutionService CDI service: {report_execution_service.cdi_service}")
-    print(f"Standalone CDI service: {cdi_service}")
-    
-    # ENSURE CDI service is set on the ReportExecutionService
-    if report_execution_service.cdi_service is None:
-        print("🔧 FIXING: Setting CDI service on ReportExecutionService")
-        report_execution_service.set_cdi_service(cdi_service)
-    
     return ReportService(
         report_dao, 
         dw_dao, 
