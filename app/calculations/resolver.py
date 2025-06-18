@@ -7,7 +7,7 @@ from typing import Dict, List, Any, Optional, Set
 from dataclasses import dataclass
 import re
 
-from .models import Calculation, CalculationType, AggregationFunction, get_static_field_info
+from .models import Calculation, CalculationType, AggregationFunction
 
 
 @dataclass

@@ -91,6 +91,20 @@ class FieldIntrospectionService:
         return f"{formatted_name} from {model_display}"
 
     @classmethod
+    def _generate_unique_display_name(cls, model_name: str, column_name: str) -> str:
+        """Generate unique display name that avoids conflicts across tables"""
+        base_name = column_name.replace("_", " ").title()
+        
+        # For fields that commonly appear in multiple tables, add table context
+        common_fields = ["dl_nbr", "tr_id", "cycle_cde"]
+        
+        if column_name in common_fields:
+            model_display = cls.MODEL_DISPLAY_NAMES.get(model_name, model_name.title())
+            return f"{base_name} ({model_display})"
+        else:
+            return base_name
+
+    @classmethod
     def get_available_fields(cls, model_filter: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Generate available fields from SQLAlchemy models through introspection
@@ -121,12 +135,15 @@ class FieldIntrospectionService:
                 # Generate description
                 description = cls._generate_field_description(model_key, column_name, column)
                 
+                # Generate unique display name
+                unique_name = cls._generate_unique_display_name(model_key, column_name)
+                
                 # Create field entry with the exact format expected by frontend
                 field_entry = {
                     "value": field_path,  # Frontend expects 'value' not 'field_path'
-                    "label": f"{column_name.replace('_', ' ').title()} ({field_path})",  # Frontend expects 'label'
+                    "label": f"{unique_name} ({field_path})",  # Frontend expects 'label'
                     "field_path": field_path,  # Keep this for backward compatibility
-                    "name": column_name.replace("_", " ").title(),
+                    "name": unique_name,  # Use unique name to avoid conflicts
                     "description": description,
                     "type": type_info["type"],
                     "format": type_info.get("format"),

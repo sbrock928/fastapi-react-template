@@ -19,42 +19,60 @@ from app.calculations import (
     UnifiedCalculationService as SystemCalculationService, 
     UnifiedCalculationService as ReportExecutionService
 )
-from app.calculations.models import GroupLevel, CalculationType, STATIC_FIELD_INFO, get_static_field_info
+from app.calculations.models import GroupLevel, CalculationType
 
 
 logger = logging.getLogger(__name__)
 
-# Helper class to provide static field functionality
+# Helper class to provide static field functionality using Field Introspection Service
 class StaticFieldHelper:
-    """Helper class to work with static field information."""
+    """Helper class to work with static field information using dynamic field introspection."""
     
     @staticmethod
     def get_all_static_fields():
-        """Get all static fields as objects with field_path, name, description, etc."""
-        fields = []
-        for field_path, info in STATIC_FIELD_INFO.items():
+        """Get all static fields from the Field Introspection Service."""
+        from app.calculations.field_introspection import FieldIntrospectionService
+        
+        fields = FieldIntrospectionService.get_available_fields()
+        # Convert to the expected format
+        field_objects = []
+        for field in fields:
             field_obj = type('StaticField', (), {
-                'field_path': field_path,
-                'name': info['name'],
-                'description': info['description'],
-                'type': info['type'],
-                'required_models': info['required_models'],
-                'nullable': info.get('nullable', True)
+                'field_path': field['field_path'],
+                'name': field['name'],
+                'description': field['description'],
+                'type': field['type'],
+                'required_models': field.get('required_models', ["Deal"]),
+                'nullable': field.get('nullable', True)
             })()
-            fields.append(field_obj)
-        return fields
+            field_objects.append(field_obj)
+        return field_objects
     
     @staticmethod
     def get_static_field_by_path(field_path: str):
-        """Get a single static field by its path."""
-        info = get_static_field_info(field_path)
+        """Get a single static field by its path using Field Introspection Service."""
+        from app.calculations.field_introspection import FieldIntrospectionService
+        
+        fields = FieldIntrospectionService.get_available_fields()
+        for field in fields:
+            if field['field_path'] == field_path:
+                return type('StaticField', (), {
+                    'field_path': field['field_path'],
+                    'name': field['name'],
+                    'description': field['description'],
+                    'type': field['type'],
+                    'required_models': field.get('required_models', ["Deal"]),
+                    'nullable': field.get('nullable', True)
+                })()
+        
+        # Fallback for unknown fields
         return type('StaticField', (), {
             'field_path': field_path,
-            'name': info['name'],
-            'description': info['description'],
-            'type': info['type'],
-            'required_models': info['required_models'],
-            'nullable': info.get('nullable', True)
+            'name': field_path,
+            'description': f"Field {field_path}",
+            'type': "unknown",
+            'required_models': ["Deal"],
+            'nullable': True
         })()
 
 class ReportService:
