@@ -152,8 +152,33 @@ class EnhancedCalculationResolver:
         cdi_variable_calcs = []
         
         for request in calc_requests:
+            # FIXED: Handle special static field requests
+            if isinstance(request.calc_id, str) and request.calc_id.startswith("static_field:"):
+                # Extract field path from the special format
+                field_path = request.calc_id.replace("static_field:", "")
+                
+                # Create a pseudo-calculation for static fields with proper method
+                class PseudoCalculation:
+                    def __init__(self, field_path, resolver):
+                        self.calculation_type = CalculationType.SYSTEM_FIELD
+                        self.metadata_config = {'field_path': field_path}
+                        self.source_model = None
+                        self.source_field = field_path.split('.')[-1] if '.' in field_path else field_path
+                        self.field_path = field_path
+                        self.resolver = resolver
+                    
+                    def get_required_models(self):
+                        return self.resolver._get_required_models_for_field_path(self.field_path)
+                
+                pseudo_calc = PseudoCalculation(field_path, self)
+                
+                system_field_calcs.append((request, pseudo_calc))
+                print(f"DEBUG: Added static field calculation: {field_path} with alias: {request.alias}")
+                continue
+            
             calc = calculations.get(request.calc_id)
             if not calc:
+                print(f"DEBUG: No calculation found for ID: {request.calc_id}")
                 continue
                 
             if calc.calculation_type == CalculationType.USER_AGGREGATION:
@@ -164,6 +189,12 @@ class EnhancedCalculationResolver:
                 system_sql_calcs.append((request, calc))
             elif calc.calculation_type == CalculationType.CDI_VARIABLE:
                 cdi_variable_calcs.append((request, calc))
+        
+        print(f"DEBUG: Calculation separation:")
+        print(f"  User aggregation: {len(user_agg_calcs)}")
+        print(f"  System fields: {len(system_field_calcs)}")
+        print(f"  System SQL: {len(system_sql_calcs)}")
+        print(f"  CDI variables: {len(cdi_variable_calcs)}")
         
         # Build CTEs for calculations that need them
         ctes = []
@@ -331,12 +362,27 @@ class EnhancedCalculationResolver:
         if 'TrancheBal' in required_models:
             base_columns.append("tranchebal.cycle_cde")
         
-        # Add all system field columns
+        # Add all system field columns - FIXED: Better field path extraction
         for request, calc in system_field_calcs:
-            field_path = calc.metadata_config.get("field_path", "") if calc.metadata_config else ""
+            field_path = ""
+            
+            # Try to get field_path from metadata_config first
+            if calc.metadata_config and 'field_path' in calc.metadata_config:
+                field_path = calc.metadata_config['field_path']
+            # Fallback: construct from source_model and source_field if available
+            elif calc.source_model and calc.source_field:
+                field_path = f"{calc.source_model.value.lower()}.{calc.source_field}"
+            
             if field_path:
                 quoted_alias = f'"{request.alias}"' if ' ' in request.alias else request.alias
                 base_columns.append(f"{field_path} AS {quoted_alias}")
+                print(f"DEBUG: Adding static field {field_path} AS {quoted_alias}")  # Debug logging
+            else:
+                print(f"DEBUG: No field_path found for calculation {calc.name} (ID: {calc.id})")  # Debug logging
+        
+        # Debug logging
+        print(f"DEBUG: system_field_calcs count: {len(system_field_calcs)}")
+        print(f"DEBUG: base_columns: {base_columns}")
         
         # Build FROM clause
         from_clause = self._build_from_clause(list(required_models))
@@ -347,6 +393,18 @@ class EnhancedCalculationResolver:
         return f"""SELECT DISTINCT {', '.join(base_columns)}
 {from_clause}
 {where_clause}"""
+
+    def _get_required_models_for_field_path(self, field_path: str) -> List[str]:
+        """Helper method to determine required models for a field path"""
+        if field_path.startswith('deal.'):
+            return ['Deal']
+        elif field_path.startswith('tranche.'):
+            return ['Deal', 'Tranche']
+        elif field_path.startswith('tranchebal.'):
+            return ['Deal', 'Tranche', 'TrancheBal']
+        else:
+            # Default to Deal for unknown paths
+            return ['Deal']
 
     def _build_final_select(self, calc_requests: List[CalculationRequest], calculations: Dict[int, Calculation], filters: QueryFilters) -> str:
         """Build the final SELECT that joins all CTEs"""
@@ -363,14 +421,24 @@ class EnhancedCalculationResolver:
         # Build joins and add calculation columns
         joins = []
         for request in calc_requests:
+            # FIXED: Handle static field requests
+            if isinstance(request.calc_id, str) and request.calc_id.startswith("static_field:"):
+                # Static fields are in base_data
+                quoted_alias = f'"{request.alias}"' if ' ' in request.alias else request.alias
+                select_columns.append(f"base_data.{quoted_alias}")
+                print(f"DEBUG: Adding static field column to final SELECT: base_data.{quoted_alias}")
+                continue
+            
             calc = calculations.get(request.calc_id)
             if not calc:
+                print(f"DEBUG: No calculation found for final SELECT: {request.calc_id}")
                 continue
                 
             if calc.calculation_type == CalculationType.SYSTEM_FIELD:
                 # System fields are in base_data
                 quoted_alias = f'"{request.alias}"' if ' ' in request.alias else request.alias
                 select_columns.append(f"base_data.{quoted_alias}")
+                print(f"DEBUG: Adding system field column to final SELECT: base_data.{quoted_alias}")
             else:
                 # Other calculations are in CTEs
                 safe_cte_name = request.alias.replace(' ', '_').replace('-', '_').replace('.', '_')
@@ -386,6 +454,9 @@ class EnhancedCalculationResolver:
                 
                 quoted_alias = f'"{request.alias}"' if ' ' in request.alias else request.alias
                 select_columns.append(f"{cte_alias}.{quoted_alias}")
+                print(f"DEBUG: Adding CTE column to final SELECT: {cte_alias}.{quoted_alias}")
+        
+        print(f"DEBUG: Final SELECT columns: {select_columns}")
         
         # Build final query
         final_query = f"""SELECT {', '.join(select_columns)}
