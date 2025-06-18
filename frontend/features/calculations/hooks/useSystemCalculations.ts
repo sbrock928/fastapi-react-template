@@ -14,7 +14,7 @@ export const useSystemCalculations = () => {
   const fetchSystemCalculations = async (): Promise<void> => {
     setIsLoading(true);
     try {
-      // Use the unified endpoint and extract system calculations
+      // Use the unified endpoint instead of the deprecated method
       const response = await calculationsApi.getAllCalculations();
       setSystemCalculations(response.data.system_calculations);
     } catch (error) {

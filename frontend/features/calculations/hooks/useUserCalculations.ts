@@ -13,7 +13,7 @@ export const useUserCalculations = () => {
   const fetchUserCalculations = async (): Promise<void> => {
     setIsLoading(true);
     try {
-      // Use the unified endpoint and extract user calculations
+      // Use the unified endpoint instead of the deprecated method
       const response = await calculationsApi.getAllCalculations();
       setUserCalculations(response.data.user_calculations);
       setFilteredUserCalculations(response.data.user_calculations); // Also update filtered calculations
@@ -25,26 +25,9 @@ export const useUserCalculations = () => {
     }
   };
 
-  // Filter calculations based on selected filter
-  const filterCalculations = (): void => {
-    let filtered = userCalculations;
-    
-    if (selectedFilter === 'deal') {
-      filtered = userCalculations.filter(calc => calc.group_level === 'deal');
-    } else if (selectedFilter === 'tranche') {
-      filtered = userCalculations.filter(calc => calc.group_level === 'tranche');
-    }
-    
-    setFilteredUserCalculations(filtered);
-  };
-
   useEffect(() => {
     fetchUserCalculations();
   }, []);
-
-  useEffect(() => {
-    filterCalculations();
-  }, [userCalculations, selectedFilter]);
 
   return {
     userCalculations,
