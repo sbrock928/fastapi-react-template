@@ -66,7 +66,7 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
       case 'user-defined':
         return editingCalculation ? 'Edit User Calculation' : 'Create New User Calculation';
       case 'system-sql':
-        return 'Create System SQL Calculation';
+        return editingCalculation ? 'Edit System SQL Calculation' : 'Create System SQL Calculation';
       default:
         return 'Calculation';
     }
@@ -806,7 +806,7 @@ SUM(balance) OVER (
               disabled={
                 isSaving || 
                 fieldsLoading || 
-                (modalType === 'system-sql' && (!sqlValidationResult || !sqlValidationResult.is_valid)) ||
+                (modalType === 'system-sql' && !editingCalculation && (!sqlValidationResult || !sqlValidationResult.is_valid)) ||
                 (modalType === 'system-sql' && clientValidationResult && !clientValidationResult.isValid)
               }
               className="btn btn-primary"
