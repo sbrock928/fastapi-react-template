@@ -268,23 +268,72 @@ class EnhancedCalculationResolver:
         print(f"  System SQL: {len(system_sql_calcs)}")
         print(f"  Static fields: {len(static_field_requests)}")
 
-        # FIXED: Build CTEs with deduplication to prevent duplicate CTE names
+        # FIXED: Completely restructure CTE handling to avoid nesting
         ctes = []
-        created_cte_names = set()  # Track CTE names to prevent duplicates
+        created_cte_names = set()
+        system_sql_with_ctes = []  # Track system SQL that needs special handling
 
-        # System SQL calculations - each becomes its own CTE
+        # First pass: Handle system SQL calculations
         for request, calc in system_sql_calcs:
-            cte = self._build_system_sql_cte(request, calc, filters)
-            if cte:
-                # Extract CTE name to check for duplicates
-                cte_name = request.alias.replace(' ', '_').replace('-', '_').replace('.', '_') + "_cte"
+            injected_sql = self.parameter_injector.inject_parameters(calc.raw_sql, calc)
+            sql_trimmed = injected_sql.strip()
+            has_existing_ctes = sql_trimmed.upper().startswith('WITH ')
+            
+            if has_existing_ctes:
+                # For SQL with CTEs, we need to merge their CTEs with our main query
+                print(f"DEBUG: System SQL calculation '{calc.name}' contains CTEs. Will merge CTEs.")
+                system_sql_with_ctes.append((request, calc, injected_sql))
+            else:
+                # Regular system SQL without CTEs
+                cte = self._build_system_sql_cte(request, calc, filters)
+                if cte:
+                    cte_name = request.alias.replace(' ', '_').replace('-', '_').replace('.', '_') + "_cte"
+                    if cte_name not in created_cte_names:
+                        ctes.append(cte)
+                        created_cte_names.add(cte_name)
+                        print(f"DEBUG: Added regular system SQL CTE: {cte_name}")
+
+        # Handle system SQL with CTEs by extracting and merging their CTEs
+        for request, calc, injected_sql in system_sql_with_ctes:
+            extracted_ctes, final_select = self._extract_and_merge_ctes(injected_sql, request, calc)
+            
+            # Add the extracted CTEs to our main CTE list
+            for cte_name, cte_def in extracted_ctes.items():
                 if cte_name not in created_cte_names:
-                    ctes.append(cte)
+                    ctes.append(cte_def)
                     created_cte_names.add(cte_name)
-                    print(f"DEBUG: Added CTE: {cte_name}")
-                else:
-                    print(f"DEBUG: Skipped duplicate CTE: {cte_name}")
-        
+                    print(f"DEBUG: Added extracted CTE: {cte_name}")
+            
+            # Create a wrapper CTE for the final calculation result
+            safe_cte_name = request.alias.replace(' ', '_').replace('-', '_').replace('.', '_')
+            quoted_alias = f'"{request.alias}"' if ' ' in request.alias or any(c in request.alias for c in ['-', '.', '/', '\\']) else request.alias
+            
+            if calc.group_level.value == "deal":
+                wrapper_cte = f"""{safe_cte_name}_cte AS (
+    SELECT 
+        dl_nbr,
+        {calc.result_column_name} AS {quoted_alias}
+    FROM (
+        {self._indent_sql(final_select, 8)}
+    ) AS calc_result
+)"""
+            else:  # TRANCHE level
+                wrapper_cte = f"""{safe_cte_name}_cte AS (
+    SELECT 
+        dl_nbr,
+        tr_id,
+        {calc.result_column_name} AS {quoted_alias}
+    FROM (
+        {self._indent_sql(final_select, 8)}
+    ) AS calc_result
+)"""
+            
+            cte_name = safe_cte_name + "_cte"
+            if cte_name not in created_cte_names:
+                ctes.append(wrapper_cte)
+                created_cte_names.add(cte_name)
+                print(f"DEBUG: Added wrapper CTE for complex SQL: {cte_name}")
+
         # Add user aggregation CTEs
         for request, calc in user_aggregation_calcs:
             cte = self._build_user_aggregation_cte(request, calc, filters)
@@ -315,6 +364,172 @@ class EnhancedCalculationResolver:
         else:
             # No CTEs needed, just return the base query
             return base_query
+
+    def _extract_and_merge_ctes(self, sql_with_ctes: str, request: CalculationRequest, calc: Calculation) -> tuple:
+        """Extract CTEs from user SQL and return them separately from the final SELECT"""
+        try:
+            # Parse the SQL to extract CTEs and the final SELECT
+            sql_trimmed = sql_with_ctes.strip()
+            
+            # Find the WITH keyword and the start of CTEs
+            with_pattern = r'WITH\s+'
+            with_match = re.search(with_pattern, sql_trimmed, re.IGNORECASE)
+            if not with_match:
+                return {}, sql_trimmed
+            
+            # Find the final SELECT statement (the one not inside parentheses)
+            # We need to find the last SELECT that's not inside a CTE
+            select_positions = []
+            paren_depth = 0
+            in_quotes = False
+            quote_char = ''
+            
+            for i, char in enumerate(sql_trimmed):
+                if char in ('"', "'") and (i == 0 or sql_trimmed[i-1] != '\\'):
+                    if not in_quotes:
+                        in_quotes = True
+                        quote_char = char
+                    elif char == quote_char:
+                        in_quotes = False
+                        quote_char = ''
+                
+                if not in_quotes:
+                    if char == '(':
+                        paren_depth += 1
+                    elif char == ')':
+                        paren_depth -= 1
+                    elif paren_depth == 0 and sql_trimmed[i:i+6].upper() == 'SELECT':
+                        select_positions.append(i)
+            
+            if not select_positions:
+                raise ValueError("Could not find final SELECT statement")
+            
+            # The final SELECT is the last one at depth 0
+            final_select_start = select_positions[-1]
+            final_select = sql_trimmed[final_select_start:].strip()
+            
+            # FIXED: Remove ORDER BY clause from final SELECT since it will be used in a CTE
+            # SQL Server doesn't allow ORDER BY in CTEs unless TOP, OFFSET, or FOR XML is used
+            final_select = self._remove_order_by_from_select(final_select)
+            
+            # Extract the CTE section (everything between WITH and the final SELECT)
+            cte_section = sql_trimmed[with_match.end():final_select_start].strip()
+            
+            # Parse individual CTEs using improved regex
+            extracted_ctes = {}
+            
+            # Find all CTE definitions - improved pattern
+            # This pattern looks for: word AS ( ... balanced parentheses ... )
+            cte_pattern = r'(\w+)\s+AS\s*\('
+            cte_matches = list(re.finditer(cte_pattern, cte_section, re.IGNORECASE))
+            
+            for i, match in enumerate(cte_matches):
+                cte_name = match.group(1)
+                cte_start_pos = match.end()  # Position after the opening parenthesis
+                
+                # Find the matching closing parenthesis
+                paren_count = 1
+                cte_end_pos = len(cte_section)
+                in_quotes = False
+                quote_char = ''
+                
+                for j in range(cte_start_pos, len(cte_section)):
+                    char = cte_section[j]
+                    
+                    # Handle quotes
+                    if char in ('"', "'") and (j == 0 or cte_section[j-1] != '\\'):
+                        if not in_quotes:
+                            in_quotes = True
+                            quote_char = char
+                        elif char == quote_char:
+                            in_quotes = False
+                            quote_char = ''
+                    
+                    if not in_quotes:
+                        if char == '(':
+                            paren_count += 1
+                        elif char == ')':
+                            paren_count -= 1
+                            if paren_count == 0:
+                                cte_end_pos = j
+                                break
+                
+                # Extract the CTE body (without the outer parentheses)
+                cte_body = cte_section[cte_start_pos:cte_end_pos].strip()
+                
+                # Skip empty CTEs
+                if not cte_body:
+                    print(f"WARNING: Skipping empty CTE: {cte_name}")
+                    continue
+                
+                # Create a unique CTE name to avoid conflicts
+                unique_cte_name = f"{request.alias}_{cte_name}".replace(' ', '_').replace('-', '_').replace('.', '_')
+                cte_definition = f"{unique_cte_name} AS (\n{self._indent_sql(cte_body, 4)}\n)"
+                
+                extracted_ctes[unique_cte_name] = cte_definition
+                
+                # Replace references to this CTE in the final SELECT
+                # Use word boundaries to avoid partial matches
+                final_select = re.sub(rf'\b{re.escape(cte_name)}\b', unique_cte_name, final_select, flags=re.IGNORECASE)
+            
+            return extracted_ctes, final_select
+            
+        except Exception as e:
+            print(f"ERROR: Failed to extract CTEs from SQL: {str(e)}")
+            print(f"SQL that failed: {sql_with_ctes[:500]}...")  # Show first 500 chars for debugging
+            # Fallback: return empty CTEs and original SQL
+            return {}, sql_with_ctes
+
+    def _remove_order_by_from_select(self, sql: str) -> str:
+        """Remove ORDER BY clause from a SELECT statement since it's invalid in CTEs"""
+        try:
+            # Find the ORDER BY clause at the end of the SELECT statement
+            # We need to be careful not to remove ORDER BY from subqueries
+            
+            # Work backwards from the end to find the outermost ORDER BY
+            sql_upper = sql.upper()
+            order_by_pos = sql_upper.rfind('ORDER BY')
+            
+            if order_by_pos == -1:
+                return sql  # No ORDER BY found
+            
+            # Check if this ORDER BY is at the outer level (not inside parentheses)
+            paren_count = 0
+            in_quotes = False
+            quote_char = ''
+            
+            for i in range(order_by_pos + len('ORDER BY'), len(sql)):
+                char = sql[i]
+                
+                # Handle quotes
+                if char in ('"', "'") and (i == 0 or sql[i-1] != '\\'):
+                    if not in_quotes:
+                        in_quotes = True
+                        quote_char = char
+                    elif char == quote_char:
+                        in_quotes = False
+                        quote_char = ''
+                
+                if not in_quotes:
+                    if char == '(':
+                        paren_count += 1
+                    elif char == ')':
+                        paren_count -= 1
+                        if paren_count < 0:
+                            # We've gone outside the current scope, ORDER BY is at outer level
+                            break
+            
+            # If we're at the outer level, remove the ORDER BY clause
+            if paren_count >= 0:
+                result = sql[:order_by_pos].rstrip()
+                print(f"DEBUG: Removed ORDER BY clause from SELECT statement for CTE compatibility")
+                return result
+            
+            return sql
+            
+        except Exception as e:
+            print(f"WARNING: Failed to remove ORDER BY clause: {str(e)}")
+            return sql
 
     def _build_user_aggregation_cte(self, request: CalculationRequest, calc: Calculation, filters: QueryFilters) -> Optional[str]:
         """Build CTE for a user aggregation calculation"""
@@ -406,9 +621,31 @@ class EnhancedCalculationResolver:
             # Inject parameters into the raw SQL
             injected_sql = self.parameter_injector.inject_parameters(calc.raw_sql, calc)
             
+            # FIXED: Check if the injected SQL already starts with WITH (has CTEs)
+            # If so, we need to handle it differently to avoid nested CTEs
+            sql_trimmed = injected_sql.strip()
+            has_existing_ctes = sql_trimmed.upper().startswith('WITH ')
+            
             # Determine expected columns based on group level
             if calc.group_level.value == "deal":
-                return f"""{safe_cte_name}_cte AS (
+                if has_existing_ctes:
+                    # For SQL that already has CTEs, we need to execute it separately
+                    # and then join the results in a different way
+                    print(f"DEBUG: System SQL calculation '{calc.name}' contains CTEs. Will handle as standalone query.")
+                    
+                    # Create a materialized view approach - execute the CTE query and make it available
+                    materialized_cte = f"""{safe_cte_name}_cte AS (
+    SELECT 
+        dl_nbr,
+        {calc.result_column_name} AS {quoted_alias}
+    FROM (
+        {self._indent_sql(injected_sql, 8)}
+    ) AS materialized_result
+)"""
+                    
+                    return materialized_cte
+                else:
+                    return f"""{safe_cte_name}_cte AS (
     SELECT 
         calc_result.dl_nbr,
         calc_result.{calc.result_column_name} AS {quoted_alias}
@@ -417,7 +654,23 @@ class EnhancedCalculationResolver:
     ) AS calc_result
 )"""
             else:  # TRANCHE level
-                return f"""{safe_cte_name}_cte AS (
+                if has_existing_ctes:
+                    print(f"DEBUG: System SQL calculation '{calc.name}' contains CTEs. Will handle as standalone query.")
+                    
+                    # Create a materialized view approach - execute the CTE query and make it available
+                    materialized_cte = f"""{safe_cte_name}_cte AS (
+    SELECT 
+        dl_nbr,
+        tr_id,
+        {calc.result_column_name} AS {quoted_alias}
+    FROM (
+        {self._indent_sql(injected_sql, 8)}
+    ) AS materialized_result
+)"""
+                    
+                    return materialized_cte
+                else:
+                    return f"""{safe_cte_name}_cte AS (
     SELECT 
         calc_result.dl_nbr,
         calc_result.tr_id,
