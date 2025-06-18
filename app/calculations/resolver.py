@@ -537,14 +537,17 @@ class EnhancedCalculationResolver:
         group_by_clause = ""
         if filters.report_scope == "DEAL" and ('Tranche' in required_models or 'TrancheBal' in required_models):
             # We need to group by deal-level columns only to aggregate tranche data
-            deal_level_columns = []
+            deal_level_columns = set()  # Use set to avoid duplicates
             for col in base_columns:
+                # Extract the actual column name (before AS clause)
+                actual_col = col.split(' AS ')[0].strip() if ' AS ' in col else col
+                
                 # Only include deal-level columns in GROUP BY
-                if col.startswith('deal.') or ' AS ' in col and not col.split(' AS ')[0].strip().startswith(('tranche.', 'tranchebal.')):
-                    deal_level_columns.append(col.split(' AS ')[0].strip() if ' AS ' in col else col)
+                if actual_col.startswith('deal.') and not actual_col.startswith(('tranche.', 'tranchebal.')):
+                    deal_level_columns.add(actual_col)
             
             if deal_level_columns:
-                group_by_clause = f"\nGROUP BY {', '.join(deal_level_columns)}"
+                group_by_clause = f"\nGROUP BY {', '.join(sorted(deal_level_columns))}"
                 print(f"DEBUG: Adding GROUP BY for DEAL scope: {group_by_clause}")
         
         return f"""SELECT DISTINCT {', '.join(base_columns)}
