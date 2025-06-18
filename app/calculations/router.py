@@ -17,6 +17,7 @@ from .schemas import (
     BulkCalculationOperation, BulkCalculationResponse
 )
 from .service import UnifiedCalculationService
+from .field_introspection import FieldIntrospectionService
 
 router = APIRouter(prefix="/calculations", tags=["calculations"])
 
@@ -133,23 +134,8 @@ def get_calculation_configuration():
         }
     ]
     
-    source_models = [
-        {
-            "value": "Deal",
-            "label": "Deal - Deal-level information",
-            "description": "Core deal attributes and metadata"
-        },
-        {
-            "value": "Tranche",
-            "label": "Tranche - Tranche structure",
-            "description": "Tranche-specific attributes and configuration"
-        },
-        {
-            "value": "TrancheBal",
-            "label": "TrancheBal - Balance & performance",
-            "description": "Tranche balance amounts and performance metrics"
-        }
-    ]
+    # Get available models dynamically
+    source_models = FieldIntrospectionService.get_available_models()
     
     group_levels = [
         {
@@ -164,51 +150,8 @@ def get_calculation_configuration():
         }
     ]
     
-    # Basic static fields structure (TODO: implement full static fields service)
-    static_fields = [
-        {
-            "field_path": "deal.dl_nbr",
-            "name": "Deal Number",
-            "description": "Unique deal identifier",
-            "type": "number",
-            "nullable": False
-        },
-        {
-            "field_path": "deal.issr_cde",
-            "name": "Issuer Code",
-            "description": "Deal issuer identifier",
-            "type": "string",
-            "nullable": True
-        },
-        {
-            "field_path": "tranche.tr_id",
-            "name": "Tranche ID",
-            "description": "Tranche identifier within deal",
-            "type": "string",
-            "nullable": False
-        },
-        {
-            "field_path": "tranchebal.tr_end_bal_amt",
-            "name": "Ending Balance Amount",
-            "description": "Tranche ending balance amount",
-            "type": "currency",
-            "nullable": True
-        },
-        {
-            "field_path": "tranchebal.tr_pass_thru_rte",
-            "name": "Pass Through Rate",
-            "description": "Tranche pass-through interest rate",
-            "type": "percentage",
-            "nullable": True
-        },
-        {
-            "field_path": "tranchebal.cycle_cde",
-            "name": "Cycle Code",
-            "description": "Reporting cycle identifier",
-            "type": "number",
-            "nullable": False
-        }
-    ]
+    # Get available fields dynamically through introspection
+    static_fields = FieldIntrospectionService.get_available_fields()
     
     return {
         "aggregation_functions": aggregation_functions,
@@ -238,16 +181,90 @@ def get_available_placeholders(
 def get_static_fields(
     model: Optional[str] = Query(None, description="Filter by model name")
 ):
-    """Get available static fields"""
-    # TODO: implement static fields service
-    return []
+    """Get available static fields dynamically from schema introspection"""
+    try:
+        return FieldIntrospectionService.get_available_fields(model_filter=model)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving static fields: {str(e)}")
+
+
+@router.get("/static-fields/by-model/{model_name}")
+def get_static_fields_by_model(model_name: str):
+    """Get available static fields for a specific model - used by frontend dropdown"""
+    try:
+        # Validate model exists
+        available_models = [model["value"] for model in FieldIntrospectionService.get_available_models()]
+        if model_name.lower() not in available_models:
+            raise HTTPException(status_code=404, detail=f"Model '{model_name}' not found. Available models: {available_models}")
+        
+        fields = FieldIntrospectionService.get_available_fields(model_filter=model_name.lower())
+        
+        # Format for frontend dropdown - include both field path and display name
+        formatted_fields = []
+        for field in fields:
+            formatted_fields.append({
+                "value": field["field_path"],
+                "label": f"{field['name']} ({field['field_path']})",
+                "description": field["description"],
+                "type": field["type"],
+                "format": field.get("format"),
+                "model": field["model"],
+                "nullable": field.get("nullable", True)
+            })
+        
+        return {
+            "model": model_name.lower(),
+            "fields": formatted_fields,
+            "count": len(formatted_fields)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving fields for model '{model_name}': {str(e)}")
 
 
 @router.get("/static-fields/{field_path:path}")
 def get_static_field_by_path(field_path: str):
     """Get static field information by path"""
-    # TODO: implement static field lookup
-    raise HTTPException(status_code=404, detail=f"Static field '{field_path}' not found")
+    try:
+        field = FieldIntrospectionService.get_field_by_path(field_path)
+        if field:
+            return field
+        else:
+            raise HTTPException(status_code=404, detail=f"Static field '{field_path}' not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving field: {str(e)}")
+
+
+@router.get("/models")
+def get_available_models():
+    """Get available data models for field selection"""
+    try:
+        return FieldIntrospectionService.get_available_models()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving models: {str(e)}")
+
+
+@router.get("/fields-by-model")
+def get_fields_grouped_by_model():
+    """Get all fields grouped by their source model"""
+    try:
+        return FieldIntrospectionService.get_fields_by_model()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving fields by model: {str(e)}")
+
+
+@router.post("/validate-field")
+def validate_field_path(request: Dict[str, str]):
+    """Validate if a field path exists in the schema"""
+    try:
+        field_path = request.get("field_path")
+        if not field_path:
+            raise HTTPException(status_code=400, detail="field_path is required")
+        
+        return FieldIntrospectionService.validate_field_path(field_path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ===== USER CALCULATION ENDPOINTS =====
@@ -418,6 +435,21 @@ def update_system_calculation(
     """Update an existing system calculation (partial update)"""
     try:
         return service.update_calculation(calc_id, request)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/system/{calc_id}")
+def delete_system_calculation(
+    calc_id: int,
+    service: UnifiedCalculationService = Depends(get_report_execution_service)
+):
+    """Delete a system calculation"""
+    try:
+        success = service.delete_calculation(calc_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="System calculation not found")
+        return {"message": "System calculation deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

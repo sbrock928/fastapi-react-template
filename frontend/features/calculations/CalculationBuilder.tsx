@@ -331,10 +331,42 @@ const CalculationBuilder: React.FC = () => {
     selectedFilter?: string;
     setSelectedFilter?: React.Dispatch<React.SetStateAction<string>>;
     loading: boolean;
-    deleteCalculation?: () => void;
+    deleteCalculation?: (id: number, name: string) => Promise<void>;
   }
 
-  // Get current tab data
+  // Handle delete for user calculations
+  const handleDeleteUserCalculation = async (id: number, name: string): Promise<void> => {
+    try {
+      await calculationsApi.deleteCalculation(id);
+      showToast(`User calculation "${name}" deleted successfully!`, 'success');
+      refetchCalculations();
+    } catch (error: any) {
+      console.error('Error deleting user calculation:', error);
+      let errorMessage = `Error deleting calculation: ${error.message}`;
+      if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      }
+      showToast(errorMessage, 'error');
+    }
+  };
+
+  // Handle delete for system calculations
+  const handleDeleteSystemCalculation = async (id: number, name: string): Promise<void> => {
+    try {
+      await calculationsApi.deleteSystemCalculation(id);
+      showToast(`System calculation "${name}" deleted successfully!`, 'success');
+      refetchCalculations();
+    } catch (error: any) {
+      console.error('Error deleting system calculation:', error);
+      let errorMessage = `Error deleting calculation: ${error.message}`;
+      if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      }
+      showToast(errorMessage, 'error');
+    }
+  };
+
+  // Get tab data with proper delete handlers
   const getCurrentTabData = (): TabData => {
     if (activeTab === 'user-defined') {
       return {
@@ -343,7 +375,7 @@ const CalculationBuilder: React.FC = () => {
         selectedFilter: userFilter,
         setSelectedFilter: setUserFilter,
         loading: calculationsLoading,
-        deleteCalculation: () => showToast('Delete functionality will be implemented', 'info')
+        deleteCalculation: handleDeleteUserCalculation
       };
     } else {
       return {
@@ -352,7 +384,7 @@ const CalculationBuilder: React.FC = () => {
         selectedFilter: systemFilter,
         setSelectedFilter: setSystemFilter,
         loading: calculationsLoading,
-        deleteCalculation: () => showToast('System calculations cannot be deleted', 'warning')
+        deleteCalculation: handleDeleteSystemCalculation
       };
     }
   };
@@ -543,6 +575,7 @@ const CalculationBuilder: React.FC = () => {
                     usageScope={usageScope}
                     onCreateSystemSql={() => handleOpenModal('system-sql')}
                     onEditSystemSql={(calc) => handleOpenModal('system-sql', calc)}
+                    onDeleteSystemSql={handleDeleteSystemCalculation}
                     onShowUsage={handleShowUsage}
                     onPreviewSQL={(calcId) => handlePreviewSQL(calcId)}
                   />

@@ -13,6 +13,7 @@ interface SystemCalculationsTabProps {
   usageScope?: 'DEAL' | 'TRANCHE' | 'ALL'; // Add scope prop
   onCreateSystemSql: () => void;
   onEditSystemSql: (calculation: Calculation) => void;
+  onDeleteSystemSql?: (id: number, name: string) => Promise<void>; // Add delete handler
   onPreviewSQL: (id: number) => void;
   onShowUsage: (id: number, name: string) => void;
 }
@@ -26,6 +27,7 @@ const SystemCalculationsTab: React.FC<SystemCalculationsTabProps> = ({
   usageScope = 'ALL',
   onCreateSystemSql,
   onEditSystemSql,
+  onDeleteSystemSql, // Destructure delete handler
   onPreviewSQL,
   onShowUsage
 }) => {
@@ -47,6 +49,12 @@ const SystemCalculationsTab: React.FC<SystemCalculationsTabProps> = ({
   const handleDeleteAttempt = (_id: number, name: string) => {
     // This will never actually delete, just show a warning
     console.warn(`Cannot delete system calculation: ${name}`);
+    // If onDeleteSystemSql is provided, call it (for compatibility with user calculations)
+    if (onDeleteSystemSql) {
+      onDeleteSystemSql(_id, name).catch(err => {
+        console.error(`Failed to delete system calculation ${name}:`, err);
+      });
+    }
   };
 
   return (

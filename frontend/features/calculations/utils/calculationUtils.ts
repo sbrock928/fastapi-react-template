@@ -134,7 +134,17 @@ export const getAvailableFields = (
   sourceModel: string, 
   allAvailableFields: Record<string, CalculationField[]>
 ): CalculationField[] => {
-  return allAvailableFields[sourceModel] || [];
+  // Convert proper case model names to lowercase for field lookup
+  const modelKeyMap: Record<string, string> = {
+    'Deal': 'deal',
+    'Tranche': 'tranche',
+    'TrancheBal': 'tranchebal'
+  };
+  
+  // Get the correct key for field lookup
+  const lookupKey = modelKeyMap[sourceModel] || sourceModel.toLowerCase();
+  
+  return allAvailableFields[lookupKey] || [];
 };
 
 /**

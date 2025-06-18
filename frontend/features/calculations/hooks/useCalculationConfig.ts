@@ -44,18 +44,18 @@ export const useCalculationConfig = () => {
           
           // Map the lowercase model names to the exact Source Model values from API
           let modelKey: string;
-          switch (modelName) {
+          switch (modelName.toLowerCase()) {
             case 'deal':
-              modelKey = 'Deal';
+              modelKey = 'deal'; // Keep lowercase to match source model values
               break;
             case 'tranche':
-              modelKey = 'Tranche';
+              modelKey = 'tranche'; // Keep lowercase to match source model values
               break;
             case 'tranchebal':
-              modelKey = 'TrancheBal'; // Exact match with Source Model value
+              modelKey = 'tranchebal'; // Keep lowercase to match source model values
               break;
             default:
-              modelKey = modelName.charAt(0).toUpperCase() + modelName.slice(1);
+              modelKey = modelName.toLowerCase();
           }
           
           if (!fieldsMap[modelKey]) {

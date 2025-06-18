@@ -6,7 +6,8 @@ from sqlalchemy import and_, or_
 from typing import List, Dict, Any, Optional, Union
 from datetime import datetime
 
-from .models import Calculation, CalculationType, AggregationFunction, SourceModel, GroupLevel, get_static_field_info
+from .models import Calculation, CalculationType, AggregationFunction, SourceModel, GroupLevel
+from .field_introspection import FieldIntrospectionService
 from .schemas import (
     UserAggregationCalculationCreate, SystemFieldCalculationCreate, SystemSqlCalculationCreate,
     CalculationUpdate, CalculationResponse,
@@ -60,8 +61,10 @@ class UnifiedCalculationService:
     ) -> CalculationResponse:
         """Create a new system field calculation"""
         
-        # Parse field path and get field info
-        field_info = get_static_field_info(request.field_path)
+        # Parse field path and get field info using dynamic introspection
+        field_info = FieldIntrospectionService.get_field_by_path(request.field_path)
+        if not field_info:
+            raise InvalidCalculationError(f"Invalid field path: {request.field_path}")
         
         calculation = Calculation(
             name=request.name,

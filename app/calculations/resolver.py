@@ -146,6 +146,7 @@ class EnhancedCalculationResolver:
         static_field_requests = []
         regular_calc_requests = []
         user_calc_string_requests = []
+        system_calc_string_requests = []
         
         for request in calc_requests:
             if isinstance(request.calc_id, str):
@@ -153,6 +154,8 @@ class EnhancedCalculationResolver:
                     static_field_requests.append(request)
                 elif request.calc_id.startswith("user."):
                     user_calc_string_requests.append(request)
+                elif request.calc_id.startswith("system."):
+                    system_calc_string_requests.append(request)
                 else:
                     regular_calc_requests.append(request)
             else:
@@ -165,50 +168,82 @@ class EnhancedCalculationResolver:
             if calc:
                 calculations[request.calc_id] = calc
         
-        # FIXED: Handle user calculation string references
+        # FIXED: Handle user calculation string references more robustly
         # Map string identifiers like "user.tr_pass_thru_rte" to actual calculation records
         for request in user_calc_string_requests:
-            if request.calc_id == "user.tr_pass_thru_rte":
-                # This should map to "Average Pass Through Rate" calculation
-                calc = self.config_db.query(Calculation).filter_by(name="Average Pass Through Rate", is_active=True).first()
-                if calc:
-                    calculations[request.calc_id] = calc
-                    regular_calc_requests.append(request)
-                    print(f"DEBUG: Mapped {request.calc_id} to calculation ID {calc.id}: {calc.name}")
-            elif request.calc_id == "user.tr_end_bal_amt":
-                # This should map to "Total Ending Balance" calculation
-                calc = self.config_db.query(Calculation).filter_by(name="Total Ending Balance", is_active=True).first()
-                if calc:
-                    calculations[request.calc_id] = calc
-                    regular_calc_requests.append(request)
-                    print(f"DEBUG: Mapped {request.calc_id} to calculation ID {calc.id}: {calc.name}")
+            source_field = request.calc_id.replace("user.", "")  # Extract the source field
+            print(f"DEBUG: Looking for user calculation with source_field: {source_field}")
+            
+            # Find user calculation by source_field (more robust approach)
+            calc = self.config_db.query(Calculation).filter(
+                Calculation.calculation_type == CalculationType.USER_AGGREGATION,
+                Calculation.source_field == source_field,
+                Calculation.is_active == True
+            ).first()
+            
+            if calc:
+                calculations[request.calc_id] = calc
+                regular_calc_requests.append(request)
+                print(f"DEBUG: Mapped {request.calc_id} to calculation ID {calc.id}: {calc.name}")
             else:
-                print(f"WARNING: Unknown user calculation string reference: {request.calc_id}")
+                # Try fallback mapping by known patterns
+                name_mapping = {
+                    "tr_pass_thru_rte": "Average Pass Through Rate",
+                    "tr_end_bal_amt": "Total Ending Balance",
+                    "tr_int_dstrb_amt": "Interest Distribution"
+                }
+                
+                if source_field in name_mapping:
+                    calc = self.config_db.query(Calculation).filter(
+                        Calculation.name == name_mapping[source_field],
+                        Calculation.is_active == True
+                    ).first()
+                    
+                    if calc:
+                        calculations[request.calc_id] = calc
+                        regular_calc_requests.append(request)
+                        print(f"DEBUG: Mapped {request.calc_id} to calculation by name: {calc.name}")
+                
+                if not calc:
+                    print(f"WARNING: No user calculation found for {request.calc_id} (source_field: {source_field})")
 
         # FIXED: Handle system calculation string references
-        # Map string identifiers like "system.investment_income" to actual calculation records
-        system_calc_string_requests = []
-        for request in calc_requests:
-            if isinstance(request.calc_id, str) and request.calc_id.startswith("system."):
-                system_calc_string_requests.append(request)
-        
         for request in system_calc_string_requests:
-            if request.calc_id == "system.investment_income":
-                # This should map to "Investment Income" calculation
-                calc = self.config_db.query(Calculation).filter_by(name="Investment Income", is_active=True).first()
-                if calc:
-                    calculations[request.calc_id] = calc
-                    regular_calc_requests.append(request)
-                    print(f"DEBUG: Mapped {request.calc_id} to calculation ID {calc.id}: {calc.name}")
-            elif request.calc_id == "system.issuer_type":
-                # This should map to "Issuer Type Classification" calculation
-                calc = self.config_db.query(Calculation).filter_by(name="Issuer Type Classification", is_active=True).first()
-                if calc:
-                    calculations[request.calc_id] = calc
-                    regular_calc_requests.append(request)
-                    print(f"DEBUG: Mapped {request.calc_id} to calculation ID {calc.id}: {calc.name}")
+            result_column = request.calc_id.replace("system.", "")  # Extract the result column
+            print(f"DEBUG: Looking for system calculation with result_column: {result_column}")
+            
+            # Find system calculation by result_column_name
+            calc = self.config_db.query(Calculation).filter(
+                Calculation.calculation_type == CalculationType.SYSTEM_SQL,
+                Calculation.result_column_name == result_column,
+                Calculation.is_active == True
+            ).first()
+            
+            if calc:
+                calculations[request.calc_id] = calc
+                regular_calc_requests.append(request)
+                print(f"DEBUG: Mapped {request.calc_id} to calculation ID {calc.id}: {calc.name}")
             else:
-                print(f"WARNING: Unknown system calculation string reference: {request.calc_id}")
+                # Try fallback mapping by known patterns
+                name_mapping = {
+                    "issuer_type": "Issuer Type Classification",
+                    "investment_income": "Investment Income",
+                    "deal_status": "Deal Status"
+                }
+                
+                if result_column in name_mapping:
+                    calc = self.config_db.query(Calculation).filter(
+                        Calculation.name == name_mapping[result_column],
+                        Calculation.is_active == True
+                    ).first()
+                    
+                    if calc:
+                        calculations[request.calc_id] = calc
+                        regular_calc_requests.append(request)
+                        print(f"DEBUG: Mapped {request.calc_id} to calculation by name: {calc.name}")
+                
+                if not calc:
+                    print(f"WARNING: No system calculation found for {request.calc_id} (result_column: {result_column})")
 
         # Group calculations by type for batch processing
         user_aggregation_calcs = []
@@ -259,14 +294,14 @@ class EnhancedCalculationResolver:
                 if cte_name not in created_cte_names:
                     ctes.append(cte)
                     created_cte_names.add(cte_name)
-                    print(f"DEBUG: Added CTE: {cte_name}")
+                    print(f"DEBUG: Added user aggregation CTE: {cte_name}")
                 else:
-                    print(f"DEBUG: Skipped duplicate CTE: {cte_name}")
+                    print(f"DEBUG: Skipped duplicate user aggregation CTE: {cte_name}")
         
         # Build base query with system fields and static fields
         base_query = self._build_base_query(system_field_calcs, static_field_requests, filters, calc_requests)
         
-        # Combine everything
+        # Combine: WITH all_ctes final_select
         if ctes:
             # Add base_data CTE to the list
             base_cte = f"base_data AS (\n{self._indent_sql(base_query, 4)}\n)"
@@ -284,6 +319,9 @@ class EnhancedCalculationResolver:
     def _build_user_aggregation_cte(self, request: CalculationRequest, calc: Calculation, filters: QueryFilters) -> Optional[str]:
         """Build CTE for a user aggregation calculation"""
         try:
+            print(f"DEBUG: Building user aggregation CTE for {request.alias} (calc_id: {request.calc_id})")
+            print(f"DEBUG: Calculation details - Name: {calc.name}, Type: {calc.calculation_type}, Source: {calc.source_model}, Field: {calc.source_field}")
+            
             # Build aggregation expression
             agg_field = f"{calc.source_model.value.lower()}.{calc.source_field}"
             
@@ -299,11 +337,15 @@ class EnhancedCalculationResolver:
                 agg_expr = f"MAX({agg_field})"
             elif calc.aggregation_function == AggregationFunction.WEIGHTED_AVG:
                 if not calc.weight_field:
+                    print(f"ERROR: Weighted average calculation {calc.name} missing weight_field")
                     return None
                 weight_field = f"{calc.source_model.value.lower()}.{calc.weight_field}"
                 agg_expr = f"SUM({agg_field} * {weight_field}) / NULLIF(SUM({weight_field}), 0)"
             else:
+                print(f"ERROR: Unknown aggregation function: {calc.aggregation_function}")
                 return None
+            
+            print(f"DEBUG: Aggregation expression: {agg_expr}")
             
             # Create safe CTE name
             safe_cte_name = request.alias.replace(' ', '_').replace('-', '_').replace('.', '_')
@@ -320,7 +362,13 @@ class EnhancedCalculationResolver:
             # Build the CTE with dynamic filter injection
             where_clause = self._build_dynamic_where_clause(filters)
             
-            return f"""{safe_cte_name}_cte AS (
+            # Log the parameter values being used
+            parameter_values = self.parameter_injector.get_parameter_values()
+            print(f"DEBUG: Filter parameters for {request.alias}:")
+            print(f"  - cycle_code: {parameter_values['current_cycle']}")
+            print(f"  - deal_tranche_filter: {parameter_values['deal_tranche_filter']}")
+            
+            cte_sql = f"""{safe_cte_name}_cte AS (
     SELECT {', '.join(select_columns)}
     FROM deal
     JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
@@ -328,15 +376,25 @@ class EnhancedCalculationResolver:
     {where_clause}
     GROUP BY {', '.join(group_columns)}
 )"""
+            
+            print(f"DEBUG: Generated CTE for {request.alias}:")
+            print(cte_sql)
+            
+            return cte_sql
         
         except Exception as e:
             # Return a comment CTE for debugging
             safe_cte_name = request.alias.replace(' ', '_').replace('-', '_').replace('.', '_')
-            return f"""{safe_cte_name}_cte AS (
+            error_cte = f"""{safe_cte_name}_cte AS (
     -- ERROR: {str(e)}
+    -- Calculation: {calc.name if calc else 'Unknown'}
+    -- Source: {calc.source_model.value if calc and calc.source_model else 'Unknown'}.{calc.source_field if calc else 'Unknown'}
+    -- Function: {calc.aggregation_function.value if calc and calc.aggregation_function else 'Unknown'}
     SELECT NULL AS dl_nbr, NULL AS "{request.alias}"
     WHERE FALSE
 )"""
+            print(f"ERROR: Failed to build user aggregation CTE for {request.alias}: {str(e)}")
+            return error_cte
 
     def _build_system_sql_cte(self, request: CalculationRequest, calc: Calculation, filters: QueryFilters) -> Optional[str]:
         """Build CTE for a system SQL calculation with parameter injection"""
