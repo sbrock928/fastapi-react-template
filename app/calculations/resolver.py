@@ -479,9 +479,15 @@ class EnhancedCalculationResolver:
         if filters.report_scope == "TRANCHE" and 'Tranche' in required_models:
             base_columns.append("tranche.tr_id")
         
-        # Add cycle code if needed  
-        if 'TrancheBal' in required_models:
+        # FIXED: Only add cycle code if needed AND not doing DEAL-level aggregation
+        # For DEAL scope, we shouldn't include tranche-level columns like cycle_cde 
+        # because they can't be in GROUP BY without aggregation
+        if 'TrancheBal' in required_models and filters.report_scope != "DEAL":
             base_columns.append("tranchebal.cycle_cde")
+        elif 'TrancheBal' in required_models and filters.report_scope == "DEAL":
+            # For DEAL scope, we can use MAX or MIN to get a single cycle value per deal
+            # since all tranches in a deal should have the same cycle
+            base_columns.append("MAX(tranchebal.cycle_cde) AS cycle_cde")
         
         # Add all system field columns - FIXED: Better field path extraction
         for request, calc in system_field_calcs:
@@ -515,10 +521,24 @@ class EnhancedCalculationResolver:
                 print(f"DEBUG: Skipping tranche-level static field {field_path} for DEAL scope report")
                 continue
             
-            # Add the field as a column
-            quoted_alias = f'"{request.alias}"' if ' ' in request.alias else request.alias
-            base_columns.append(f"{field_path} AS {quoted_alias}")
-            print(f"DEBUG: Adding static field from request {field_path} AS {quoted_alias}")  # Debug logging
+            # FIXED: Handle tranchebal fields properly for DEAL scope aggregation
+            if filters.report_scope == "DEAL" and field_path.startswith('tranchebal.'):
+                # For DEAL scope, tranchebal fields need aggregation
+                quoted_alias = f'"{request.alias}"' if ' ' in request.alias else request.alias
+                
+                # Special handling for cycle_cde since it should be the same for all tranches in a deal
+                if field_path == 'tranchebal.cycle_cde':
+                    base_columns.append(f"MAX({field_path}) AS {quoted_alias}")
+                else:
+                    # For other tranchebal fields, we might need SUM, AVG, etc. depending on the field
+                    # For now, use MAX as a safe default, but this could be made configurable
+                    base_columns.append(f"MAX({field_path}) AS {quoted_alias}")
+                print(f"DEBUG: Adding aggregated tranchebal field for DEAL scope: MAX({field_path}) AS {quoted_alias}")
+            else:
+                # For TRANCHE scope or deal-level fields, add normally
+                quoted_alias = f'"{request.alias}"' if ' ' in request.alias else request.alias
+                base_columns.append(f"{field_path} AS {quoted_alias}")
+                print(f"DEBUG: Adding static field from request {field_path} AS {quoted_alias}")  # Debug logging
         
         # Debug logging
         print(f"DEBUG: Report scope: {filters.report_scope}")
