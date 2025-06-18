@@ -188,10 +188,31 @@ const CalculationBuilder: React.FC = () => {
         success = true;
         handleCloseModal();
         refetchCalculations();
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error saving system calculation:', error);
         const action = editingCalculation ? 'updating' : 'creating';
-        showToast(`Error ${action} system calculation`, 'error');
+        
+        // Extract detailed error message and throw it so the modal can catch it
+        let errorMessage = `Error ${action} system calculation`;
+        if (error.response?.data?.detail) {
+          if (typeof error.response.data.detail === 'string') {
+            errorMessage = error.response.data.detail;
+          } else if (Array.isArray(error.response.data.detail)) {
+            const detailedErrors = error.response.data.detail.map((err: any) => 
+              typeof err === 'string' ? err : err.msg || err.message || JSON.stringify(err)
+            );
+            errorMessage = detailedErrors.join(', ');
+          } else if (error.response.data.detail.msg) {
+            errorMessage = error.response.data.detail.msg;
+          }
+        } else if (error.message) {
+          errorMessage = error.message;
+        }
+        
+        showToast(errorMessage, 'error');
+        
+        // Throw the error so the modal can display it
+        throw new Error(errorMessage);
       }
     }
     

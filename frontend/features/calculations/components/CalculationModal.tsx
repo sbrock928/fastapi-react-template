@@ -57,6 +57,7 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
   const [sqlValidationResult, setSqlValidationResult] = useState<any>(null);
   const [sqlValidating, setSqlValidating] = useState<boolean>(false);
   const [clientValidationResult, setClientValidationResult] = useState<any>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -90,6 +91,7 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
     }
 
     setSqlValidating(true);
+    setSaveError(null); // Clear any previous save errors
     try {
       const response = await calculationsApi.validateSystemSql({
         sql_text: calculation.source_field,
@@ -106,16 +108,67 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
       }
     } catch (error: any) {
       console.error('Error validating SQL:', error);
-      const errorMessage = error.response?.data?.detail || 'Error validating SQL';
+      let errorMessage = 'Error validating SQL';
+      let detailedErrors: string[] = [];
+      
+      // Extract detailed error information
+      if (error.response?.data?.detail) {
+        if (typeof error.response.data.detail === 'string') {
+          errorMessage = error.response.data.detail;
+          detailedErrors = [error.response.data.detail];
+        } else if (Array.isArray(error.response.data.detail)) {
+          detailedErrors = error.response.data.detail.map((err: any) => 
+            typeof err === 'string' ? err : err.msg || err.message || JSON.stringify(err)
+          );
+          errorMessage = detailedErrors[0] || 'Validation failed';
+        } else if (error.response.data.detail.msg) {
+          errorMessage = error.response.data.detail.msg;
+          detailedErrors = [error.response.data.detail.msg];
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+        detailedErrors = [error.message];
+      }
+      
       showToast(errorMessage, 'error');
       setSqlValidationResult({
         is_valid: false,
-        errors: [errorMessage],
+        errors: detailedErrors,
         warnings: [],
         placeholders_used: []
       });
     } finally {
       setSqlValidating(false);
+    }
+  };
+
+  // Enhanced save handler with better error handling
+  const handleSave = async () => {
+    setSaveError(null); // Clear any previous save errors
+    try {
+      await onSave();
+    } catch (error: any) {
+      console.error('Error saving calculation:', error);
+      let errorMessage = 'Error saving calculation';
+      
+      // Extract detailed error information
+      if (error.response?.data?.detail) {
+        if (typeof error.response.data.detail === 'string') {
+          errorMessage = error.response.data.detail;
+        } else if (Array.isArray(error.response.data.detail)) {
+          const detailedErrors = error.response.data.detail.map((err: any) => 
+            typeof err === 'string' ? err : err.msg || err.message || JSON.stringify(err)
+          );
+          errorMessage = detailedErrors.join(', ');
+        } else if (error.response.data.detail.msg) {
+          errorMessage = error.response.data.detail.msg;
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      setSaveError(errorMessage);
+      showToast(errorMessage, 'error');
     }
   };
 
@@ -303,21 +356,6 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
   const renderSystemSqlForm = () => {
     return (
       <>
-        <div className="alert alert-info">
-          <i className="bi bi-info-circle me-2"></i>
-          <strong>Enhanced System SQL Calculation:</strong> Create powerful calculations using SQL with dynamic placeholder support.
-          <div className="mt-2">
-            <strong>New Enhanced Capabilities:</strong> 
-            <ul className="mb-0 mt-1">
-              <li><strong>Dynamic Placeholders</strong> - Use {`{current_cycle}`}, {`{deal_tranche_filter}`}, etc.</li>
-              <li><strong>CTEs & Window Functions</strong> - Complex analytical calculations with proper validation</li>
-              <li><strong>Previous Cycle Comparisons</strong> - Access {`{previous_cycle}`} and {`{cycle_minus_2}`}</li>
-              <li><strong>Smart Parameter Injection</strong> - System replaces placeholders with actual values at runtime</li>
-              <li><strong>Enhanced Security</strong> - Advanced validation prevents SQL injection</li>
-            </ul>
-          </div>
-        </div>
-
         <div className="row g-3">
           <div className="col-md-6">
             <label className="form-label">Calculation Name *</label>
@@ -387,32 +425,6 @@ const CalculationModal: React.FC<CalculationModalProps> = ({
 
           <div className="col-12">
             <label className="form-label">SQL Query with Enhanced Placeholder Support *</label>
-            <div className="alert alert-warning mb-2">
-              <i className="bi bi-lightning me-2"></i>
-              <strong>Dynamic Parameter Injection:</strong> 
-              <div className="mt-1">
-                <div className="row">
-                  <div className="col-md-6">
-                    <strong>✨ New Placeholders Available:</strong>
-                    <ul className="mb-0 mt-1 small">
-                      <li><code>{`{current_cycle}`}</code> - Selected reporting cycle</li>
-                      <li><code>{`{previous_cycle}`}</code> - Previous cycle for comparisons</li>
-                      <li><code>{`{cycle_minus_2}`}</code> - Two cycles back</li>
-                      <li><code>{`{deal_tranche_filter}`}</code> - Combined deal/tranche WHERE</li>
-                    </ul>
-                  </div>
-                  <div className="col-md-6">
-                    <strong>🚀 Enhanced Capabilities:</strong>
-                    <ul className="mb-0 mt-1 small">
-                      <li>Period-over-period analysis</li>
-                      <li>Trend calculations</li>
-                      <li>Complex CTEs with filtering</li>
-                      <li>Window functions across cycles</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            </div>
             
             <SqlEditor
               value={calculation.source_field || ''}
@@ -713,9 +725,43 @@ SUM(balance) OVER (
               </div>
             ) : (
               <>
-                {error && (
+                {/* Enhanced error display - show both generic error and save error */}
+                {(error || saveError) && (
                   <div className="alert alert-danger" role="alert">
-                    {error}
+                    <div className="d-flex align-items-start">
+                      <i className="bi bi-exclamation-triangle-fill me-2 flex-shrink-0" style={{ marginTop: '2px' }}></i>
+                      <div className="flex-grow-1">
+                        <strong>Error:</strong>
+                        <div className="mt-1">
+                          {saveError && (
+                            <div className="mb-2">
+                              <strong>Save Error:</strong> {saveError}
+                            </div>
+                          )}
+                          {error && error !== saveError && (
+                            <div>
+                              <strong>General Error:</strong> {error}
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Common solutions for SQL errors */}
+                        {(saveError || error) && (
+                          <div className="mt-3 p-2 bg-light rounded border-start border-3 border-warning">
+                            <small className="text-muted">
+                              <strong>💡 Common Solutions:</strong>
+                              <ul className="mb-0 mt-1 small">
+                                <li>Make sure your SQL starts with <code>SELECT</code> or <code>WITH</code> for CTEs</li>
+                                <li>Include required columns: <code>deal.dl_nbr</code> and <code>tranche.tr_id</code> (for tranche level)</li>
+                                <li>Use valid SQL syntax and proper JOIN conditions</li>
+                                <li>Check that all placeholders are valid (use the Placeholders button)</li>
+                                <li>Ensure your result column name matches a column in your SELECT statement</li>
+                              </ul>
+                            </small>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -756,7 +802,7 @@ SUM(balance) OVER (
             )}
             <button
               type="button"
-              onClick={onSave}
+              onClick={handleSave}
               disabled={
                 isSaving || 
                 fieldsLoading || 

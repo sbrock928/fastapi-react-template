@@ -93,6 +93,11 @@ export const calculationsApi = {
     return apiClient.post('/calculations/validate-system-sql', data);
   },
 
+  // ===== PLACEHOLDERS ENDPOINT =====
+  async getAvailablePlaceholders(): Promise<AxiosResponse<{ placeholders: Array<{ name: string; description: string; example_value: string }> }>> {
+    return apiClient.get('/calculations/placeholders');
+  },
+
   // ===== STATIC FIELD ENDPOINTS =====
   async getStaticFields(model?: string): Promise<AxiosResponse<StaticFieldInfo[]>> {
     const params = model ? { model } : {};

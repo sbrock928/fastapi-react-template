@@ -1,6 +1,7 @@
 // frontend/features/calculations/components/SqlEditor.tsx
 import React, { useState, useRef, useEffect } from 'react';
-import { getSqlTemplateWithPlaceholders, getAvailablePlaceholders } from '../utils/calculationUtils';
+import { getSqlTemplateWithPlaceholders } from '../utils/calculationUtils';
+import { calculationsApi } from '@/services/calculationsApi';
 
 interface SqlEditorProps {
   value: string;
@@ -30,6 +31,36 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
   const lineNumbersRef = useRef<HTMLDivElement>(null);
   const [focused, setFocused] = useState(false);
   const [showPlaceholderHelp, setShowPlaceholderHelp] = useState(false);
+  const [availablePlaceholders, setAvailablePlaceholders] = useState<{ [key: string]: string }>({});
+
+  // Fetch placeholders from API on component mount
+  useEffect(() => {
+    const fetchPlaceholders = async () => {
+      try {
+        const response = await calculationsApi.getAvailablePlaceholders();
+        const placeholderMap: { [key: string]: string } = {};
+        response.data.placeholders.forEach(p => {
+          placeholderMap[p.name] = p.description;
+        });
+        setAvailablePlaceholders(placeholderMap);
+      } catch (error) {
+        console.error('Error fetching placeholders:', error);
+        // Fallback to static placeholders if API fails
+        setAvailablePlaceholders({
+          'current_cycle': 'The selected reporting cycle code',
+          'previous_cycle': 'The previous reporting cycle (current_cycle - 1)',
+          'cycle_minus_2': 'Two cycles before current (current_cycle - 2)',
+          'deal_filter': 'WHERE clause for selected deal numbers',
+          'tranche_filter': 'WHERE clause for selected tranche IDs',
+          'deal_tranche_filter': 'Combined WHERE clause for deal and tranche selections',
+          'deal_numbers': 'Comma-separated list of selected deal numbers',
+          'tranche_ids': 'Comma-separated list of selected tranche IDs (quoted)',
+        });
+      }
+    };
+
+    fetchPlaceholders();
+  }, []);
 
   // Enhanced SQL keywords for highlighting - includes placeholders
   const SQL_KEYWORDS = [
@@ -45,9 +76,6 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
   const FUNCTIONS = ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'CASE', 'CAST', 'COALESCE', 'NULLIF', 'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'LEAD', 'LAG', 'FIRST_VALUE', 'LAST_VALUE', 'STDDEV', 'VARIANCE', 'NTILE'];
   const TABLES = ['deal', 'tranche', 'tranchebal', 'deal_cdi_var_rpt'];
   const COMMON_FIELDS = ['dl_nbr', 'tr_id', 'issr_cde', 'cdi_file_nme', 'CDB_cdi_file_nme', 'tr_cusip_id', 'tr_end_bal_amt', 'tr_pass_thru_rte', 'cycle_cde', 'dl_cdi_var_nme', 'dl_cdi_var_value'];
-
-  // Get available placeholders
-  const availablePlaceholders = getAvailablePlaceholders();
 
   // Enhanced highlighting with placeholder support
   const highlightSql = (sql: string): string => {
@@ -136,7 +164,35 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
     if (lineNumbersRef.current) {
       lineNumbersRef.current.textContent = generateLineNumbers(value);
     }
-  }, [value]);
+    
+    // Force synchronization after content changes
+    setTimeout(() => {
+      if (textareaRef.current && highlightRef.current && lineNumbersRef.current) {
+        const scrollTop = textareaRef.current.scrollTop;
+        const scrollLeft = textareaRef.current.scrollLeft;
+        
+        highlightRef.current.scrollTop = scrollTop;
+        highlightRef.current.scrollLeft = scrollLeft;
+        lineNumbersRef.current.scrollTop = scrollTop;
+      }
+    }, 0);
+  }, [value, availablePlaceholders]);
+
+  // Enhanced synchronization on input changes
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newValue = e.target.value;
+    onChange(newValue);
+    
+    // Immediate synchronization for better responsiveness
+    setTimeout(() => {
+      if (highlightRef.current) {
+        highlightRef.current.innerHTML = highlightSql(newValue);
+      }
+      if (lineNumbersRef.current) {
+        lineNumbersRef.current.textContent = generateLineNumbers(newValue);
+      }
+    }, 0);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Tab key support
@@ -482,17 +538,19 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
             text-decoration: underline wavy;
           }
           .placeholder-help {
-            position: absolute;
-            top: 100%;
-            left: 0;
-            right: 0;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
             background: #2d2d30;
-            border: 1px solid #404040;
-            border-radius: 4px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-            z-index: 1000;
-            max-height: 300px;
+            border: 2px solid #ff79c6;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+            z-index: 99999;
+            max-height: 400px;
             overflow-y: auto;
+            min-width: 400px;
+            max-width: 600px;
           }
           .placeholder-item {
             padding: 8px 12px;
@@ -548,8 +606,9 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
               onClick={() => setShowPlaceholderHelp(!showPlaceholderHelp)}
               disabled={disabled}
               title="Show available placeholders (Ctrl+Space)"
+              style={{ backgroundColor: showPlaceholderHelp ? '#1177bb' : '#0e639c' }}
             >
-              <i className="bi bi-braces"></i> Placeholders
+              <i className="bi bi-braces"></i> Placeholders {showPlaceholderHelp ? '▲' : '▼'}
             </button>
             <button
               className="sql-btn success"
@@ -591,7 +650,24 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
 
         {/* Placeholder Help Panel */}
         {showPlaceholderHelp && (
-          <div className="placeholder-help">
+          <div 
+            className="placeholder-help"
+            style={{
+              position: 'fixed',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              backgroundColor: '#2d2d30',
+              border: '2px solid #ff79c6',
+              borderRadius: '8px',
+              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.6)',
+              zIndex: 99999,
+              maxHeight: '400px',
+              overflowY: 'auto',
+              minWidth: '400px',
+              maxWidth: '600px'
+            }}
+          >
             <div className="placeholder-item" style={{ background: '#404040', fontWeight: 'bold' }}>
               <div style={{ color: '#ff79c6' }}>Available SQL Placeholders</div>
               <div style={{ color: '#999', fontSize: '10px' }}>Click to insert, or use Ctrl+Space</div>
@@ -615,6 +691,22 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
                 These placeholders will be replaced with actual values when the report runs.
                 Use {`{deal_tranche_filter}`} for comprehensive filtering.
               </div>
+            </div>
+            <div style={{ padding: '8px 12px', borderTop: '1px solid #404040' }}>
+              <button
+                onClick={() => setShowPlaceholderHelp(false)}
+                style={{
+                  background: '#0e639c',
+                  border: 'none',
+                  color: 'white',
+                  padding: '6px 12px',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '12px'
+                }}
+              >
+                Close
+              </button>
             </div>
           </div>
         )}
@@ -643,7 +735,7 @@ const SqlEditor: React.FC<SqlEditorProps> = ({
               ref={textareaRef}
               className="sql-textarea"
               value={value}
-              onChange={(e) => onChange(e.target.value)}
+              onChange={handleInputChange}
               onScroll={handleScroll}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}

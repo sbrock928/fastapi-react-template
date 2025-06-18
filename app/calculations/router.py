@@ -218,6 +218,20 @@ def get_calculation_configuration():
     }
 
 
+# ===== PLACEHOLDERS ENDPOINT =====
+
+@router.get("/placeholders", response_model=PlaceholderListResponse)
+def get_available_placeholders(
+    service: UnifiedCalculationService = Depends(get_unified_calculation_service)
+):
+    """Get available SQL placeholders for system calculations"""
+    try:
+        placeholders = service.get_available_placeholders()
+        return PlaceholderListResponse(placeholders=placeholders)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving placeholders: {str(e)}")
+
+
 # ===== STATIC FIELD ENDPOINTS =====
 
 @router.get("/static-fields")
