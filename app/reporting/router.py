@@ -16,14 +16,13 @@ from app.reporting.schemas import (
     AvailableCalculation,
     ReportScope,
 )
-from app.core.dependencies import SessionDep, DWSessionDep, get_user_calculation_service, get_system_calculation_service, get_report_execution_service, get_cdi_calculation_service
+from app.core.dependencies import SessionDep, DWSessionDep, get_user_calculation_service, get_system_calculation_service, get_report_execution_service
 from app.datawarehouse.dao import DatawarehouseDAO
 from app.calculations import (
     UnifiedCalculationService as UserCalculationService,
     UnifiedCalculationService as SystemCalculationService, 
     UnifiedCalculationService as ReportExecutionService
 )
-from app.calculations.cdi_service import CDIVariableCalculationService
 import io
 import pandas as pd
 from fastapi import Response, HTTPException
@@ -47,7 +46,6 @@ def get_report_service(
     user_calc_service: UserCalculationService = Depends(get_user_calculation_service),
     system_calc_service: SystemCalculationService = Depends(get_system_calculation_service),
     report_execution_service: ReportExecutionService = Depends(get_report_execution_service),
-    cdi_service: CDIVariableCalculationService = Depends(get_cdi_calculation_service)
 ) -> ReportService:
     return ReportService(
         report_dao, 

@@ -18,32 +18,10 @@ class Deal(Base):
     CDB_cdi_file_nme = Column(CHAR(10), nullable=True)
 
     tranches = relationship("Tranche", back_populates="deal")
+    attributes = relationship("DealAttr", back_populates="deal")
 
-    # Add relationship to CDI variables
-    cdi_variables = relationship(
-        "DealCdiVarRpt", 
-        back_populates="deal",
-        cascade="all, delete-orphan"
-    )
-    
-    # Add relationship to Deal attributes
-    attributes = relationship(
-        "DealAttr",
-        back_populates="deal",
-        cascade="all, delete-orphan"
-    )
-    
-    def get_cdi_variables_for_cycle(self, cycle_code: int):
-        '''Get all CDI variables for this deal and cycle'''
-        return [var for var in self.cdi_variables if var.cycle_cde == cycle_code]
-    
-    def get_cdi_variable_value(self, variable_name: str, cycle_code: int) -> float:
-        '''Get a specific CDI variable value for this deal and cycle'''
-        for var in self.cdi_variables:
-            if var.cycle_cde == cycle_code and var.variable_name == variable_name:
-                return var.numeric_value
-        return 0.0
-    
+    # Relationship to CDI variables removed - CDI variables are now handled as system SQL calculations
+
 
 class Tranche(Base):
     """Tranche model - child securities of a Deal."""
@@ -120,8 +98,8 @@ class DealCdiVarRpt(Base):
     lst_upd_host_nme = Column(String(40), nullable=False, server_default='localhost')
     timestamp = Column(LargeBinary, nullable=True)  # SQL Server timestamp/rowversion
 
-    # Define relationship to Deal (OPTIONAL - comment out if you don't want relationships)
-    deal = relationship("Deal", back_populates="cdi_variables")
+    # Relationship to Deal removed - CDI variables are now handled as system SQL calculations
+    # deal = relationship("Deal", back_populates="cdi_variables")
 
     # Indexes for performance (matching your original table structure)
     __table_args__ = (

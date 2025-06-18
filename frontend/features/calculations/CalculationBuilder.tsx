@@ -1,28 +1,24 @@
 // frontend/features/calculations/CalculationBuilder.tsx
 // Main component for managing both user and system calculations
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useToast } from '@/context/ToastContext';
-import { useModal } from '@/context/ModalContext';
 import { calculationsApi } from '@/services/calculationsApi';
 import { useUnifiedCalculations } from './hooks/useUnifiedCalculations';
 import { useCalculationConfig, useCalculationForm } from './hooks/useCalculationConfig';
 import type { UserCalculation, SystemCalculation } from '@/types/calculations';
-import type { CDIVariableResponse } from '@/types/cdi';
 
 // Components
 import FilterSection from './components/FilterSection';
 import CalculationCard from './components/CalculationCard';
 import CalculationModal from './components/CalculationModal';
 import SystemCalculationsTab from './components/SystemCalculationsTab';
-import CDIVariablesTab, { CDIVariablesTabRef } from './components/CDIVariablesTab';
 import UsageModal from './components/UsageModal';
 
-type CalculationTab = 'user-defined' | 'system-defined' | 'cdi-variables';
+type CalculationTab = 'user-defined' | 'system-defined';
 
 const CalculationBuilder: React.FC = () => {
   const { showToast } = useToast();
-  const { openCDIModal, setOnCDIVariableSaved } = useModal();
   
   // Replace separate hooks with unified hook
   const {
@@ -85,18 +81,6 @@ const CalculationBuilder: React.FC = () => {
   useEffect(() => {
     fetchCalculationConfig();
   }, []);
-
-  // Set up the callback for CDI variable saves - FIXED to refresh both unified data and CDI tab
-  useEffect(() => {
-    setOnCDIVariableSaved(() => {
-      // Refresh the unified calculations data (for tab badges)
-      refetchCalculations();
-      // Also refresh the CDI Variables tab's own data
-      if (cdiVariablesTabRef.current?.refreshCDIVariables) {
-        cdiVariablesTabRef.current.refreshCDIVariables();
-      }
-    });
-  }, [setOnCDIVariableSaved, refetchCalculations]);
 
   // Tab switching with unsaved changes protection
   const handleTabSwitch = (newTab: CalculationTab) => {
@@ -340,10 +324,6 @@ const CalculationBuilder: React.FC = () => {
         loading: calculationsLoading,
         deleteCalculation: () => showToast('Delete functionality will be implemented', 'info')
       };
-    } else if (activeTab === 'cdi-variables') {
-      return {
-        loading: calculationsLoading
-      };
     } else {
       return {
         calculations: systemCalculations,
@@ -358,40 +338,13 @@ const CalculationBuilder: React.FC = () => {
 
   const tabData = getCurrentTabData();
 
-  // Get CDI variable count safely
-  const getCDIVariableCount = () => {
-    // Count CDI variables from system calculations (those with metadata_config.calculation_type === 'cdi_variable')
-    return systemCalculations.filter(calc => {
-      const isCDIVariable = calc.metadata_config && 
-                           calc.metadata_config.calculation_type === 'cdi_variable';
-      return calc.calculation_type === 'system_sql' && isCDIVariable;
-    }).length;
-  };
-
   // Calculate filtered counts for tab badges
   const getSystemSqlCount = () => {
-    // Filter out CDI variables from system calculations
+    // Only count system SQL calculations (CDI variables removed)
     return systemCalculations.filter(calc => {
-      // Check if this is a CDI variable by looking at metadata_config
-      const isCDIVariable = calc.metadata_config && 
-                           calc.metadata_config.calculation_type === 'cdi_variable';
-      
-      // Only count if it's a system SQL calculation AND not a CDI variable
-      return calc.calculation_type === 'system_sql' && !isCDIVariable;
+      return calc.calculation_type === 'system_sql';
     }).length;
   };
-
-  // CDI Variable modal handlers - Updated to use global context
-  const handleCreateCDIVariable = () => {
-    openCDIModal();
-  };
-
-  const handleEditCDIVariable = (variable: CDIVariableResponse) => {
-    openCDIModal(variable);
-  };
-
-  // Add ref for CDIVariablesTab to access its refresh function
-  const cdiVariablesTabRef = useRef<CDIVariablesTabRef | null>(null);
 
   return (
     <div className="container-fluid">
@@ -466,16 +419,6 @@ const CalculationBuilder: React.FC = () => {
                     <i className="bi bi-person-gear me-2"></i>
                     User Defined Calculations
                     <span className="badge bg-primary ms-2">{userCalculations.length}</span>
-                  </button>
-                  <button
-                    className={`nav-link ${activeTab === 'cdi-variables' ? 'active' : ''}`}
-                    type="button"
-                    onClick={() => handleTabSwitch('cdi-variables')}
-                    disabled={hasUnsavedChanges}
-                  >
-                    <i className="bi bi-diagram-3 me-2"></i>
-                    CDI Variables
-                    <span className="badge bg-primary ms-2">{getCDIVariableCount()}</span>
                   </button>
                   <button
                     className={`nav-link ${activeTab === 'system-defined' ? 'active' : ''}`}
@@ -581,16 +524,6 @@ const CalculationBuilder: React.FC = () => {
                     onEditSystemSql={(calc) => handleOpenModal('system-sql', calc)}
                     onShowUsage={handleShowUsage}
                     onPreviewSQL={(calcId) => handlePreviewSQL(calcId)}
-                  />
-                )}
-
-                {/* CDI Variables Tab */}
-                {activeTab === 'cdi-variables' && (
-                  <CDIVariablesTab 
-                    ref={cdiVariablesTabRef}
-                    onRefreshNeeded={refetchCalculations}
-                    onCreateVariable={handleCreateCDIVariable}
-                    onEditVariable={handleEditCDIVariable}
                   />
                 )}
               </div>

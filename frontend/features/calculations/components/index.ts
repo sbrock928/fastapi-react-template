@@ -4,16 +4,11 @@
 export { default as CalculationCard } from './CalculationCard';
 export { default as CalculationModal } from './CalculationModal';
 export { default as FilterSection } from './FilterSection';
-export { default as SqlPreviewModal } from './SqlPreviewModal';
+export { default as SystemCalculationsTab } from './SystemCalculationsTab';
 export { default as UsageModal } from './UsageModal';
 
 // New system calculation components
-export { default as SystemCalculationsTab } from './SystemCalculationsTab';
 export { default as SqlEditor } from './SqlEditor';
-
-// CDI Variable components
-export { default as CDIVariablesTab } from './CDIVariablesTab';
-export { default as CDIVariableModal } from './CDIVariableModal';
 
 // Type definitions for component props
 export interface CalculationCardProps {

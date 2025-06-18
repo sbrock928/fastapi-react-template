@@ -6,46 +6,20 @@ import Logs from './features/logging/Logs'
 import Documentation from './features/documentation'
 import Reporting from './features/reporting'
 import CalculationBuilder from './features/calculations'
-import CDIVariableModal from './features/calculations/components/CDIVariableModal'
 import ExecutionLogsModal from './features/reporting/components/ExecutionLogsModal'
-import { useToast } from './context/ToastContext'
 import './index.css'  // Import the new layout styles
 
 // Global Modal Component - renders at the highest level
 const GlobalModals = () => {
   const { 
-    showCDIModal, 
-    editingCDIVariable, 
-    cdiModalMode, 
-    closeCDIModal, 
-    onCDIVariableSaved,
     showExecutionLogsModal,
     executionLogsReportId,
     executionLogsReportName,
     closeExecutionLogsModal
   } = useModal();
-  const { showToast } = useToast();
-
-  const handleCDIVariableSaved = () => {
-    onCDIVariableSaved?.();
-    closeCDIModal();
-    showToast(
-      cdiModalMode === 'create' ? 'CDI variable created successfully!' : 'CDI variable updated successfully!',
-      'success'
-    );
-  };
 
   return (
     <>
-      {/* CDI Variable Modal - Rendered at the absolute top level */}
-      <CDIVariableModal
-        isOpen={showCDIModal}
-        editingVariable={editingCDIVariable}
-        mode={cdiModalMode}
-        onClose={closeCDIModal}
-        onSave={handleCDIVariableSaved}
-      />
-      
       {/* Execution Logs Modal - Rendered at the absolute top level */}
       {showExecutionLogsModal && executionLogsReportId && (
         <ExecutionLogsModal

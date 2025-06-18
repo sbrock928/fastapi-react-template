@@ -226,6 +226,7 @@ class ReportService:
 
     # ===== CALCULATION MANAGEMENT =====
 
+    # Remove CDI Variable support from the available calculations
     def get_available_calculations_for_scope(self, scope: ReportScope) -> List[AvailableCalculation]:
         """Get all available calculations for a given report scope."""
         available_calcs = []
@@ -907,21 +908,30 @@ class ReportService:
                 # User calculation: "user.{source_field}"
                 source_field = calc_id_str[5:]  # Remove "user." prefix
                 if self.user_calc_service:
-                    # FIXED: Use scope-aware lookup to get the right calculation
+                    # FIXED: Allow deal-level calculations in tranche reports
+                    # First try to find a calculation that matches the report scope
                     user_calc = self.user_calc_service.get_user_calculation_by_source_field_and_scope(
                         source_field, 
                         report.scope  # Pass the report scope (DEAL or TRANCHE)
                     )
+                    
+                    # If no scope-specific calculation found, try to find any calculation with this source field
+                    # This allows deal-level calculations to appear in tranche reports
+                    if not user_calc:
+                        user_calc = self.user_calc_service.get_user_calculation_by_source_field(source_field)
+                        if user_calc:
+                            print(f"Debug: Using deal-level calculation '{user_calc.name}' in tranche report")
+                    
                     if user_calc:
-                        # FIXED: Use report_calc.display_name as alias to match column preferences
+                        # FIXED: Keep the original string calc_id for the resolver to handle
                         display_name = report_calc.display_name or user_calc.name
                         calc_request = CalculationRequest(
-                            calc_id=user_calc.id,  # Use the actual numeric ID
+                            calc_id=calc_id_str,  # Keep the original "user.tr_pass_thru_rte" format
                             alias=display_name  # Use the display name from the report
                         )
                         print(f"Debug: Found user calculation - {user_calc.name} (level: {user_calc.group_level.value}) using alias: '{display_name}'")
                     else:
-                        print(f"Warning: No compatible user calculation found with source_field: {source_field} for {report.scope} report")
+                        print(f"Warning: No user calculation found with source_field: {source_field}")
             
             elif calc_id_str.startswith("system."):
                 # System calculation: "system.{result_column_name}"
@@ -929,10 +939,10 @@ class ReportService:
                 if self.system_calc_service:
                     system_calc = self.system_calc_service.get_system_calculation_by_result_column(result_column)
                     if system_calc:
-                        # FIXED: Use report_calc.display_name as alias
+                        # FIXED: Keep the original string calc_id for the resolver to handle
                         display_name = report_calc.display_name or system_calc.name
                         calc_request = CalculationRequest(
-                            calc_id=system_calc.id,  # Use the actual numeric ID
+                            calc_id=calc_id_str,  # Keep the original "system.result_column" format
                             alias=display_name  # Use the display name from the report
                         )
                         print(f"Debug: Found system calculation - {system_calc.name} using alias: '{display_name}'")
@@ -968,7 +978,6 @@ class ReportService:
                 try:
                     numeric_id = int(calc_id_str)
                     
-                    # If calculation_type is explicitly set, use it
                     if calc_type == "user_calculation" or calc_type == "user":
                         if self.user_calc_service:
                             user_calc = self.user_calc_service.get_user_calculation_by_id(numeric_id)
@@ -1078,21 +1087,30 @@ class ReportService:
                 # User calculation: "user.{source_field}"
                 source_field = calc_id_str[5:]  # Remove "user." prefix
                 if self.user_calc_service:
-                    # FIXED: Use scope-aware lookup to get the right calculation
+                    # FIXED: Allow deal-level calculations in tranche reports
+                    # First try to find a calculation that matches the report scope
                     user_calc = self.user_calc_service.get_user_calculation_by_source_field_and_scope(
                         source_field, 
                         report.scope  # Pass the report scope (DEAL or TRANCHE)
                     )
+                    
+                    # If no scope-specific calculation found, try to find any calculation with this source field
+                    # This allows deal-level calculations to appear in tranche reports
+                    if not user_calc:
+                        user_calc = self.user_calc_service.get_user_calculation_by_source_field(source_field)
+                        if user_calc:
+                            print(f"Debug: Using deal-level calculation '{user_calc.name}' in tranche report")
+                    
                     if user_calc:
-                        # FIXED: Use report_calc.display_name as alias to match column preferences
+                        # FIXED: Keep the original string calc_id for the resolver to handle
                         display_name = report_calc.display_name or user_calc.name
                         calc_request = CalculationRequest(
-                            calc_id=user_calc.id,  # Use the actual numeric ID
+                            calc_id=calc_id_str,  # Keep the original "user.tr_pass_thru_rte" format
                             alias=display_name  # Use the display name from the report
                         )
                         print(f"Debug: Found user calculation - {user_calc.name} (level: {user_calc.group_level.value}) using alias: '{display_name}'")
                     else:
-                        print(f"Warning: No compatible user calculation found with source_field: {source_field} for {report.scope} report")
+                        print(f"Warning: No user calculation found with source_field: {source_field}")
             
             elif calc_id_str.startswith("system."):
                 # System calculation: "system.{result_column_name}"
@@ -1100,10 +1118,10 @@ class ReportService:
                 if self.system_calc_service:
                     system_calc = self.system_calc_service.get_system_calculation_by_result_column(result_column)
                     if system_calc:
-                        # FIXED: Use report_calc.display_name as alias
+                        # FIXED: Keep the original string calc_id for the resolver to handle
                         display_name = report_calc.display_name or system_calc.name
                         calc_request = CalculationRequest(
-                            calc_id=system_calc.id,  # Use the actual numeric ID
+                            calc_id=calc_id_str,  # Keep the original "system.result_column" format
                             alias=display_name  # Use the display name from the report
                         )
                         print(f"Debug: Found system calculation - {system_calc.name} using alias: '{display_name}'")

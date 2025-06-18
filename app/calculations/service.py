@@ -9,7 +9,7 @@ from datetime import datetime
 from .models import Calculation, CalculationType, AggregationFunction, SourceModel, GroupLevel, get_static_field_info
 from .schemas import (
     UserAggregationCalculationCreate, SystemFieldCalculationCreate, SystemSqlCalculationCreate,
-    CDIVariableCalculationCreate, CalculationUpdate, CalculationResponse,
+    CalculationUpdate, CalculationResponse,
     SqlValidationRequest, SqlValidationResult, PlaceholderInfo
 )
 from .resolver import EnhancedCalculationResolver, CalculationRequest, QueryFilters
@@ -127,37 +127,6 @@ class UnifiedCalculationService:
         
         return self._to_response(calculation)
 
-    def create_cdi_variable_calculation(
-        self, 
-        request: CDIVariableCalculationCreate, 
-        created_by: str
-    ) -> CalculationResponse:
-        """Create a new CDI variable calculation"""
-        
-        # Generate SQL for CDI variable calculation
-        cdi_sql = self._generate_cdi_sql(request)
-        
-        calculation = Calculation(
-            name=request.name,
-            description=request.description,
-            calculation_type=CalculationType.CDI_VARIABLE,
-            group_level=request.group_level,
-            raw_sql=cdi_sql,
-            result_column_name=request.result_column_name,
-            metadata_config={
-                "variable_pattern": request.variable_pattern,
-                "tranche_mappings": request.tranche_mappings,
-                "calculation_type": "cdi_variable"
-            },
-            created_by=created_by
-        )
-        
-        self.config_db.add(calculation)
-        self.config_db.commit()
-        self.config_db.refresh(calculation)
-        
-        return self._to_response(calculation)
-
     # === RETRIEVAL METHODS ===
 
     def get_calculation_by_id(self, calc_id: int) -> Optional[CalculationResponse]:
@@ -229,8 +198,6 @@ class UnifiedCalculationService:
                 calc_type = CalculationType.SYSTEM_SQL
             elif calculation_type_str == "SYSTEM_FIELD":
                 calc_type = CalculationType.SYSTEM_FIELD
-            elif calculation_type_str == "CDI_VARIABLE":
-                calc_type = CalculationType.CDI_VARIABLE
             else:
                 return []
         except:
@@ -373,7 +340,7 @@ class UnifiedCalculationService:
         calculation.updated_at = datetime.utcnow()
         
         # Re-validate SQL if it was updated
-        if request.raw_sql and calculation.calculation_type in [CalculationType.SYSTEM_SQL, CalculationType.CDI_VARIABLE]:
+        if request.raw_sql and calculation.calculation_type in [CalculationType.SYSTEM_SQL]:
             validation_result = self.validate_sql(SqlValidationRequest(
                 sql_text=request.raw_sql,
                 group_level=calculation.group_level,
@@ -598,44 +565,3 @@ class UnifiedCalculationService:
             used_placeholders=list(calculation.get_used_placeholders()),
             required_models=calculation.get_required_models()
         )
-
-    def _generate_cdi_sql(self, request: CDIVariableCalculationCreate) -> str:
-        """Generate SQL for CDI variable calculation"""
-        
-        if request.group_level == GroupLevel.DEAL:
-            # Deal-level CDI calculation
-            variable_name = request.variable_pattern  # Should be exact variable name for deal level
-            return f"""
-SELECT 
-    cdi.dl_nbr,
-    cdi.dl_cdi_var_value as {request.result_column_name}
-FROM deal_cdi_var_rpt cdi
-WHERE cdi.dl_cdi_var_nme = '{variable_name.ljust(32)}'
-    AND cdi.cycle_cde = {{current_cycle}}
-    AND {{deal_filter}}
-ORDER BY cdi.dl_nbr
-""".strip()
-        
-        else:
-            # Tranche-level CDI calculation with mappings
-            if not request.tranche_mappings:
-                raise InvalidCalculationError("Tranche mappings are required for tranche-level CDI calculations")
-            
-            union_queries = []
-            for suffix, tr_id_list in request.tranche_mappings.items():
-                variable_name = request.variable_pattern.replace("{tranche_suffix}", suffix)
-                tr_id_filter = "', '".join(tr_id_list)
-                
-                union_queries.append(f"""
-    SELECT 
-        cdi.dl_nbr,
-        tb.tr_id,
-        cdi.dl_cdi_var_value as {request.result_column_name}
-    FROM deal_cdi_var_rpt cdi
-    INNER JOIN tranchebal tb ON cdi.dl_nbr = tb.dl_nbr AND cdi.cycle_cde = tb.cycle_cde
-    WHERE cdi.dl_cdi_var_nme = '{variable_name.ljust(32)}'
-        AND cdi.cycle_cde = {{current_cycle}}
-        AND {{deal_tranche_filter}}
-        AND tb.tr_id IN ('{tr_id_filter}')""")
-            
-            return ("\nUNION ALL\n".join(union_queries) + "\nORDER BY dl_nbr, tr_id").strip()

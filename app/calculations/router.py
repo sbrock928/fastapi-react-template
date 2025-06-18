@@ -7,43 +7,16 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from urllib.parse import unquote
 import time
-from app.core.dependencies import get_db, get_dw_db, get_unified_calculation_service, get_cdi_calculation_service
+from app.core.dependencies import get_db, get_dw_db, get_unified_calculation_service
 
-from .service import UnifiedCalculationService
-from .cdi_service import CDIVariableCalculationService
-from .cdi_schemas import (
-    CDIVariableCreate, 
-    CDIVariableUpdate, 
-    CDIVariableResponse,
-    CDIVariableExecutionRequest,
-    CDIVariableExecutionResponse,
-    CDIVariableConfigResponse,
-    CDIVariableSummary,
-    CDIVariableValidationRequest,
-    CDIVariableValidationResponse,
-    CDIVariableBulkCreateRequest,
-    CDIVariableBulkCreateResponse,
-    CDIVariableDiscoveryRequest,
-    CDIVariableDiscoveryResponse, 
-    CDIVariableLevelAnalysis,
-    DEAL_LEVEL_VARIABLE_TYPES,
-    TRANCHE_LEVEL_VARIABLE_TYPES,
-    ALL_VARIABLE_TYPES
-)
-from .resolver import CalculationRequest, QueryFilters
 from .schemas import (
-    UserAggregationCalculationCreate,
-    SystemSqlCalculationCreate,
-    CalculationUpdate,
-    CalculationResponse,
-    CalculationPreviewRequest,
-    CalculationPreviewResponse,
-    SqlValidationRequest,
-    SqlValidationResponse,
-    ReportExecutionRequest,
-    ReportExecutionResponse,
-    LegacyCalculationCreate
+    UserAggregationCalculationCreate, SystemFieldCalculationCreate, SystemSqlCalculationCreate,
+    CalculationUpdate, CalculationResponse, CalculationListResponse,
+    SqlValidationRequest, SqlValidationResponse, PlaceholderListResponse,
+    CalculationPreviewRequest, CalculationPreviewResponse,
+    BulkCalculationOperation, BulkCalculationResponse
 )
+from .service import UnifiedCalculationService
 
 router = APIRouter(prefix="/calculations", tags=["calculations"])
 
@@ -65,13 +38,6 @@ def get_report_execution_service(
 ) -> UnifiedCalculationService:
     """Get report execution service (unified)"""
     return service
-
-
-def get_cdi_service(
-    cdi_service: CDIVariableCalculationService = Depends(get_cdi_calculation_service)
-) -> CDIVariableCalculationService:
-    """Get CDI variable calculation service"""
-    return cdi_service
 
 
 # ===== UNIFIED CALCULATIONS ENDPOINT (ROOT) =====
@@ -619,7 +585,6 @@ def calculation_system_health():
         "features": [
             "user_aggregation_calculations",
             "system_sql_calculations", 
-            "cdi_variable_calculations",
             "unified_data_model"
         ]
     }

@@ -301,47 +301,10 @@ def create_sample_data():
         dw_db.add_all(tranche_bals)
         dw_db.flush()
         
-        # Create sample CDI variables
-        from sqlalchemy.sql import func
-        current_time = func.now()
-        cdi_variables = [
-            # Investment Income for Deal 100
-            DealCdiVarRpt(
-                dl_nbr=100, cycle_cde=1,
-                dl_cdi_var_nme="#RPT_RRI_A".ljust(32),  # Pad to CHAR(32)
-                dl_cdi_var_value="125000.00".ljust(32),  # Pad to CHAR(32)
-                lst_upd_dtm=current_time,
-                lst_upd_user_id='system',
-                lst_upd_host_nme='localhost'
-            ),
-            DealCdiVarRpt(
-                dl_nbr=100, cycle_cde=1,
-                dl_cdi_var_nme="#RPT_RRI_B".ljust(32),
-                dl_cdi_var_value="65000.00".ljust(32),
-                lst_upd_dtm=current_time,
-                lst_upd_user_id='system',
-                lst_upd_host_nme='localhost'
-            ),
-            
-            # Excess Interest for Deal 200
-            DealCdiVarRpt(
-                dl_nbr=200, cycle_cde=1,
-                dl_cdi_var_nme="#RPT_EXC_A".ljust(32),
-                dl_cdi_var_value="25000.00".ljust(32),
-                lst_upd_dtm=current_time,
-                lst_upd_user_id='system',
-                lst_upd_host_nme='localhost'
-            ),
-        ]
-        
-        dw_db.add_all(cdi_variables)
-        dw_db.commit()
-        
-        print("✅ Sample data created successfully (including CDI variables)")
+        print("✅ Sample data created successfully")
         print(f"   Created {len(deals)} deals")
         print(f"   Created {len(tranches)} tranches") 
         print(f"   Created {len(tranche_bals)} tranche balance records")
-        print(f"   Created {len(cdi_variables)} CDI variable records")
         
     except Exception as e:
         dw_db.rollback()

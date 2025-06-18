@@ -82,29 +82,6 @@ class SystemSqlCalculationCreate(CalculationBase):
         return v.strip()
 
 
-class CDIVariableCalculationCreate(CalculationBase):
-    """Schema for creating CDI variable calculations"""
-    calculation_type: CalculationType = Field(default=CalculationType.CDI_VARIABLE)
-    variable_pattern: str = Field(..., description="CDI variable pattern (e.g., '#RPT_RRI_{tranche_suffix}')")
-    result_column_name: str = Field(..., description="Name of the result column")
-    tranche_mappings: Optional[Dict[str, List[str]]] = Field(default=None, description="Tranche suffix mappings")
-    
-    @field_validator("variable_pattern")
-    @classmethod
-    def validate_variable_pattern(cls, v, info):
-        """Validate variable pattern format"""
-        if not v.strip():
-            raise ValueError("variable_pattern cannot be empty")
-        
-        group_level = info.data.get("group_level")
-        if group_level == GroupLevel.TRANCHE and "{tranche_suffix}" not in v:
-            raise ValueError("Tranche-level variable pattern must contain {tranche_suffix} placeholder")
-        elif group_level == GroupLevel.DEAL and "{tranche_suffix}" in v:
-            raise ValueError("Deal-level variable pattern should not contain {tranche_suffix} placeholder")
-        
-        return v.strip()
-
-
 class CalculationUpdate(BaseModel):
     """Schema for updating calculations"""
     name: Optional[str] = Field(None, min_length=3, max_length=100)

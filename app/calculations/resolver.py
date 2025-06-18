@@ -13,12 +13,16 @@ from .models import Calculation, CalculationType, AggregationFunction, get_stati
 @dataclass
 class CalculationRequest:
     """Represents a single calculation to resolve"""
-    calc_id: int
+    calc_id: Any  # FIXED: Changed from int to Any to support string calc_ids
     alias: Optional[str] = None
 
     def __post_init__(self):
         if not self.alias:
-            self.alias = f"calc_{self.calc_id}"
+            # Handle both int and string calc_ids
+            if isinstance(self.calc_id, int):
+                self.alias = f"calc_{self.calc_id}"
+            else:
+                self.alias = str(self.calc_id)
 
 
 @dataclass
@@ -138,87 +142,129 @@ class EnhancedCalculationResolver:
     def _build_unified_query(self, calc_requests: List[CalculationRequest], filters: QueryFilters) -> str:
         """Build a unified SQL query with parameter injection for all calculations"""
         
-        # Load calculations from database
-        calculations = {}
+        # Separate different types of requests
+        static_field_requests = []
+        regular_calc_requests = []
+        user_calc_string_requests = []
+        
         for request in calc_requests:
+            if isinstance(request.calc_id, str):
+                if request.calc_id.startswith("static_field:"):
+                    static_field_requests.append(request)
+                elif request.calc_id.startswith("user."):
+                    user_calc_string_requests.append(request)
+                else:
+                    regular_calc_requests.append(request)
+            else:
+                regular_calc_requests.append(request)
+        
+        # Load calculations from database for regular requests
+        calculations = {}
+        for request in regular_calc_requests:
             calc = self.config_db.query(Calculation).filter_by(id=request.calc_id, is_active=True).first()
             if calc:
                 calculations[request.calc_id] = calc
         
-        # Separate calculations by type
-        user_agg_calcs = []
+        # FIXED: Handle user calculation string references
+        # Map string identifiers like "user.tr_pass_thru_rte" to actual calculation records
+        for request in user_calc_string_requests:
+            if request.calc_id == "user.tr_pass_thru_rte":
+                # This should map to "Average Pass Through Rate" calculation
+                calc = self.config_db.query(Calculation).filter_by(name="Average Pass Through Rate", is_active=True).first()
+                if calc:
+                    calculations[request.calc_id] = calc
+                    regular_calc_requests.append(request)
+                    print(f"DEBUG: Mapped {request.calc_id} to calculation ID {calc.id}: {calc.name}")
+            elif request.calc_id == "user.tr_end_bal_amt":
+                # This should map to "Total Ending Balance" calculation
+                calc = self.config_db.query(Calculation).filter_by(name="Total Ending Balance", is_active=True).first()
+                if calc:
+                    calculations[request.calc_id] = calc
+                    regular_calc_requests.append(request)
+                    print(f"DEBUG: Mapped {request.calc_id} to calculation ID {calc.id}: {calc.name}")
+            else:
+                print(f"WARNING: Unknown user calculation string reference: {request.calc_id}")
+
+        # FIXED: Handle system calculation string references
+        # Map string identifiers like "system.investment_income" to actual calculation records
+        system_calc_string_requests = []
+        for request in calc_requests:
+            if isinstance(request.calc_id, str) and request.calc_id.startswith("system."):
+                system_calc_string_requests.append(request)
+        
+        for request in system_calc_string_requests:
+            if request.calc_id == "system.investment_income":
+                # This should map to "Investment Income" calculation
+                calc = self.config_db.query(Calculation).filter_by(name="Investment Income", is_active=True).first()
+                if calc:
+                    calculations[request.calc_id] = calc
+                    regular_calc_requests.append(request)
+                    print(f"DEBUG: Mapped {request.calc_id} to calculation ID {calc.id}: {calc.name}")
+            elif request.calc_id == "system.issuer_type":
+                # This should map to "Issuer Type Classification" calculation
+                calc = self.config_db.query(Calculation).filter_by(name="Issuer Type Classification", is_active=True).first()
+                if calc:
+                    calculations[request.calc_id] = calc
+                    regular_calc_requests.append(request)
+                    print(f"DEBUG: Mapped {request.calc_id} to calculation ID {calc.id}: {calc.name}")
+            else:
+                print(f"WARNING: Unknown system calculation string reference: {request.calc_id}")
+
+        # Group calculations by type for batch processing
+        user_aggregation_calcs = []
         system_field_calcs = []
         system_sql_calcs = []
-        cdi_variable_calcs = []
-        
-        for request in calc_requests:
-            # FIXED: Handle special static field requests
-            if isinstance(request.calc_id, str) and request.calc_id.startswith("static_field:"):
-                # Extract field path from the special format
-                field_path = request.calc_id.replace("static_field:", "")
-                
-                # Create a pseudo-calculation for static fields with proper method
-                class PseudoCalculation:
-                    def __init__(self, field_path, resolver):
-                        self.calculation_type = CalculationType.SYSTEM_FIELD
-                        self.metadata_config = {'field_path': field_path}
-                        self.source_model = None
-                        self.source_field = field_path.split('.')[-1] if '.' in field_path else field_path
-                        self.field_path = field_path
-                        self.resolver = resolver
-                    
-                    def get_required_models(self):
-                        return self.resolver._get_required_models_for_field_path(self.field_path)
-                
-                pseudo_calc = PseudoCalculation(field_path, self)
-                
-                system_field_calcs.append((request, pseudo_calc))
-                print(f"DEBUG: Added static field calculation: {field_path} with alias: {request.alias}")
-                continue
-            
+
+        for request in regular_calc_requests:
             calc = calculations.get(request.calc_id)
             if not calc:
-                print(f"DEBUG: No calculation found for ID: {request.calc_id}")
+                print(f"Warning: Calculation {request.calc_id} not found, skipping")
                 continue
-                
+
             if calc.calculation_type == CalculationType.USER_AGGREGATION:
-                user_agg_calcs.append((request, calc))
+                user_aggregation_calcs.append((request, calc))
             elif calc.calculation_type == CalculationType.SYSTEM_FIELD:
                 system_field_calcs.append((request, calc))
             elif calc.calculation_type == CalculationType.SYSTEM_SQL:
                 system_sql_calcs.append((request, calc))
-            elif calc.calculation_type == CalculationType.CDI_VARIABLE:
-                cdi_variable_calcs.append((request, calc))
-        
-        print(f"DEBUG: Calculation separation:")
-        print(f"  User aggregation: {len(user_agg_calcs)}")
+
+        print(f"  User aggregations: {len(user_aggregation_calcs)}")
         print(f"  System fields: {len(system_field_calcs)}")
         print(f"  System SQL: {len(system_sql_calcs)}")
-        print(f"  CDI variables: {len(cdi_variable_calcs)}")
-        
-        # Build CTEs for calculations that need them
+        print(f"  Static fields: {len(static_field_requests)}")
+
+        # FIXED: Build CTEs with deduplication to prevent duplicate CTE names
         ctes = []
-        
-        # Add user aggregation CTEs
-        for request, calc in user_agg_calcs:
-            cte = self._build_user_aggregation_cte(request, calc, filters)
-            if cte:
-                ctes.append(cte)
-        
-        # Add system SQL CTEs with parameter injection
+        created_cte_names = set()  # Track CTE names to prevent duplicates
+
+        # System SQL calculations - each becomes its own CTE
         for request, calc in system_sql_calcs:
             cte = self._build_system_sql_cte(request, calc, filters)
             if cte:
-                ctes.append(cte)
+                # Extract CTE name to check for duplicates
+                cte_name = request.alias.replace(' ', '_').replace('-', '_').replace('.', '_') + "_cte"
+                if cte_name not in created_cte_names:
+                    ctes.append(cte)
+                    created_cte_names.add(cte_name)
+                    print(f"DEBUG: Added CTE: {cte_name}")
+                else:
+                    print(f"DEBUG: Skipped duplicate CTE: {cte_name}")
         
-        # Add CDI variable CTEs (these are special system SQL with CDI logic)
-        for request, calc in cdi_variable_calcs:
-            cte = self._build_cdi_variable_cte(request, calc, filters)
+        # Add user aggregation CTEs
+        for request, calc in user_aggregation_calcs:
+            cte = self._build_user_aggregation_cte(request, calc, filters)
             if cte:
-                ctes.append(cte)
+                # Extract CTE name to check for duplicates
+                cte_name = request.alias.replace(' ', '_').replace('-', '_').replace('.', '_') + "_cte"
+                if cte_name not in created_cte_names:
+                    ctes.append(cte)
+                    created_cte_names.add(cte_name)
+                    print(f"DEBUG: Added CTE: {cte_name}")
+                else:
+                    print(f"DEBUG: Skipped duplicate CTE: {cte_name}")
         
-        # Build base query with system fields
-        base_query = self._build_base_query(system_field_calcs, filters, calc_requests)
+        # Build base query with system fields and static fields
+        base_query = self._build_base_query(system_field_calcs, static_field_requests, filters, calc_requests)
         
         # Combine everything
         if ctes:
@@ -332,17 +378,19 @@ class EnhancedCalculationResolver:
     WHERE FALSE
 )"""
 
-    def _build_cdi_variable_cte(self, request: CalculationRequest, calc: Calculation, filters: QueryFilters) -> Optional[str]:
-        """Build CTE for a CDI variable calculation (special case of system SQL)"""
-        # CDI variables use the same logic as system SQL but with CDI-specific metadata
-        return self._build_system_sql_cte(request, calc, filters)
-
-    def _build_base_query(self, system_field_calcs: List[tuple], filters: QueryFilters, all_requests: List[CalculationRequest]) -> str:
+    def _build_base_query(self, system_field_calcs: List[tuple], static_field_requests: List[CalculationRequest], filters: QueryFilters, all_requests: List[CalculationRequest]) -> str:
         """Build the base query with system fields and proper joins"""
         
-        # Determine required models
+        # Determine required models - FIXED: Better logic for determining requirements
         required_models = set(['Deal'])  # Always need Deal
         
+        # Check static field requests for required models
+        for request in static_field_requests:
+            field_path = request.calc_id.replace("static_field:", "")
+            field_required_models = self._get_required_models_for_field_path(field_path)
+            required_models.update(field_required_models)
+        
+        # Check system field calculations
         for request, calc in system_field_calcs:
             required_models.update(calc.get_required_models())
         
@@ -351,11 +399,26 @@ class EnhancedCalculationResolver:
             required_models.add('Tranche')
             required_models.add('TrancheBal')
         
+        # FIXED: Also check if any aggregation calculations require tranche-level data
+        # We need to examine all_requests to see if any regular calculations need tranche data
+        for request in all_requests:
+            if not isinstance(request.calc_id, str) or not request.calc_id.startswith("static_field:"):
+                # This is a regular calculation request
+                calc = self.config_db.query(Calculation).filter_by(id=request.calc_id, is_active=True).first()
+                if calc:
+                    calc_models = calc.get_required_models()
+                    required_models.update(calc_models)
+                    # Also check if calculation is tranche-level
+                    if calc.group_level and calc.group_level.value == "tranche":
+                        required_models.add('Tranche')
+                        required_models.add('TrancheBal')
+        
         # Build base columns
         base_columns = ["deal.dl_nbr"]
         
-        # Add tranche info if needed
-        if 'Tranche' in required_models or 'TrancheBal' in required_models:
+        # FIXED: Only add tranche.tr_id if report scope is TRANCHE
+        # For DEAL scope, we want to aggregate data to deal level, not show tranche details
+        if filters.report_scope == "TRANCHE" and 'Tranche' in required_models:
             base_columns.append("tranche.tr_id")
         
         # Add cycle code if needed  
@@ -380,8 +443,30 @@ class EnhancedCalculationResolver:
             else:
                 print(f"DEBUG: No field_path found for calculation {calc.name} (ID: {calc.id})")  # Debug logging
         
+        # Add static field columns from requests
+        for request in static_field_requests:
+            # Extract field path from the static_field: prefix
+            field_path = request.calc_id.replace("static_field:", "")
+            
+            # Determine required models for this field path
+            field_required_models = self._get_required_models_for_field_path(field_path)
+            required_models.update(field_required_models)
+            
+            # FIXED: Skip tranche-level static fields for DEAL scope reports
+            if filters.report_scope == "DEAL" and field_path.startswith('tranche.'):
+                print(f"DEBUG: Skipping tranche-level static field {field_path} for DEAL scope report")
+                continue
+            
+            # Add the field as a column
+            quoted_alias = f'"{request.alias}"' if ' ' in request.alias else request.alias
+            base_columns.append(f"{field_path} AS {quoted_alias}")
+            print(f"DEBUG: Adding static field from request {field_path} AS {quoted_alias}")  # Debug logging
+        
         # Debug logging
+        print(f"DEBUG: Report scope: {filters.report_scope}")
+        print(f"DEBUG: Required models: {required_models}")
         print(f"DEBUG: system_field_calcs count: {len(system_field_calcs)}")
+        print(f"DEBUG: static_field_requests count: {len(static_field_requests)}")
         print(f"DEBUG: base_columns: {base_columns}")
         
         # Build FROM clause
@@ -390,9 +475,23 @@ class EnhancedCalculationResolver:
         # Build WHERE clause with parameter injection
         where_clause = self._build_dynamic_where_clause(filters, required_models)
         
+        # FIXED: For DEAL scope, add GROUP BY to aggregate tranche-level data to deal level
+        group_by_clause = ""
+        if filters.report_scope == "DEAL" and ('Tranche' in required_models or 'TrancheBal' in required_models):
+            # We need to group by deal-level columns only to aggregate tranche data
+            deal_level_columns = []
+            for col in base_columns:
+                # Only include deal-level columns in GROUP BY
+                if col.startswith('deal.') or ' AS ' in col and not col.split(' AS ')[0].strip().startswith(('tranche.', 'tranchebal.')):
+                    deal_level_columns.append(col.split(' AS ')[0].strip() if ' AS ' in col else col)
+            
+            if deal_level_columns:
+                group_by_clause = f"\nGROUP BY {', '.join(deal_level_columns)}"
+                print(f"DEBUG: Adding GROUP BY for DEAL scope: {group_by_clause}")
+        
         return f"""SELECT DISTINCT {', '.join(base_columns)}
 {from_clause}
-{where_clause}"""
+{where_clause}{group_by_clause}"""
 
     def _get_required_models_for_field_path(self, field_path: str) -> List[str]:
         """Helper method to determine required models for a field path"""
@@ -412,17 +511,58 @@ class EnhancedCalculationResolver:
         # Build select columns
         select_columns = []
         
-        # Add base columns
-        if filters.report_scope == "TRANCHE":
-            select_columns.extend(["base_data.dl_nbr", "base_data.tr_id", "base_data.cycle_cde"])
-        else:
-            select_columns.extend(["base_data.dl_nbr", "base_data.cycle_cde"])
+        # Determine what base columns are actually available by checking what's being built
+        # FIXED: Check if we actually have TrancheBal in the base query
+        has_tranche_bal = False
+        required_models = set(['Deal'])
         
+        # Check static field requests for TrancheBal
+        for request in calc_requests:
+            if isinstance(request.calc_id, str) and request.calc_id.startswith("static_field:"):
+                field_path = request.calc_id.replace("static_field:", "")
+                if field_path.startswith('tranchebal.'):
+                    has_tranche_bal = True
+                    required_models.add('TrancheBal')
+                    required_models.add('Tranche')
+        
+        # Check regular calculations for TrancheBal
+        for request in calc_requests:
+            if request.calc_id in calculations:
+                calc = calculations[request.calc_id]
+                calc_models = calc.get_required_models()
+                if 'TrancheBal' in calc_models:
+                    has_tranche_bal = True
+                    required_models.update(calc_models)
+        
+        # Check report scope for Tranche requirements
+        if filters.report_scope == "TRANCHE":
+            required_models.add('Tranche')
+            required_models.add('TrancheBal')
+            has_tranche_bal = True
+        
+        # Add base columns based on what's actually available
+        select_columns.append("base_data.dl_nbr")
+        
+        # FIXED: Only add tr_id if report scope is TRANCHE and Tranche is involved
+        if filters.report_scope == "TRANCHE" and 'Tranche' in required_models:
+            select_columns.append("base_data.tr_id")
+        
+        # Only add cycle_cde if TrancheBal is involved
+        if has_tranche_bal or 'TrancheBal' in required_models:
+            select_columns.append("base_data.cycle_cde")
+
         # Build joins and add calculation columns
         joins = []
         for request in calc_requests:
-            # FIXED: Handle static field requests
+            # Handle static field requests - FIXED: Skip tranche-level fields for DEAL scope
             if isinstance(request.calc_id, str) and request.calc_id.startswith("static_field:"):
+                field_path = request.calc_id.replace("static_field:", "")
+                
+                # Skip tranche-level static fields for DEAL scope reports
+                if filters.report_scope == "DEAL" and field_path.startswith('tranche.'):
+                    print(f"DEBUG: Skipping tranche-level static field {field_path} in final SELECT for DEAL scope report")
+                    continue
+                
                 # Static fields are in base_data
                 quoted_alias = f'"{request.alias}"' if ' ' in request.alias else request.alias
                 select_columns.append(f"base_data.{quoted_alias}")
@@ -444,10 +584,13 @@ class EnhancedCalculationResolver:
                 safe_cte_name = request.alias.replace(' ', '_').replace('-', '_').replace('.', '_')
                 cte_alias = f"{safe_cte_name}_cte"
                 
-                # Determine join condition based on calculation level
+                # FIXED: Determine join condition based on calculation level, not report scope
+                # Deal-level calculations only have dl_nbr, tranche-level calculations have both dl_nbr and tr_id
                 if calc.group_level.value == "deal":
+                    # Deal-level calculations: only join on dl_nbr (same value for all tranches in the deal)
                     join_condition = f"base_data.dl_nbr = {cte_alias}.dl_nbr"
                 else:
+                    # Tranche-level calculations: join on both dl_nbr and tr_id
                     join_condition = f"base_data.dl_nbr = {cte_alias}.dl_nbr AND base_data.tr_id = {cte_alias}.tr_id"
                 
                 joins.append(f"LEFT JOIN {cte_alias} ON {join_condition}")
@@ -464,7 +607,8 @@ FROM base_data
 {chr(10).join(joins)}
 ORDER BY base_data.dl_nbr"""
         
-        if filters.report_scope == "TRANCHE":
+        # FIXED: Only add tr_id to ORDER BY if report scope is TRANCHE and Tranche is involved
+        if filters.report_scope == "TRANCHE" and 'Tranche' in required_models:
             final_query += ", base_data.tr_id"
         
         return final_query

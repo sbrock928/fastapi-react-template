@@ -38,11 +38,9 @@ const SystemCalculationsTab: React.FC<SystemCalculationsTabProps> = ({
     
     // Now we know calc is a SystemCalculation, safe to access metadata_config
     const systemCalc = calc as SystemCalculation;
-    const isCDIVariable = systemCalc.metadata_config && 
-                         systemCalc.metadata_config.calculation_type === 'cdi_variable';
     
-    // Only include if it's a system SQL calculation AND not a CDI variable
-    return !isCDIVariable;
+    // Only include if it's a system SQL calculation
+    return systemCalc.calculation_type === 'system_sql';
   });
 
   // Dummy delete function (system calculations cannot be deleted)

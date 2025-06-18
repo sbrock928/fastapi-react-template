@@ -25,7 +25,6 @@ class CalculationType(str, enum.Enum):
     USER_AGGREGATION = "user_aggregation"    # Simple aggregations (SUM, AVG, etc.)
     SYSTEM_FIELD = "system_field"           # Raw field access
     SYSTEM_SQL = "system_sql"               # Custom SQL with placeholders
-    CDI_VARIABLE = "cdi_variable"           # CDI variable calculations
 
 
 class AggregationFunction(str, enum.Enum):
@@ -77,7 +76,7 @@ class Calculation(Base):
     source_field: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     weight_field: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     
-    # For SYSTEM_SQL and CDI_VARIABLE types - Enhanced SQL with placeholder support
+    # For SYSTEM_SQL - Enhanced SQL with placeholder support
     raw_sql: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     result_column_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     
@@ -100,7 +99,6 @@ class Calculation(Base):
     # USER_AGGREGATION: {"performance_hints": {"estimated_rows": 1000}}
     # SYSTEM_FIELD: {"field_path": "deal.dl_nbr", "data_type": "integer"}
     # SYSTEM_SQL: {"complexity": "high", "cache_ttl": 300}
-    # CDI_VARIABLE: {"variable_pattern": "#RPT_RRI_{tranche_suffix}", "tranche_mappings": {...}}
 
     # Security and governance
     created_by: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -148,7 +146,7 @@ class Calculation(Base):
     def validate_sql_with_placeholders(self, key, value):
         """Enhanced SQL validation with placeholder support."""
         if not value or not value.strip():
-            if hasattr(self, 'calculation_type') and self.calculation_type in [CalculationType.SYSTEM_SQL, CalculationType.CDI_VARIABLE]:
+            if hasattr(self, 'calculation_type') and self.calculation_type in [CalculationType.SYSTEM_SQL]:
                 raise ValueError("raw_sql cannot be empty for SQL-based calculations")
             return value
         
@@ -185,7 +183,7 @@ class Calculation(Base):
     def validate_result_column_name(self, key, value):
         """Validate result column name format."""
         if not value:
-            if self.calculation_type in [CalculationType.SYSTEM_SQL, CalculationType.CDI_VARIABLE]:
+            if self.calculation_type in [CalculationType.SYSTEM_SQL]:
                 raise ValueError("result_column_name is required for SQL-based calculations")
             return value
         
@@ -237,7 +235,7 @@ class Calculation(Base):
                 elif field_path.startswith("tranchebal."):
                     return ["Deal", "Tranche", "TrancheBal"]
         
-        elif self.calculation_type in [CalculationType.SYSTEM_SQL, CalculationType.CDI_VARIABLE]:
+        elif self.calculation_type in [CalculationType.SYSTEM_SQL]:
             # Check sql_parameters or default to all models
             if self.sql_parameters and "required_models" in self.sql_parameters:
                 return self.sql_parameters["required_models"]
@@ -264,7 +262,7 @@ class Calculation(Base):
                 score = 4
             else:
                 score = 3
-        elif self.calculation_type in [CalculationType.SYSTEM_SQL, CalculationType.CDI_VARIABLE]:
+        elif self.calculation_type in [CalculationType.SYSTEM_SQL]:
             score = 5
         
         # Add complexity for placeholders
@@ -291,7 +289,7 @@ class Calculation(Base):
             field_path = self.metadata_config.get("field_path", "") if self.metadata_config else ""
             return field_path
         
-        elif self.calculation_type in [CalculationType.SYSTEM_SQL, CalculationType.CDI_VARIABLE]:
+        elif self.calculation_type in [CalculationType.SYSTEM_SQL]:
             return f"Custom SQL → {self.result_column_name}"
         
         return "Unknown calculation type"

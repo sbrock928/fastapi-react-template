@@ -19,15 +19,6 @@ def get_unified_calculation_service(
     from app.calculations.service import UnifiedCalculationService
     return UnifiedCalculationService(config_db, dw_db)
 
-# CDI calculation service dependency - now uses unified service
-def get_cdi_calculation_service(
-    config_db: SessionDep, 
-    dw_db: DWSessionDep
-):
-    """Get unified calculation service for CDI operations"""
-    from app.calculations.service import UnifiedCalculationService
-    return UnifiedCalculationService(config_db, dw_db)
-
 # Main service dependency for report execution
 def get_report_execution_service(
     config_db: SessionDep,
