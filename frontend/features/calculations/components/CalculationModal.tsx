@@ -807,7 +807,7 @@ SUM(balance) OVER (
                 isSaving || 
                 fieldsLoading || 
                 (modalType === 'system-sql' && !editingCalculation && (!sqlValidationResult || !sqlValidationResult.is_valid)) ||
-                (modalType === 'system-sql' && clientValidationResult && !clientValidationResult.isValid)
+                (modalType === 'system-sql' && !editingCalculation && clientValidationResult && !clientValidationResult.isValid)
               }
               className="btn btn-primary"
             >
