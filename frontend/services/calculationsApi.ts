@@ -179,10 +179,10 @@ export const calculationsApi = {
 
       const combined: any[] = [];
 
-      // Add user calculations
+      // Add user calculations with updated format
       unifiedResponse.data.user_calculations.forEach(calc => {
         combined.push({
-          id: calc.id,
+          id: `user.${calc.source_field}`, // Use new ID format
           name: calc.name,
           description: calc.description,
           aggregation_function: calc.aggregation_function,
@@ -197,11 +197,11 @@ export const calculationsApi = {
         });
       });
 
-      // Add approved system calculations
+      // Add approved system calculations with updated format
       unifiedResponse.data.system_calculations.forEach(calc => {
         if (calc.approved_by) { // Only include approved system calculations
           combined.push({
-            id: calc.id,
+            id: `system.${calc.result_column_name}`, // Use new ID format
             name: calc.name,
             description: calc.description,
             aggregation_function: null,
@@ -217,14 +217,14 @@ export const calculationsApi = {
         }
       });
 
-      // Add static fields (filtered by scope)
+      // Add static fields (filtered by scope) with updated format
       staticFieldsResponse.data.forEach(field => {
         const fieldGroupLevel = this.determineFieldGroupLevel(field.field_path);
         const isCompatible = this.isStaticFieldCompatibleWithScope(field, scope);
         
         if (isCompatible) {
           combined.push({
-            id: `static_${field.field_path}`,
+            id: `static_${field.field_path.replace('.', '_')}`, // Use new ID format
             name: field.name,
             description: field.description,
             aggregation_function: 'RAW',
@@ -234,16 +234,16 @@ export const calculationsApi = {
             weight_field: null,
             scope: scope,
             category: this.categorizeStaticField(field),
-            is_default: this.isDefaultField(field.name),
+            is_default: this.isDefaultField(field.field_path),
             calculation_type: 'STATIC_FIELD'
           });
         }
       });
 
-      return { data: combined } as AxiosResponse<any[]>;
+      return { data: combined, status: 200, statusText: 'OK', headers: {}, config: {} } as AxiosResponse<any[]>;
     } catch (error) {
-      console.error('Error combining calculations:', error);
-      return { data: [] } as unknown as AxiosResponse<any[]>;
+      console.error('Error fetching available calculations:', error);
+      throw error;
     }
   },
 

@@ -146,7 +146,7 @@ export const useCalculationForm = (editingCalculation: UserCalculation | null) =
   const initializeForm = (calc: UserCalculation | null) => {
     if (calc) {
       // Edit mode - map calculation to form
-      if (calc.calculation_type === 'USER_DEFINED') {
+      if (calc.calculation_type === 'user_aggregation') {
         setCalculation({
           name: calc.name,
           description: calc.description || '',

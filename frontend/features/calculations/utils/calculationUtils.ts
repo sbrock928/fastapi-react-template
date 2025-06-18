@@ -332,10 +332,6 @@ function extractFinalSelectFromCTE(sql: string): string | null {
   let parenCount = 0;
   let inQuotes = false;
   let quoteChar = '';
-  let cteEndPosition = -1;
-  
-  // Track if we're inside a CTE definition or the final query
-  let afterWith = false;
   let finalSelectStart = -1;
   
   for (let i = 0; i < sql.length; i++) {
@@ -354,27 +350,52 @@ function extractFinalSelectFromCTE(sql: string): string | null {
       }
     }
     
-    if (!inQuotes) {
-      // Track parentheses
-      if (char === '(') {
-        parenCount++;
-      } else if (char === ')') {
-        parenCount--;
-        
-        // If we're back to 0 parentheses after WITH, we might be at the end of CTEs
-        if (parenCount === 0 && afterWith && cteEndPosition === -1) {
-          cteEndPosition = i;
+    // Skip everything inside quotes
+    if (inQuotes) continue;
+    
+    // Track parentheses for CTE boundaries
+    if (char === '(') parenCount++;
+    if (char === ')') parenCount--;
+    
+    // Look for SELECT that's not inside parentheses (likely the final SELECT)
+    if (parenCount === 0 && nextFewChars.startsWith('SELECT')) {
+      // Check if this SELECT is after all CTE definitions
+      // Look backwards to see if we're past the last CTE
+      let lookBack = i - 1;
+      let foundClosingParen = false;
+      let recentNonWhitespace = '';
+      
+      // Look for recent non-whitespace character before this SELECT
+      while (lookBack >= 0) {
+        const backChar = sql[lookBack];
+        if (!/\s/.test(backChar)) {
+          recentNonWhitespace = backChar;
+          if (backChar === ')') {
+            foundClosingParen = true;
+          }
+          break;
         }
+        lookBack--;
       }
       
-      // Check for WITH keyword at the start
-      if (!afterWith && nextFewChars === 'WITH ') {
-        afterWith = true;
+      // If we found a closing paren before this SELECT (and we're at paren level 0),
+      // this is likely the final SELECT after all CTEs
+      if (foundClosingParen || recentNonWhitespace === ')') {
+        finalSelectStart = i;
+        break;
       }
       
-      // Look for SELECT after we've closed all CTE parentheses
-      if (afterWith && parenCount === 0 && cteEndPosition !== -1 && finalSelectStart === -1) {
-        if (nextFewChars.startsWith('SELECT')) {
+      // Also check if this is the first SELECT after WITH...AS constructs
+      // by looking for patterns that suggest end of CTE definitions
+      const beforeSelect = sql.substring(0, i);
+      const cteMatches = [...beforeSelect.matchAll(/WITH\s+\w+\s+AS\s*\([^)]*\)/gi)];
+      const allSelectMatches = [...sql.matchAll(/\bSELECT\b/gi)];
+      
+      // If this SELECT appears to be after CTE definitions, it's likely the final one
+      if (cteMatches.length > 0) {
+        const currentSelectIndex = allSelectMatches.findIndex(match => match.index === i);
+        // If this is not the first SELECT in the query, it might be the final one
+        if (currentSelectIndex > 0) {
           finalSelectStart = i;
           break;
         }
@@ -387,9 +408,28 @@ function extractFinalSelectFromCTE(sql: string): string | null {
     return sql.substring(finalSelectStart).trim();
   }
   
-  // Fallback: look for the last SELECT statement
+  // Fallback: look for the last SELECT statement at parentheses level 0
   const selectMatches = [...sql.matchAll(/\bSELECT\b/gi)];
   if (selectMatches.length > 0) {
+    // Try to find the last SELECT that's not inside parentheses
+    for (let i = selectMatches.length - 1; i >= 0; i--) {
+      const selectIndex = selectMatches[i].index;
+      if (selectIndex !== undefined) {
+        // Check parentheses level at this position
+        let parenLevel = 0;
+        for (let j = 0; j < selectIndex; j++) {
+          if (sql[j] === '(' && !isInQuotes(sql, j)) parenLevel++;
+          if (sql[j] === ')' && !isInQuotes(sql, j)) parenLevel--;
+        }
+        
+        // If we're at the top level, this is likely the final SELECT
+        if (parenLevel === 0) {
+          return sql.substring(selectIndex).trim();
+        }
+      }
+    }
+    
+    // Ultimate fallback - return the last SELECT
     const lastSelectIndex = selectMatches[selectMatches.length - 1].index;
     if (lastSelectIndex !== undefined) {
       return sql.substring(lastSelectIndex).trim();
@@ -397,6 +437,29 @@ function extractFinalSelectFromCTE(sql: string): string | null {
   }
   
   return null;
+}
+
+// Helper function to check if a position is inside quotes
+function isInQuotes(sql: string, position: number): boolean {
+  let inQuotes = false;
+  let quoteChar = '';
+  
+  for (let i = 0; i < position; i++) {
+    const char = sql[i];
+    const prevChar = i > 0 ? sql[i - 1] : '';
+    
+    if ((char === '"' || char === "'") && prevChar !== '\\') {
+      if (!inQuotes) {
+        inQuotes = true;
+        quoteChar = char;
+      } else if (char === quoteChar) {
+        inQuotes = false;
+        quoteChar = '';
+      }
+    }
+  }
+  
+  return inQuotes;
 }
 
 /**

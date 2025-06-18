@@ -24,7 +24,7 @@ const CalculationBuilder: React.FC = () => {
   const { showToast } = useToast();
   const { openCDIModal, setOnCDIVariableSaved } = useModal();
   
-  // Use unified calculations hook instead of separate hooks
+  // Replace separate hooks with unified hook
   const {
     userCalculations,
     systemCalculations,
@@ -127,7 +127,7 @@ const CalculationBuilder: React.FC = () => {
       initializeForm(calc as UserCalculation | null);
     } else if (type === 'system-sql') {
       // For system SQL, populate form with system calculation data if editing
-      if (calc && calc.calculation_type === 'SYSTEM_SQL') {
+      if (calc && calc.calculation_type === 'system_sql') {
         const systemCalc = calc as SystemCalculation;
         updateCalculation({
           name: systemCalc.name,
@@ -221,6 +221,15 @@ const CalculationBuilder: React.FC = () => {
   const [filteredSystemCalculations, setFilteredSystemCalculations] = useState<SystemCalculation[]>([]);
   const [userFilter, setUserFilter] = useState<string>('all');
   const [systemFilter, setSystemFilter] = useState<string>('all');
+
+  // Update the calculations state management
+  useEffect(() => {
+    setFilteredUserCalculations(userCalculations);
+  }, [userCalculations]);
+
+  useEffect(() => {
+    setFilteredSystemCalculations(systemCalculations);
+  }, [systemCalculations]);
 
   // Filter calculations based on selected filters
   useEffect(() => {
@@ -355,7 +364,7 @@ const CalculationBuilder: React.FC = () => {
     return systemCalculations.filter(calc => {
       const isCDIVariable = calc.metadata_config && 
                            calc.metadata_config.calculation_type === 'cdi_variable';
-      return calc.calculation_type === 'SYSTEM_SQL' && isCDIVariable;
+      return calc.calculation_type === 'system_sql' && isCDIVariable;
     }).length;
   };
 
@@ -368,7 +377,7 @@ const CalculationBuilder: React.FC = () => {
                            calc.metadata_config.calculation_type === 'cdi_variable';
       
       // Only count if it's a system SQL calculation AND not a CDI variable
-      return calc.calculation_type === 'SYSTEM_SQL' && !isCDIVariable;
+      return calc.calculation_type === 'system_sql' && !isCDIVariable;
     }).length;
   };
 

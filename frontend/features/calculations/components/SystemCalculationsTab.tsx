@@ -31,8 +31,8 @@ const SystemCalculationsTab: React.FC<SystemCalculationsTabProps> = ({
 }) => {
   // Filter out CDI variables - only show actual system SQL calculations
   const systemSqlCalcs = filteredCalculations.filter(calc => {
-    // First check if this is a SystemCalculation (has metadata_config property)
-    if (calc.calculation_type !== 'SYSTEM_SQL') {
+    // First check if this is a SystemCalculation using lowercase type
+    if (calc.calculation_type !== 'system_sql') {
       return false; // This filters out UserCalculations
     }
     

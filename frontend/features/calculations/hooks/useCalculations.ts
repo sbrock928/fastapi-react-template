@@ -17,7 +17,7 @@ export const useCalculations = () => {
   const fetchCalculations = async (): Promise<void> => {
     setIsLoading(true);
     try {
-      // Fetch all calculations using the unified endpoint
+      // Fetch all calculations using the unified endpoint and extract user calculations
       const response = await calculationsApi.getAllCalculations();
       setCalculations(response.data.user_calculations);
     } catch (error) {
@@ -77,6 +77,7 @@ export const useCalculations = () => {
     }
   };
 
+  // Filter calculations based on selected filter
   const filterCalculations = (): void => {
     let filtered = calculations;
     
@@ -116,7 +117,7 @@ export const useCalculations = () => {
   };
 };
 
-// New hook for system calculations
+// Updated system calculations hook to use unified endpoint
 export const useSystemCalculations = () => {
   const { showToast } = useToast();
   const [systemCalculations, setSystemCalculations] = useState<SystemCalculation[]>([]);
@@ -128,7 +129,7 @@ export const useSystemCalculations = () => {
   const fetchSystemCalculations = async (): Promise<void> => {
     setIsLoading(true);
     try {
-      // Use the unified endpoint instead of the deprecated method
+      // Use the unified endpoint and extract system calculations
       const response = await calculationsApi.getAllCalculations();
       setSystemCalculations(response.data.system_calculations);
     } catch (error) {
@@ -208,6 +209,7 @@ export const useSystemCalculations = () => {
     }
   };
 
+  // Filter calculations based on selected filter
   const filterCalculations = (): void => {
     let filtered = systemCalculations;
     
@@ -216,7 +218,7 @@ export const useSystemCalculations = () => {
     } else if (selectedFilter === 'tranche') {
       filtered = systemCalculations.filter(calc => calc.group_level === 'tranche');
     } else if (selectedFilter === 'system-sql') {
-      filtered = systemCalculations.filter(calc => calc.calculation_type === 'SYSTEM_SQL');
+      filtered = systemCalculations.filter(calc => calc.calculation_type === 'system_sql');
     }
     
     setFilteredSystemCalculations(filtered);

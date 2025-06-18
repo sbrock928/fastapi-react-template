@@ -219,6 +219,61 @@ class UnifiedCalculationService:
         ).first()
         return self._to_response(calculation) if calculation else None
 
+    def get_calculations_by_type(self, calculation_type_str: str, group_level: Optional[str] = None) -> List[CalculationResponse]:
+        """Get calculations by type string (for router compatibility)"""
+        # Convert string to CalculationType enum
+        try:
+            if calculation_type_str == "USER_AGGREGATION":
+                calc_type = CalculationType.USER_AGGREGATION
+            elif calculation_type_str == "SYSTEM_SQL":
+                calc_type = CalculationType.SYSTEM_SQL
+            elif calculation_type_str == "SYSTEM_FIELD":
+                calc_type = CalculationType.SYSTEM_FIELD
+            elif calculation_type_str == "CDI_VARIABLE":
+                calc_type = CalculationType.CDI_VARIABLE
+            else:
+                return []
+        except:
+            return []
+        
+        # Build query
+        query = self.config_db.query(Calculation).filter(
+            Calculation.calculation_type == calc_type,
+            Calculation.is_active == True
+        )
+        
+        # Apply group level filter if provided
+        if group_level:
+            try:
+                if group_level.lower() == "deal":
+                    group_level_enum = GroupLevel.DEAL
+                elif group_level.lower() == "tranche":
+                    group_level_enum = GroupLevel.TRANCHE
+                else:
+                    group_level_enum = None
+                
+                if group_level_enum:
+                    query = query.filter(Calculation.group_level == group_level_enum)
+            except:
+                pass  # If group level conversion fails, ignore the filter
+        
+        calculations = query.order_by(Calculation.name).all()
+        return [self._to_response(calc) for calc in calculations]
+
+    def approve_calculation(self, calc_id: int, approved_by: str) -> CalculationResponse:
+        """Approve a calculation"""
+        calculation = self.config_db.query(Calculation).filter_by(id=calc_id, is_active=True).first()
+        if not calculation:
+            raise CalculationNotFoundError(f"Calculation with ID {calc_id} not found")
+        
+        calculation.approved_by = approved_by
+        calculation.approval_date = datetime.utcnow()
+        
+        self.config_db.commit()
+        self.config_db.refresh(calculation)
+        
+        return self._to_response(calculation)
+
     def list_calculations(
         self, 
         calculation_type: Optional[CalculationType] = None,

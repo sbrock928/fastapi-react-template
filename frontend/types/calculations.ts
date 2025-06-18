@@ -5,31 +5,50 @@ export interface BaseCalculation {
   id: number;
   name: string;
   description?: string;
+  calculation_type: string;
   group_level: 'deal' | 'tranche';
   created_by: string;
-  created_at: string;
-  updated_at: string;
+  approved_by?: string;
   is_active: boolean;
+  display_formula?: string;
+  complexity_score?: number;
+  used_placeholders?: string[];
+  required_models?: string[];
+  created_at?: string;
+  updated_at?: string;
 }
 
 // User-defined calculations (simple aggregations)
 export interface UserCalculation extends BaseCalculation {
-  calculation_type: 'USER_DEFINED';
+  calculation_type: 'user_aggregation';
   aggregation_function: AggregationFunction;
   source_model: SourceModel;
   source_field: string;
   weight_field?: string;
-  advanced_config?: Record<string, any>;
+  raw_sql: null;
+  result_column_name: null;
+  sql_parameters: null;
+  metadata_config: null;
 }
 
 // System calculations (custom SQL)
 export interface SystemCalculation extends BaseCalculation {
-  calculation_type: 'SYSTEM_SQL';
+  calculation_type: 'system_sql';
+  aggregation_function: null;
+  source_model: null;
+  source_field: null;
+  weight_field: null;
   raw_sql: string;
   result_column_name: string;
-  metadata_config?: Record<string, any>;
-  approved_by?: string;
-  approval_date?: string;
+  sql_parameters?: {
+    placeholders_used?: string[];
+    validation_info?: {
+      has_ctes?: boolean;
+      has_subqueries?: boolean;
+      used_tables?: string[];
+    };
+  };
+  metadata_config?: any;
 }
 
 // Static field information (no database storage)
@@ -246,15 +265,15 @@ export const INITIAL_CALCULATION_FORM: CalculationForm = {
 
 // Helper functions for type checking
 export function isUserDefinedCalculation(calc: Calculation): calc is UserCalculation {
-  return calc.calculation_type === 'USER_DEFINED';
+  return calc.calculation_type === 'user_aggregation';
 }
 
 export function isSystemSqlCalculation(calc: Calculation): calc is SystemCalculation {
-  return calc.calculation_type === 'SYSTEM_SQL';
+  return calc.calculation_type === 'system_sql';
 }
 
 export function isSystemCalculation(calc: Calculation): boolean {
-  return calc.calculation_type === 'SYSTEM_SQL';
+  return calc.calculation_type === 'system_sql';
 }
 
 // Helper functions for display

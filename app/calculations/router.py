@@ -121,11 +121,134 @@ def get_calculation_configuration():
     """Get calculation configuration for UI"""
     from .models import AggregationFunction, SourceModel, GroupLevel
     
+    # Generate detailed configuration with labels and descriptions for UI dropdowns
+    aggregation_functions = [
+        {
+            "value": "SUM",
+            "label": "SUM - Total amount",
+            "description": "Add all values together",
+            "category": "aggregated"
+        },
+        {
+            "value": "AVG",
+            "label": "AVG - Average",
+            "description": "Calculate average value",
+            "category": "aggregated"
+        },
+        {
+            "value": "COUNT",
+            "label": "COUNT - Count records",
+            "description": "Count number of records",
+            "category": "aggregated"
+        },
+        {
+            "value": "MIN",
+            "label": "MIN - Minimum value",
+            "description": "Find minimum value",
+            "category": "aggregated"
+        },
+        {
+            "value": "MAX",
+            "label": "MAX - Maximum value",
+            "description": "Find maximum value",
+            "category": "aggregated"
+        },
+        {
+            "value": "WEIGHTED_AVG",
+            "label": "WEIGHTED_AVG - Weighted average",
+            "description": "Calculate weighted average using specified weight field",
+            "category": "aggregated"
+        },
+        {
+            "value": "RAW",
+            "label": "RAW - Raw field value",
+            "description": "Include field value without aggregation",
+            "category": "raw"
+        }
+    ]
+    
+    source_models = [
+        {
+            "value": "Deal",
+            "label": "Deal - Deal-level information",
+            "description": "Core deal attributes and metadata"
+        },
+        {
+            "value": "Tranche",
+            "label": "Tranche - Tranche structure",
+            "description": "Tranche-specific attributes and configuration"
+        },
+        {
+            "value": "TrancheBal",
+            "label": "TrancheBal - Balance & performance",
+            "description": "Tranche balance amounts and performance metrics"
+        }
+    ]
+    
+    group_levels = [
+        {
+            "value": "deal",
+            "label": "Deal Level",
+            "description": "Aggregate to deal level - one result per deal"
+        },
+        {
+            "value": "tranche",
+            "label": "Tranche Level",
+            "description": "Aggregate to tranche level - one result per tranche"
+        }
+    ]
+    
+    # Basic static fields structure (TODO: implement full static fields service)
+    static_fields = [
+        {
+            "field_path": "deal.dl_nbr",
+            "name": "Deal Number",
+            "description": "Unique deal identifier",
+            "type": "number",
+            "nullable": False
+        },
+        {
+            "field_path": "deal.issr_cde",
+            "name": "Issuer Code",
+            "description": "Deal issuer identifier",
+            "type": "string",
+            "nullable": True
+        },
+        {
+            "field_path": "tranche.tr_id",
+            "name": "Tranche ID",
+            "description": "Tranche identifier within deal",
+            "type": "string",
+            "nullable": False
+        },
+        {
+            "field_path": "tranchebal.tr_end_bal_amt",
+            "name": "Ending Balance Amount",
+            "description": "Tranche ending balance amount",
+            "type": "currency",
+            "nullable": True
+        },
+        {
+            "field_path": "tranchebal.tr_pass_thru_rte",
+            "name": "Pass Through Rate",
+            "description": "Tranche pass-through interest rate",
+            "type": "percentage",
+            "nullable": True
+        },
+        {
+            "field_path": "tranchebal.cycle_cde",
+            "name": "Cycle Code",
+            "description": "Reporting cycle identifier",
+            "type": "number",
+            "nullable": False
+        }
+    ]
+    
     return {
-        "aggregation_functions": [func.value for func in AggregationFunction],
-        "source_models": [model.value for model in SourceModel],
-        "group_levels": [level.value for level in GroupLevel],
-        "static_fields": []  # TODO: implement static fields
+        "aggregation_functions": aggregation_functions,
+        "source_models": source_models,
+        "group_levels": group_levels,
+        "static_fields": static_fields
     }
 
 
