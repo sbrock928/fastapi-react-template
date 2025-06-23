@@ -806,8 +806,10 @@ SUM(balance) OVER (
               disabled={
                 isSaving || 
                 fieldsLoading || 
-                (modalType === 'system-sql' && !editingCalculation && (!sqlValidationResult || !sqlValidationResult.is_valid)) ||
-                (modalType === 'system-sql' && !editingCalculation && clientValidationResult && !clientValidationResult.isValid)
+                // Disable for client-side validation errors
+                (clientValidationResult && !clientValidationResult.isValid) ||
+                // Disable for server validation errors (existing logic)
+                (modalType === 'system-sql' && !editingCalculation && (!sqlValidationResult || !sqlValidationResult.is_valid))
               }
               className="btn btn-primary"
             >

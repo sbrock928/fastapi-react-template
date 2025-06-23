@@ -1,6 +1,6 @@
 """Enhanced schemas for the unified calculation system with dynamic SQL parameter injection"""
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List, Dict, Any, Set
 from enum import Enum
 import re
@@ -13,6 +13,24 @@ class CalculationBase(BaseModel):
     name: str = Field(..., min_length=3, max_length=100, description="Calculation name")
     description: Optional[str] = Field(None, max_length=500, description="Calculation description")
     group_level: GroupLevel = Field(..., description="Aggregation level (deal or tranche)")
+
+    @field_validator("name")
+    @classmethod
+    def validate_name_uniqueness(cls, v):
+        """Validate calculation name is unique across all group levels"""
+        # This will be checked at the service level with database access
+        # Basic validation here
+        if not v or not v.strip():
+            raise ValueError("Calculation name cannot be empty")
+        
+        # Remove extra whitespace
+        v = v.strip()
+        
+        # Check for reserved words or problematic characters
+        if v.lower() in ['select', 'from', 'where', 'group', 'order', 'by', 'and', 'or']:
+            raise ValueError("Calculation name cannot be a SQL reserved word")
+        
+        return v
 
 
 class UserAggregationCalculationCreate(CalculationBase):
@@ -101,6 +119,26 @@ class CalculationUpdate(BaseModel):
     
     # Metadata
     metadata_config: Optional[Dict[str, Any]] = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name_uniqueness(cls, v):
+        """Validate calculation name is unique across all group levels"""
+        if v is not None:
+            # This will be checked at the service level with database access
+            # Basic validation here
+            if not v or not v.strip():
+                raise ValueError("Calculation name cannot be empty")
+            
+            # Remove extra whitespace
+            v = v.strip()
+            
+            # Check for reserved words or problematic characters
+            if v.lower() in ['select', 'from', 'where', 'group', 'order', 'by', 'and', 'or']:
+                raise ValueError("Calculation name cannot be a SQL reserved word")
+        
+        return v
+    
 
 
 class CalculationResponse(BaseModel):

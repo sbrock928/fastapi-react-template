@@ -338,20 +338,15 @@ function extractFinalSelect(sql: string): string | null {
  * Extract final SELECT from CTE query using proper parsing
  */
 function extractFinalSelectFromCTE(sql: string): string | null {
-  // Find all top-level parentheses groups that are part of CTE definitions
+  // Simple but more reliable approach: find the last SELECT that's not inside parentheses
   let parenCount = 0;
   let inQuotes = false;
   let quoteChar = '';
-  let cteEndPosition = -1;
-  
-  // Track if we're inside a CTE definition or the final query
-  let afterWith = false;
-  let finalSelectStart = -1;
+  let lastSelectAtZeroDepth = -1;
   
   for (let i = 0; i < sql.length; i++) {
     const char = sql[i];
     const prevChar = i > 0 ? sql[i - 1] : '';
-    const nextFewChars = sql.substring(i, i + 6).toUpperCase();
     
     // Handle quotes
     if ((char === '"' || char === "'") && prevChar !== '\\') {
@@ -370,40 +365,18 @@ function extractFinalSelectFromCTE(sql: string): string | null {
         parenCount++;
       } else if (char === ')') {
         parenCount--;
-        
-        // If we're back to 0 parentheses after WITH, we might be at the end of CTEs
-        if (parenCount === 0 && afterWith && cteEndPosition === -1) {
-          cteEndPosition = i;
-        }
       }
       
-      // Check for WITH keyword at the start
-      if (!afterWith && nextFewChars === 'WITH ') {
-        afterWith = true;
-      }
-      
-      // Look for SELECT after we've closed all CTE parentheses
-      if (afterWith && parenCount === 0 && cteEndPosition !== -1 && finalSelectStart === -1) {
-        if (nextFewChars.startsWith('SELECT')) {
-          finalSelectStart = i;
-          break;
-        }
+      // Look for SELECT at depth 0 (not inside parentheses)
+      if (parenCount === 0 && sql.substring(i, i + 6).toUpperCase() === 'SELECT') {
+        lastSelectAtZeroDepth = i;
       }
     }
   }
   
-  // If we found the final SELECT, extract it
-  if (finalSelectStart !== -1) {
-    return sql.substring(finalSelectStart).trim();
-  }
-  
-  // Fallback: look for the last SELECT statement
-  const selectMatches = [...sql.matchAll(/\bSELECT\b/gi)];
-  if (selectMatches.length > 0) {
-    const lastSelectIndex = selectMatches[selectMatches.length - 1].index;
-    if (lastSelectIndex !== undefined) {
-      return sql.substring(lastSelectIndex).trim();
-    }
+  if (lastSelectAtZeroDepth !== -1) {
+    const finalSelect = sql.substring(lastSelectAtZeroDepth).trim();
+    return finalSelect;
   }
   
   return null;
@@ -432,6 +405,16 @@ function validateFinalSelect(selectSql: string, groupLevel: string, resultColumn
 
   const selectClause = selectMatch[1];
   
+  // ENHANCED: Extract column aliases more precisely to catch mismatches
+  const aliasedColumns: string[] = [];
+  
+  // Look for explicit AS aliases first
+  const aliasPattern = /\bAS\s+([a-zA-Z_][a-zA-Z0-9_]*)\b/gi;
+  let aliasMatch;
+  while ((aliasMatch = aliasPattern.exec(selectClause)) !== null) {
+    aliasedColumns.push(aliasMatch[1].toLowerCase());
+  }
+  
   // Extract basic column info (simplified parsing)
   const columnPattern = /(?:(\w+\.)?(\w+)(?:\s+AS\s+(\w+))?)|(?:AS\s+(\w+))/gi;
   let match;
@@ -450,7 +433,13 @@ function validateFinalSelect(selectSql: string, groupLevel: string, resultColumn
   // Validate required columns based on group level
   const hasRequiredDeal = /\b(?:deal\.dl_nbr|dl_nbr)\b/i.test(selectClause);
   const hasRequiredTranche = /\b(?:tranche\.tr_id|tr_id)\b/i.test(selectClause);
-  const hasResultColumn = new RegExp(`\\b${resultColumn}\\b`, 'i').test(selectClause);
+  
+  // ENHANCED: More precise result column validation
+  const resultColumnLower = resultColumn.toLowerCase();
+  const hasResultColumnAsAlias = aliasedColumns.includes(resultColumnLower);
+  
+  // Also check if it appears as a direct column reference (without AS)
+  const hasResultColumnDirect = new RegExp(`\\b${resultColumn}\\b`, 'i').test(selectClause);
 
   if (groupLevel === 'deal') {
     if (!hasRequiredDeal) {
@@ -465,8 +454,18 @@ function validateFinalSelect(selectSql: string, groupLevel: string, resultColumn
     }
   }
 
-  if (!hasResultColumn && resultColumn) {
-    errors.push(`Final SELECT must include the result column: ${resultColumn}`);
+  // ENHANCED: Strict result column validation
+  if (resultColumn) {
+    if (!hasResultColumnAsAlias && !hasResultColumnDirect) {
+      // More helpful error message showing what was found vs expected
+      if (aliasedColumns.length > 0) {
+        const errorMsg = `Result column '${resultColumn}' not found in SELECT. SQL returns columns with aliases: ${aliasedColumns.join(', ')}. Please ensure your SQL returns a column named '${resultColumn}' using AS alias.`;
+        errors.push(errorMsg);
+      } else {
+        const errorMsg = `Result column '${resultColumn}' not found in SELECT clause. Please ensure your SQL returns a column named '${resultColumn}' using AS alias.`;
+        errors.push(errorMsg);
+      }
+    }
   }
 
   // Validate result column name format

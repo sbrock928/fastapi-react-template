@@ -96,13 +96,28 @@ class FieldIntrospectionService:
         base_name = column_name.replace("_", " ").title()
         
         # For fields that commonly appear in multiple tables, add table context
-        common_fields = ["dl_nbr", "tr_id", "cycle_cde"]
+        common_fields = ["DlNbr", "TrId", "CycleCde"]
         
         if column_name in common_fields:
             model_display = cls.MODEL_DISPLAY_NAMES.get(model_name, model_name.title())
             return f"{base_name} ({model_display})"
         else:
             return base_name
+
+    @classmethod
+    def _sanitize_name_for_sql(cls, name: str) -> str:
+        """Sanitize a name to be SQL-safe by removing invalid characters"""
+        import re
+        # Replace spaces, parentheses, slashes, and other special chars with underscores
+        sanitized = re.sub(r'[^\w]', '_', name)
+        # Remove multiple consecutive underscores
+        sanitized = re.sub(r'_{2,}', '_', sanitized)
+        # Remove leading/trailing underscores
+        sanitized = sanitized.strip('_')
+        # Ensure it doesn't start with a number
+        if sanitized and sanitized[0].isdigit():
+            sanitized = f"field_{sanitized}"
+        return sanitized
 
     @classmethod
     def get_available_fields(cls, model_filter: Optional[str] = None) -> List[Dict[str, Any]]:

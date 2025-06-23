@@ -465,8 +465,8 @@ class ReportService:
 
     # ===== REPORT EXECUTION WITH COLUMN MANAGEMENT =====
 
-    async def run_report(self, report_id: int, cycle_code: int) -> List[Dict[str, Any]]:
-        """Execute report with column preferences applied."""
+    async def run_report(self, report_id: int, cycle_code: int) -> Dict[str, Any]:
+        """Execute report with column preferences applied using enhanced separate execution."""
         if not self.report_execution_service:
             raise HTTPException(status_code=500, detail="Report execution service not available")
 
@@ -482,13 +482,16 @@ class ReportService:
             for req in calculation_requests:
                 print(f"  - ID: {req.calc_id}, Alias: {req.alias}")
 
-            # Execute via new system
-            result = self.report_execution_service.execute_report(
-                calculation_requests,
-                deal_tranche_map,
-                cycle_code,
-                report.scope  # Pass the report scope to fix tranche_id appearing in deal reports
+            # Execute via enhanced separate execution method
+            from app.calculations.resolver import QueryFilters, EnhancedCalculationResolver
+            filters = QueryFilters(deal_tranche_map, cycle_code, report.scope)
+            
+            # FIXED: Use separate execution instead of unified
+            resolver = EnhancedCalculationResolver(
+                self.report_execution_service.dw_db,
+                self.report_execution_service.config_db
             )
+            result = resolver.resolve_report_separately(calculation_requests, filters)
 
             # Check if there was an execution error in the result
             if 'error' in result:
@@ -508,7 +511,6 @@ class ReportService:
                     detail={
                         "error": "SQL Execution Failed",
                         "message": error_message,
-                        "sql_query": result.get('unified_sql', 'Query not available'),
                         "debug_info": debug_info,
                         "suggestions": [
                             "Check if all selected calculations are compatible with the report scope",
@@ -518,27 +520,31 @@ class ReportService:
                     }
                 )
 
+            # Extract execution results and data
+            execution_results = result.get('execution_results', {})
+            raw_data = result.get('merged_data', [])
+
+            # DEBUG: Log execution summary
+            print("=== DEBUG: Execution Results ===")
+            print(f"Base query success: {execution_results.get('base_query_success', False)}")
+            print(f"Successful calculations: {len(execution_results.get('successful_calculations', []))}")
+            print(f"Failed calculations: {len(execution_results.get('failed_calculations', []))}")
+            
+            if execution_results.get('failed_calculations'):
+                print("Failed calculations:")
+                for failed_calc in execution_results['failed_calculations']:
+                    print(f"  - {failed_calc.get('alias', 'Unknown')}: {failed_calc.get('error', 'Unknown error')}")
+
             # DEBUG: Log the raw data keys
             print("=== DEBUG: Raw Data Keys ===")
-            raw_data = result.get('merged_data', [])  # FIXED: Use 'merged_data' key
             if raw_data:
                 print(f"Raw data keys: {list(raw_data[0].keys())}")
                 print(f"First row sample: {raw_data[0]}")
             else:
                 print("No raw data returned!")
 
-            # DEBUG: Log column preferences mapping
-            print("=== DEBUG: Column Preferences ===")
-            column_prefs = getattr(report, '_parsed_column_preferences', None)
-            if column_prefs:
-                for col_pref in column_prefs.columns:
-                    if col_pref.is_visible:
-                        print(f"  - Column ID: {col_pref.column_id}, Display Name: {col_pref.display_name}")
-
-            print(f"Debug: Raw data before column preferences: {raw_data[:1] if raw_data else 'No data'}")
-
             # Apply column preferences to the result
-            formatted_data = self._apply_column_preferences(raw_data, report)  # FIXED: Use raw_data
+            formatted_data = self._apply_column_preferences(raw_data, report)
 
             # DEBUG: Log formatted data keys
             print("=== DEBUG: Formatted Data Keys ===")
@@ -547,14 +553,29 @@ class ReportService:
             else:
                 print("No formatted data!")
 
-            # Log successful execution
+            # Calculate success metrics
+            total_calculations = execution_results.get('total_calculations', 0)
+            successful_calculations = len(execution_results.get('successful_calculations', []))
+            success_rate = (successful_calculations / total_calculations * 100) if total_calculations > 0 else 100
+
+            # Log successful execution with enhanced metrics
             await self._log_execution(
                 report_id, cycle_code, "api_user",
                 (time.time() - start_time) * 1000,
-                len(formatted_data), True
+                len(formatted_data), True,
+                f"Success rate: {success_rate:.1f}% ({successful_calculations}/{total_calculations} calculations)"
             )
 
-            return formatted_data
+            # ENHANCED: Return both data and execution metadata
+            return {
+                "data": formatted_data,
+                "execution_results": execution_results,
+                "success_rate": f"{success_rate:.1f}%",
+                "total_calculations": total_calculations,
+                "successful_calculations": successful_calculations,
+                "failed_calculations": len(execution_results.get('failed_calculations', [])),
+                "execution_time_ms": (time.time() - start_time) * 1000
+            }
 
         except HTTPException:
             # Re-raise HTTP exceptions as they already have proper error details
@@ -587,77 +608,152 @@ class ReportService:
             )
 
     async def preview_report_sql(self, report_id: int, cycle_code: int) -> Dict[str, Any]:
-        """Preview SQL for a report with complete runtime SQL generation."""
+        """Preview SQL for a report with base query and individual calculation queries."""
         if not self.report_execution_service:
             raise HTTPException(status_code=500, detail="Report execution service not available")
 
         report = await self._get_report_or_404(report_id)
         deal_tranche_map, calculation_requests = self._prepare_execution(report)
 
-        # Get the preview result from the execution service
-        result = self.report_execution_service.preview_report_sql(
-            calculation_requests, deal_tranche_map, cycle_code, report.scope
-        )
-
-        # Generate the complete runtime SQL that would actually be executed
         try:
-            # Use the resolver to build the complete unified query
-            from ..calculations.resolver import QueryFilters
+            # Use the resolver to generate the SQL components
+            from app.calculations.resolver import QueryFilters, DynamicParameterInjector
             filters = QueryFilters(deal_tranche_map, cycle_code, report.scope)
-            complete_runtime_sql = self.report_execution_service.resolver._build_unified_query(
-                calculation_requests, filters
-            )
+            resolver = self.report_execution_service.resolver
             
-            # Return comprehensive preview data INCLUDING CDI SQL previews
+            # FIXED: Initialize the parameter injector in the resolver
+            resolver.parameter_injector = DynamicParameterInjector(filters)
+
+            # Separate calculation requests by type
+            static_field_requests = []
+            regular_calc_requests = []
+            
+            for request in calculation_requests:
+                if isinstance(request.calc_id, str) and request.calc_id.startswith("static_field:"):
+                    static_field_requests.append(request)
+                else:
+                    regular_calc_requests.append(request)
+
+            # Load calculation metadata for regular requests - FIXED: Get actual calculation models
+            calculations = {}
+            system_field_calcs = []
+            
+            for request in regular_calc_requests:
+                calc = None
+                
+                # Handle string-based calculation IDs (new format)
+                if isinstance(request.calc_id, str):
+                    if request.calc_id.startswith("user."):
+                        source_field = request.calc_id[5:]
+                        if self.user_calc_service:
+                            # FIXED: Get the actual calculation model from the database instead of response object
+                            calc_response = self.user_calc_service.get_user_calculation_by_source_field(source_field)
+                            if calc_response:
+                                # Get the actual calculation model from the database
+                                from app.calculations.models import Calculation
+                                calc = resolver.config_db.query(Calculation).filter_by(
+                                    id=calc_response.id, is_active=True
+                                ).first()
+                    elif request.calc_id.startswith("system."):
+                        result_column = request.calc_id[7:]
+                        if self.system_calc_service:
+                            # FIXED: Get the actual calculation model from the database instead of response object
+                            calc_response = self.system_calc_service.get_system_calculation_by_result_column(result_column)
+                            if calc_response:
+                                # Get the actual calculation model from the database
+                                from app.calculations.models import Calculation
+                                calc = resolver.config_db.query(Calculation).filter_by(
+                                    id=calc_response.id, is_active=True
+                                ).first()
+                
+                # Handle numeric calculation IDs (legacy format)
+                elif isinstance(request.calc_id, int):
+                    from app.calculations.models import Calculation
+                    calc = resolver.config_db.query(Calculation).filter_by(
+                        id=request.calc_id, is_active=True
+                    ).first()
+                
+                if calc:
+                    calculations[request.calc_id] = calc
+                    # Check if it's a system field calculation
+                    if hasattr(calc, 'calculation_type') and calc.calculation_type.name == 'SYSTEM_FIELD':
+                        system_field_calcs.append((request, calc))
+
+            # Generate base query (includes static fields and system fields)
+            base_query = resolver._build_base_query(system_field_calcs, static_field_requests, filters, calculation_requests)
+
+            # Generate individual calculation queries
+            calculation_queries = []
+            
+            for request in regular_calc_requests:
+                calc = calculations.get(request.calc_id)
+                if calc and hasattr(calc, 'calculation_type'):
+                    try:
+                        if calc.calculation_type.name == 'USER_AGGREGATION':
+                            query = resolver._build_user_aggregation_query(request, calc, filters)
+                            calculation_queries.append({
+                                "alias": request.alias,
+                                "type": "User Aggregation",
+                                "sql": query,
+                                "description": calc.description or f"User calculation: {calc.name}"
+                            })
+                        elif calc.calculation_type.name == 'SYSTEM_SQL':
+                            query = resolver._build_system_sql_query(request, calc, filters)
+                            calculation_queries.append({
+                                "alias": request.alias,
+                                "type": "System SQL",
+                                "sql": query,
+                                "description": calc.description or f"System calculation: {calc.name}"
+                            })
+                        # Skip SYSTEM_FIELD calculations as they're included in the base query
+                    except Exception as e:
+                        # Add failed calculation to the list with error info
+                        calculation_queries.append({
+                            "alias": request.alias,
+                            "type": "Error",
+                            "sql": f"-- Error generating query: {str(e)}",
+                            "description": f"Failed to generate query for {calc.name}: {str(e)}"
+                        })
+
             return {
-                "template_name": report.name,
-                "complete_runtime_sql": complete_runtime_sql,
-                "unified_sql": result.get('unified_sql'),  # Keep existing for compatibility
-                "sql_previews": result.get('sql_previews', {}),  # Keep existing for compatibility
-                "cdi_sql_previews": result.get('cdi_sql_previews', []),  # ADD CDI PREVIEWS
+                "base_query": base_query,
+                "calculation_queries": calculation_queries,
                 "parameters": {
                     "deal_tranche_map": deal_tranche_map,
                     "cycle_code": cycle_code,
                     "report_scope": report.scope
                 },
                 "summary": {
-                    **result.get('summary', {}),
-                    "execution_approach": "unified_with_ctes",
                     "total_deals": len(deal_tranche_map),
                     "total_tranches": sum(len(tranches) for tranches in deal_tranche_map.values()),
-                    "cdi_calculations": len(result.get('cdi_sql_previews', []))  # ADD CDI COUNT
+                    "total_calculations": len(calculation_queries),
+                    "static_fields": len(static_field_requests),
+                    "execution_approach": "separate_queries_with_left_joins"
                 }
             }
             
         except Exception as e:
-            # Fallback to existing behavior if runtime SQL generation fails
-            logger.warning(f"Failed to generate complete runtime SQL: {str(e)}")
+            logger.error(f"Failed to generate SQL preview for report {report_id}: {str(e)}")
             
-            # FIXED: Always include CDI previews even in fallback scenarios
-            base_response = {
-                "template_name": report.name,
-                "cdi_sql_previews": result.get('cdi_sql_previews', []),  # Always include CDI
-                "parameters": result.get('parameters', {}),
+            # Return a fallback response with error information
+            return {
+                "base_query": f"-- Error generating base query: {str(e)}",
+                "calculation_queries": [],
+                "error": str(e),
+                "parameters": {
+                    "deal_tranche_map": deal_tranche_map,
+                    "cycle_code": cycle_code,
+                    "report_scope": report.scope
+                },
                 "summary": {
-                    **result.get('summary', {}),
-                    "cdi_calculations": len(result.get('cdi_sql_previews', []))
+                    "total_deals": len(deal_tranche_map),
+                    "total_tranches": sum(len(tranches) for tranches in deal_tranche_map.values()),
+                    "total_calculations": 0,
+                    "static_fields": 0,
+                    "execution_approach": "error_fallback",
+                    "error_message": str(e)
                 }
             }
-            
-            if 'unified_sql' in result:
-                base_response.update({
-                    "unified_sql": result['unified_sql']
-                })
-            elif 'sql_previews' in result:
-                base_response.update({
-                    "sql_previews": result['sql_previews']
-                })
-            else:
-                base_response.update({
-                    "error": "Unable to generate SQL preview"
-                })
-            
-            return base_response
 
     async def _log_execution(self, report_id: int, cycle_code: int, executed_by: str,
                             execution_time_ms: float, row_count: int, success: bool,

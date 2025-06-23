@@ -150,6 +150,28 @@ export const calculationsApi = {
     return apiClient.post('/calculations/preview-single', requestData);
   },
 
+  // ===== EXECUTION ENDPOINTS =====
+  async executeSeparateCalculation(calculationId: number, calcType: 'user_calculation' | 'system_calculation', executionParams: any): Promise<AxiosResponse<{
+    sql: string;
+    results: any[];
+    execution_time_ms: number;
+    row_count: number;
+    calculation_type: string;
+    group_level: string;
+    parameters_used: any;
+  }>> {
+    const requestData = {
+      calculation_request: {
+        calc_type: calcType,
+        calc_id: calculationId
+      },
+      deal_tranche_map: executionParams.deal_tranche_mapping || executionParams.deal_tranche_map || { 101: ['A', 'B'], 102: [], 103: [] },
+      cycle_code: executionParams.cycle || executionParams.cycle_code || 202404
+    };
+    
+    return apiClient.post('/calculations/execute-separate', requestData);
+  },
+
   // ===== STATISTICS ENDPOINTS =====
   async getCalculationCounts(): Promise<AxiosResponse<any>> {
     return apiClient.get('/calculations/stats/counts');

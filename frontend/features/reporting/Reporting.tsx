@@ -193,15 +193,44 @@ const ReportingContent = () => {
       const reportId = parseInt(selectedSavedReport);
       const response = await reportingApi.runReportById(reportId, selectedCycle.value as number);
       
-      // Handle the new API response structure
-      const { data, columns } = response.data;
+      // Handle the new API response structure with execution results
+      const { data, columns, total_rows, execution_summary, failed_calculations } = response.data;
       setReportData(data);
       setBackendColumns(columns);
       setSkeletonColumns(null); // Clear skeleton columns when real data loads
       setIsSkeletonMode(false);
       setShowResults(true);
       
-      showToast(`Report executed successfully! ${data.length} rows returned.`, 'success');
+      // Determine notification type based on execution results
+      if (execution_summary) {
+        const { successful_calculations, failed_calculations: failedCount, total_calculations } = execution_summary;
+        
+        if (failedCount === 0) {
+          // Complete success
+          showToast(`Report executed successfully! ${total_rows} rows returned with all ${successful_calculations} calculations completed.`, 'success');
+        } else if (successful_calculations > 0) {
+          // Partial success - some calculations failed
+          const failureDetails = failed_calculations && failed_calculations.length > 0 
+            ? ` Failed calculations: ${failed_calculations.map(f => f.calculation).join(', ')}`
+            : '';
+          showToast(
+            `Report completed with ${failedCount} calculation errors. ${total_rows} rows returned with ${successful_calculations}/${total_calculations} calculations successful.${failureDetails}`, 
+            'warning'
+          );
+        } else {
+          // All calculations failed but base query succeeded
+          const failureDetails = failed_calculations && failed_calculations.length > 0 
+            ? ` Failed calculations: ${failed_calculations.map(f => f.calculation).join(', ')}`
+            : '';
+          showToast(
+            `Report ran with significant errors. ${total_rows} rows returned but all ${failedCount} calculations failed.${failureDetails}`, 
+            'error'
+          );
+        }
+      } else {
+        // Fallback for responses without execution summary
+        showToast(`Report executed successfully! ${data.length} rows returned.`, 'success');
+      }
       
     } catch (error: any) {
       console.error('Error running saved report:', error);

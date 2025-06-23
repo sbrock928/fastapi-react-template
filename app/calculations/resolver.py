@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import re
 
 from .models import Calculation, CalculationType, AggregationFunction
+from app.calculations.models import GroupLevel
 
 
 @dataclass
@@ -918,14 +919,21 @@ class EnhancedCalculationResolver:
                 safe_cte_name = request.alias.replace(' ', '_').replace('-', '_').replace('.', '_')
                 cte_alias = f"{safe_cte_name}_cte"
                 
-                # FIXED: Determine join condition based on calculation level, not report scope
-                # Deal-level calculations only have dl_nbr, tranche-level calculations have both dl_nbr and tr_id
-                if calc.group_level.value == "deal":
+                # FIXED: Handle deal-level calculations properly in tranche reports
+                if calc.group_level and calc.group_level.value == "deal":
                     # Deal-level calculations: only join on dl_nbr (same value for all tranches in the deal)
                     join_condition = f"base_data.dl_nbr = {cte_alias}.dl_nbr"
+                    print(f"DEBUG: Deal-level calculation {request.alias}: joining on dl_nbr only")
                 else:
                     # Tranche-level calculations: join on both dl_nbr and tr_id
-                    join_condition = f"base_data.dl_nbr = {cte_alias}.dl_nbr AND base_data.tr_id = {cte_alias}.tr_id"
+                    if filters.report_scope == "TRANCHE" and 'Tranche' in required_models:
+                        join_condition = f"base_data.dl_nbr = {cte_alias}.dl_nbr AND base_data.tr_id = {cte_alias}.tr_id"
+                        print(f"DEBUG: Tranche-level calculation {request.alias}: joining on dl_nbr and tr_id")
+                    else:
+                        # For DEAL scope with tranche-level calculations, this shouldn't happen
+                        # but if it does, fall back to dl_nbr only
+                        join_condition = f"base_data.dl_nbr = {cte_alias}.dl_nbr"
+                        print(f"DEBUG: Tranche-level calculation {request.alias} in DEAL scope: joining on dl_nbr only")
                 
                 joins.append(f"LEFT JOIN {cte_alias} ON {join_condition}")
                 
@@ -1047,3 +1055,382 @@ ORDER BY base_data.dl_nbr"""
                 "alias": calc_request.alias,
                 "error": str(e)
             }
+
+    def resolve_report_separately(self, calc_requests: List[CalculationRequest], filters: QueryFilters) -> Dict[str, Any]:
+        """Execute calculations separately and merge results with better error handling"""
+        
+        self.parameter_injector = DynamicParameterInjector(filters)
+        
+        # Separate different types of requests
+        static_field_requests = []
+        regular_calc_requests = []
+        
+        for request in calc_requests:
+            if isinstance(request.calc_id, str) and request.calc_id.startswith("static_field:"):
+                static_field_requests.append(request)
+            else:
+                regular_calc_requests.append(request)
+        
+        # Load calculations from database for regular requests - FIXED: Better string ID mapping
+        calculations = {}
+        
+        for request in regular_calc_requests:
+            calc = None
+            
+            # Handle string-based calculation IDs (new format)
+            if isinstance(request.calc_id, str):
+                if request.calc_id.startswith("user."):
+                    source_field = request.calc_id[5:]  # Remove "user." prefix
+                    print(f"DEBUG: Looking for user calculation with source_field: {source_field}")
+                    
+                    # Find user calculation by source_field
+                    calc = self.config_db.query(Calculation).filter(
+                        Calculation.calculation_type == CalculationType.USER_AGGREGATION,
+                        Calculation.source_field == source_field,
+                        Calculation.is_active == True
+                    ).first()
+                    
+                    if not calc:
+                        # Try fallback mapping by known patterns
+                        name_mapping = {
+                            "tr_pass_thru_rte": "Average Pass Through Rate",
+                            "tr_end_bal_amt": "Total Ending Balance", 
+                            "tr_int_dstrb_amt": "Total Interest Distribution"
+                        }
+                        
+                        if source_field in name_mapping:
+                            calc = self.config_db.query(Calculation).filter(
+                                Calculation.name == name_mapping[source_field],
+                                Calculation.is_active == True
+                            ).first()
+                
+                elif request.calc_id.startswith("system."):
+                    result_column = request.calc_id[7:]  # Remove "system." prefix
+                    print(f"DEBUG: Looking for system calculation with result_column: {result_column}")
+                    
+                    # Find system calculation by result_column_name
+                    calc = self.config_db.query(Calculation).filter(
+                        Calculation.calculation_type == CalculationType.SYSTEM_SQL,
+                        Calculation.result_column_name == result_column,
+                        Calculation.is_active == True
+                    ).first()
+                    
+                    if not calc:
+                        # Try fallback mapping by known patterns
+                        name_mapping = {
+                            "issuer_type": "Issuer Type Classification",
+                            "investment_income": "Investment Field"
+                        }
+                        
+                        if result_column in name_mapping:
+                            calc = self.config_db.query(Calculation).filter(
+                                Calculation.name == name_mapping[result_column],
+                                Calculation.is_active == True
+                            ).first()
+            
+            # Handle numeric calculation IDs (legacy format)
+            elif isinstance(request.calc_id, int):
+                calc = self.config_db.query(Calculation).filter_by(
+                    id=request.calc_id, is_active=True
+                ).first()
+            
+            if calc:
+                calculations[request.calc_id] = calc
+                print(f"DEBUG: Mapped {request.calc_id} to calculation ID {calc.id}: {calc.name}")
+            else:
+                print(f"WARNING: No calculation found for {request.calc_id}")
+
+        # Execute base query first
+        try:
+            system_field_calcs = []
+            for request in regular_calc_requests:
+                calc = calculations.get(request.calc_id)
+                if calc and calc.calculation_type == CalculationType.SYSTEM_FIELD:
+                    system_field_calcs.append((request, calc))
+            
+            base_query = self._build_base_query(system_field_calcs, static_field_requests, filters, calc_requests)
+            print(f"DEBUG: Executing base query:")
+            print(base_query)
+            
+            base_data = self._execute_sql(base_query)
+            base_query_success = True
+            print(f"DEBUG: Base query returned {len(base_data)} rows")
+            
+        except Exception as e:
+            print(f"ERROR: Base query failed: {str(e)}")
+            base_data = []
+            base_query_success = False
+
+        # Execute individual calculations
+        successful_calculations = []
+        failed_calculations = []
+        
+        for request in regular_calc_requests:
+            calc = calculations.get(request.calc_id)
+            if not calc or calc.calculation_type == CalculationType.SYSTEM_FIELD:
+                continue  # System fields are handled in base query
+                
+            try:
+                print(f"DEBUG: Executing calculation {request.alias} (type: {calc.calculation_type.name})")
+                
+                if calc.calculation_type == CalculationType.USER_AGGREGATION:
+                    calc_query = self._build_user_aggregation_query(request, calc, filters)
+                    calc_data = self._execute_sql(calc_query)
+                elif calc.calculation_type == CalculationType.SYSTEM_SQL:
+                    calc_query = self._build_system_sql_query(request, calc, filters)  
+                    calc_data = self._execute_sql(calc_query)
+                else:
+                    raise ValueError(f"Unknown calculation type: {calc.calculation_type}")
+                
+                print(f"DEBUG: Calculation {request.alias} returned {len(calc_data)} rows")
+                if calc_data:
+                    print(f"DEBUG: Sample calculation result: {calc_data[0]}")
+                
+                # FIXED: Include proper calculation metadata instead of "Unknown" values
+                successful_calculations.append({
+                    'calculation': request.alias,
+                    'calculation_id': request.calc_id,
+                    'calculation_name': calc.name,
+                    'calculation_type': calc.calculation_type.value,
+                    'group_level': calc.group_level.value if calc.group_level else 'deal',
+                    'source_field': calc.source_field,
+                    'result_column_name': calc.result_column_name,
+                    'aggregation_function': calc.aggregation_function.value if calc.aggregation_function else None,
+                    'rows_returned': len(calc_data),
+                    'data': calc_data
+                })
+                
+            except Exception as e:
+                print(f"ERROR: Calculation {request.alias} failed: {str(e)}")
+                failed_calculations.append({
+                    'calculation': request.alias,
+                    'calculation_id': request.calc_id,
+                    'error': str(e)
+                })
+
+        # Merge all data using improved logic
+        merged_data = self._merge_separate_results(base_data, successful_calculations, filters)
+        
+        print(f"DEBUG: Final merged data has {len(merged_data)} rows")
+        if merged_data:
+            print(f"DEBUG: Sample merged row keys: {list(merged_data[0].keys())}")
+        
+        return {
+            'merged_data': merged_data,
+            'execution_results': {
+                'base_query_success': base_query_success,
+                'successful_calculations': successful_calculations,
+                'failed_calculations': failed_calculations,
+                'total_calculations': len(regular_calc_requests)
+            },
+            'debug_info': {
+                'total_calculations': len(calc_requests),
+                'query_type': 'separate_execution',
+                'rows_returned': len(merged_data)
+            }
+        }
+
+    def _build_user_aggregation_query(self, request: CalculationRequest, calc: Calculation, filters: QueryFilters) -> str:
+        """Build a standalone user aggregation query for separate execution - FIXED"""
+        try:
+            # Build the aggregation part using the same logic as the CTE version
+            source_field = f"{calc.source_model.value.lower()}.{calc.source_field}"
+            
+            if calc.aggregation_function == AggregationFunction.SUM:
+                agg_expr = f"SUM({source_field})"
+            elif calc.aggregation_function == AggregationFunction.AVG:
+                agg_expr = f"AVG({source_field})"
+            elif calc.aggregation_function == AggregationFunction.COUNT:
+                agg_expr = f"COUNT({source_field})"
+            elif calc.aggregation_function == AggregationFunction.MIN:
+                agg_expr = f"MIN({source_field})"
+            elif calc.aggregation_function == AggregationFunction.MAX:
+                agg_expr = f"MAX({source_field})"
+            elif calc.aggregation_function == AggregationFunction.WEIGHTED_AVG:
+                if not calc.weight_field:
+                    print(f"ERROR: Weighted average calculation {calc.name} missing weight_field")
+                    agg_expr = f"AVG({source_field})"  # Fallback to regular average
+                else:
+                    weight_field = f"{calc.source_model.value.lower()}.{calc.weight_field}"
+                    agg_expr = f"SUM({source_field} * {weight_field}) / NULLIF(SUM({weight_field}), 0)"
+            else:
+                print(f"ERROR: Unknown aggregation function: {calc.aggregation_function}")
+                agg_expr = f"AVG({source_field})"  # Safe fallback
+            
+            # Properly quote alias if it contains spaces or special characters
+            quoted_alias = f'"{request.alias}"' if ' ' in request.alias or any(c in request.alias for c in ['-', '.', '/', '\\']) else request.alias
+            
+            # FIXED: Use exactly the same join structure and WHERE clause as the base query
+            parameter_values = self.parameter_injector.get_parameter_values();
+            
+            # Build the query based on group level using CONSISTENT table names (no aliases)
+            if calc.group_level == GroupLevel.DEAL:
+                query = f"""
+                SELECT 
+                    deal.dl_nbr,
+                    {agg_expr} AS {quoted_alias}
+                FROM deal
+                JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
+                JOIN tranchebal ON deal.dl_nbr = tranchebal.dl_nbr AND tranche.tr_id = tranchebal.tr_id
+                WHERE tranchebal.cycle_cde = {parameter_values['current_cycle']}
+                    AND ({parameter_values['deal_tranche_filter']})
+                GROUP BY deal.dl_nbr
+                """
+            else:  # TRANCHE level
+                query = f"""
+                SELECT 
+                    deal.dl_nbr,
+                    tranche.tr_id,
+                    {agg_expr} AS {quoted_alias}
+                FROM deal
+                JOIN tranche ON deal.dl_nbr = tranche.dl_nbr
+                JOIN tranchebal ON deal.dl_nbr = tranchebal.dl_nbr AND tranche.tr_id = tranchebal.tr_id
+                WHERE tranchebal.cycle_cde = {parameter_values['current_cycle']}
+                    AND ({parameter_values['deal_tranche_filter']})
+                GROUP BY deal.dl_nbr, tranche.tr_id
+                """
+            
+            print(f"DEBUG: Generated user aggregation query for {request.alias}:")
+            print(query.strip())
+            
+            return query.strip()
+            
+        except Exception as e:
+            print(f"ERROR: Failed to build user aggregation query for {request.alias}: {str(e)}")
+            raise
+
+    def _build_system_sql_query(self, request: CalculationRequest, calc: Calculation, filters: QueryFilters) -> str:
+        """Build a standalone system SQL query for separate execution - FIXED"""
+        try:
+            # Inject parameters into the raw SQL using the same parameter injector
+            injected_sql = self.parameter_injector.inject_parameters(calc.raw_sql, calc)
+            
+            print(f"DEBUG: System SQL for {request.alias}:")
+            print(f"  Original SQL (first 200 chars): {calc.raw_sql[:200] if calc.raw_sql else 'None'}...")
+            print(f"  Parameters used: {calc.get_used_placeholders() if calc.raw_sql else 'None'}")
+            print(f"  Injected SQL (first 200 chars): {injected_sql[:200]}...")
+            
+            # The injected SQL should be ready to execute as-is
+            return injected_sql.strip()
+            
+        except Exception as e:
+            print(f"ERROR: Failed to build system SQL query for {request.alias}: {str(e)}")
+            # Return a failing query for debugging
+            return f"SELECT NULL as dl_nbr, NULL as tr_id, NULL as \"{request.alias}\" WHERE FALSE -- ERROR: {str(e)}"
+
+    def _merge_separate_results(self, base_data: List[Dict[str, Any]], successful_calculations: List[Dict], filters: QueryFilters) -> List[Dict[str, Any]]:
+        """Merge base data with individual calculation results - FIXED"""
+        if not base_data:
+            print("DEBUG: No base data to merge with")
+            return []
+        
+        print(f"DEBUG: Merging {len(base_data)} base rows with {len(successful_calculations)} calculation results")
+        
+        # Create a copy of base data to merge into
+        merged_data = []
+        
+        # FIXED: Pre-process calculation data to identify deal-level vs tranche-level calculations
+        deal_level_calc_cache = {}  # Cache deal-level values to replicate across tranches
+        
+        for calc_result in successful_calculations:
+            calc_data = calc_result['data']
+            alias = calc_result['calculation']
+            
+            if not calc_data:
+                continue
+                
+            # Check if this is a deal-level calculation (no tr_id column)
+            has_tr_id_in_calc = 'tr_id' in calc_data[0] if calc_data else False
+            
+            if not has_tr_id_in_calc:
+                # This is a deal-level calculation - cache the values by deal number
+                print(f"DEBUG: Caching deal-level calculation {alias}")
+                deal_level_calc_cache[alias] = {}
+                
+                for calc_row in calc_data:
+                    # FIXED: Convert dl_nbr to string for consistent matching
+                    dl_nbr = str(calc_row.get('dl_nbr'))
+                    value = self._extract_calculation_value(calc_row, alias, calc_result)
+                    if value is not None:
+                        deal_level_calc_cache[alias][dl_nbr] = value
+                        print(f"DEBUG: Cached {alias} = {value} for deal {dl_nbr}")
+        
+        for base_row in base_data:
+            merged_row = base_row.copy()
+            # FIXED: Convert dl_nbr to string for consistent matching
+            base_dl_nbr = str(base_row.get('dl_nbr'))
+            base_tr_id = str(base_row.get('tr_id', ''))
+            
+            print(f"DEBUG: Processing base row - dl_nbr: {base_dl_nbr}, tr_id: {base_tr_id}")
+            
+            # Add calculation results
+            for calc_result in successful_calculations:
+                calc_data = calc_result['data']
+                alias = calc_result['calculation']
+                
+                if not calc_data:
+                    merged_row[alias] = None
+                    continue
+                
+                # Check if this is a deal-level calculation we already cached
+                if alias in deal_level_calc_cache:
+                    # Use cached deal-level value
+                    matching_value = deal_level_calc_cache[alias].get(base_dl_nbr)
+                    if matching_value is not None:
+                        print(f"DEBUG: Using cached deal-level value {alias} = {matching_value} for deal {base_dl_nbr}, tranche {base_tr_id}")
+                    else:
+                        print(f"DEBUG: No cached deal-level value for {alias} in deal {base_dl_nbr}")
+                else:
+                    # This is a tranche-level calculation - find exact match
+                    matching_value = None
+                    print(f"DEBUG: Looking for tranche-level {alias} data for dl_nbr {base_dl_nbr}, tr_id {base_tr_id}")
+                    
+                    for calc_row in calc_data:
+                        # FIXED: Convert both dl_nbr values to string for consistent matching
+                        dl_nbr_match = str(calc_row.get('dl_nbr')) == base_dl_nbr
+                        tr_id_match = str(calc_row.get('tr_id', '')) == base_tr_id
+                        
+                        if dl_nbr_match and tr_id_match:
+                            matching_value = self._extract_calculation_value(calc_row, alias, calc_result)
+                            if matching_value is not None:
+                                print(f"DEBUG: Found tranche-level {alias} value {matching_value} for deal {base_dl_nbr}, tranche {base_tr_id}")
+                                break
+                    
+                    if matching_value is None:
+                        print(f"DEBUG: No matching tranche-level value found for {alias} in deal {base_dl_nbr}, tranche {base_tr_id}")
+                
+                # Add the value to merged row
+                merged_row[alias] = matching_value
+            
+            merged_data.append(merged_row)
+        
+        print(f"DEBUG: Merged data complete. Final row count: {len(merged_data)}")
+        if merged_data:
+            print(f"DEBUG: Sample merged row: {merged_data[0]}")
+        
+        return merged_data
+
+    def _extract_calculation_value(self, calc_row: Dict[str, Any], alias: str, calc_result: Dict) -> Any:
+        """Extract calculation value from a calc_row using multiple column name variations"""
+        # FIXED: Try multiple column name variations to find the calculation value
+        possible_columns = [
+            f'"{alias}"',  # Quoted alias
+            alias,         # Unquoted alias
+            calc_result.get('result_column_name'),  # FIXED: Use the actual result column name from system SQL
+            calc_result['calculation_id'],  # calculation_id
+            str(calc_result['calculation_id'])  # string version of calc_id
+        ]
+        
+        # FIXED: Remove None values from possible_columns
+        possible_columns = [col for col in possible_columns if col is not None]
+        
+        for col_name in possible_columns:
+            if col_name in calc_row and calc_row[col_name] is not None:
+                print(f"DEBUG: Found {alias} value {calc_row[col_name]} using column '{col_name}'")
+                return calc_row[col_name]
+        
+        # FIXED: Additional debugging - show what columns are actually available
+        print(f"DEBUG: Could not find value for {alias}. Available columns: {list(calc_row.keys())}")
+        print(f"DEBUG: Tried columns: {possible_columns}")
+        
+        return None

@@ -87,7 +87,7 @@ const reportingApi = {
     return apiClient.post('/reports/run', request);
   },
 
-  // Run report by ID with cycle parameter (returns formatted data with column metadata)
+  // Run report by ID with cycle parameter (returns formatted data with column metadata and execution results)
   runReportById: (reportId: number, cycleCode: number): Promise<{ 
     data: { 
       data: ReportRow[]; 
@@ -98,6 +98,26 @@ const reportingApi = {
         display_order: number;
       }>;
       total_rows: number;
+      // NEW: Include execution results
+      execution_summary: {
+        success_rate: string;
+        total_calculations: number;
+        successful_calculations: number;
+        failed_calculations: number;
+        execution_time_ms: number;
+        base_query_success: boolean;
+      };
+      failed_calculations?: Array<{
+        calculation: string;
+        calculation_id: string;
+        error: string;
+        error_type: string;
+      }>;
+      successful_calculations?: Array<{
+        calculation: string;
+        calculation_id: string;
+        rows_returned: number;
+      }>;
     } 
   }> => {
     return apiClient.post(`/reports/run/${reportId}`, { cycle_code: cycleCode });

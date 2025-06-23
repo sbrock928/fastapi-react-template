@@ -14,6 +14,7 @@ import CalculationCard from './components/CalculationCard';
 import CalculationModal from './components/CalculationModal';
 import SystemCalculationsTab from './components/SystemCalculationsTab';
 import UsageModal from './components/UsageModal';
+import SqlPreviewModal from './components/SqlPreviewModal';
 
 type CalculationTab = 'user-defined' | 'system-defined';
 
@@ -59,6 +60,8 @@ const CalculationBuilder: React.FC = () => {
   const [showPreviewModal, setShowPreviewModal] = useState<boolean>(false);
   const [previewData, setPreviewData] = useState<any>(null);
   const [previewLoading, setPreviewLoading] = useState<boolean>(false);
+  const [previewCalculationId, setPreviewCalculationId] = useState<number | null>(null);
+  const [previewCalculationType, setPreviewCalculationType] = useState<'user_calculation' | 'system_calculation'>('user_calculation');
 
   // Form state
   const {
@@ -292,6 +295,10 @@ const CalculationBuilder: React.FC = () => {
   const handlePreviewSQL = async (calcId: number) => {
     setPreviewLoading(true);
     setShowPreviewModal(true); // Show modal first with loading state
+    setPreviewCalculationId(calcId);
+    
+    // Set calculation type based on active tab
+    setPreviewCalculationType(activeTab === 'system-defined' ? 'system_calculation' : 'user_calculation');
     
     try {
       let response;
@@ -614,126 +621,14 @@ const CalculationBuilder: React.FC = () => {
             onClose={() => setShowUsageModal(false)}
           />
 
-          {/* Preview SQL Modal - FIXED: Proper Bootstrap modal implementation */}
-          <div
-            className={`modal ${showPreviewModal ? 'show d-block' : 'd-none'}`}
-            tabIndex={-1}
-            aria-hidden={!showPreviewModal}
-            style={{ backgroundColor: showPreviewModal ? 'rgba(0,0,0,0.5)' : 'transparent' }}
-          >
-            <div className="modal-dialog modal-xl">
-              <div className="modal-content">
-                <div className="modal-header">
-                  <h5 className="modal-title">
-                    <i className="bi bi-code-square me-2"></i>
-                    SQL Preview
-                  </h5>
-                  <button
-                    type="button"
-                    className="btn-close"
-                    onClick={() => setShowPreviewModal(false)}
-                    aria-label="Close"
-                  ></button>
-                </div>
-                <div className="modal-body">
-                  {previewLoading ? (
-                    <div className="text-center py-4">
-                      <div className="spinner-border text-primary" role="status">
-                        <span className="visually-hidden">Loading...</span>
-                      </div>
-                      <p className="mt-2 mb-0">Generating SQL preview...</p>
-                    </div>
-                  ) : previewData ? (
-                    <div>
-                      {/* SQL Content */}
-                      <div className="mb-3">
-                        <label className="form-label fw-bold">Generated SQL:</label>
-                        <pre className="bg-light p-3 rounded border" style={{ fontSize: '0.875rem', maxHeight: '400px', overflow: 'auto' }}>
-                          <code>{previewData.sql || '-- No SQL available'}</code>
-                        </pre>
-                      </div>
-                      
-                      {/* Additional Information */}
-                      {previewData.columns && (
-                        <div className="mb-3">
-                          <label className="form-label fw-bold">Expected Columns:</label>
-                          <div className="bg-light p-2 rounded border">
-                            <small className="text-muted">
-                              {Array.isArray(previewData.columns) 
-                                ? previewData.columns.join(', ') 
-                                : previewData.columns}
-                            </small>
-                          </div>
-                        </div>
-                      )}
-                      
-                      <div className="row">
-                        {previewData.calculation_type && (
-                          <div className="col-md-6 mb-2">
-                            <label className="form-label fw-bold">Calculation Type:</label>
-                            <div className="bg-light p-2 rounded border">
-                              <small className="text-muted">{previewData.calculation_type}</small>
-                            </div>
-                          </div>
-                        )}
-                        
-                        {previewData.group_level && (
-                          <div className="col-md-6 mb-2">
-                            <label className="form-label fw-bold">Group Level:</label>
-                            <div className="bg-light p-2 rounded border">
-                              <small className="text-muted">{previewData.group_level}</small>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      
-                      {/* Error Display */}
-                      {previewData.error && (
-                        <div className="alert alert-warning mt-3">
-                          <i className="bi bi-exclamation-triangle me-2"></i>
-                          <strong>Preview Warning:</strong> {previewData.error}
-                        </div>
-                      )}
-                      
-                      {/* Info Note */}
-                      <div className="alert alert-info mt-3">
-                        <i className="bi bi-info-circle me-2"></i>
-                        <strong>Preview Note:</strong> This is a sample SQL query generated with test parameters. 
-                        The actual query used in reports will include your specific deal/tranche filters and cycle selection.
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-center py-4 text-muted">
-                      <i className="bi bi-exclamation-circle fs-1"></i>
-                      <p className="mt-2">No preview data available</p>
-                    </div>
-                  )}
-                </div>
-                <div className="modal-footer">
-                  {previewData && previewData.sql && (
-                    <button
-                      type="button"
-                      className="btn btn-outline-primary me-auto"
-                      onClick={() => {
-                        navigator.clipboard.writeText(previewData.sql);
-                        showToast('SQL copied to clipboard!', 'success');
-                      }}
-                    >
-                      <i className="bi bi-clipboard me-2"></i>
-                      Copy SQL
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setShowPreviewModal(false)}
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          <SqlPreviewModal
+            isOpen={showPreviewModal}
+            previewData={previewData}
+            previewLoading={previewLoading}
+            onClose={() => setShowPreviewModal(false)}
+            calculationId={previewCalculationId}
+            calculationType={previewCalculationType}
+          />
         </>
       )}
     </div>

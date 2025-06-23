@@ -35,6 +35,9 @@ class UnifiedCalculationService:
     ) -> CalculationResponse:
         """Create a new user aggregation calculation"""
         
+        # Check for duplicate calculation names across all group levels
+        self._validate_unique_calculation_name(request.name)
+        
         # Create the calculation
         calculation = Calculation(
             name=request.name,
@@ -60,6 +63,9 @@ class UnifiedCalculationService:
         created_by: str
     ) -> CalculationResponse:
         """Create a new system field calculation"""
+        
+        # Check for duplicate calculation names across all group levels
+        self._validate_unique_calculation_name(request.name)
         
         # Parse field path and get field info using dynamic introspection
         field_info = FieldIntrospectionService.get_field_by_path(request.field_path)
@@ -91,6 +97,9 @@ class UnifiedCalculationService:
         created_by: str
     ) -> CalculationResponse:
         """Create a new system SQL calculation with placeholder support"""
+        
+        # Check for duplicate calculation names across all group levels
+        self._validate_unique_calculation_name(request.name)
         
         # Extract placeholders and validate SQL
         validation_result = self.validate_sql(SqlValidationRequest(
@@ -335,6 +344,10 @@ class UnifiedCalculationService:
         if not calculation:
             raise CalculationNotFoundError(f"Calculation with ID {calc_id} not found")
         
+        # Check for duplicate calculation names if name is being updated
+        if request.name and request.name != calculation.name:
+            self._validate_unique_calculation_name(request.name, exclude_id=calc_id)
+        
         # Update fields
         for field, value in request.model_dump(exclude_unset=True).items():
             if hasattr(calculation, field):
@@ -427,9 +440,39 @@ class UnifiedCalculationService:
             if not re.search(r'\btr_id\b', request.sql_text, re.IGNORECASE):
                 errors.append("Tranche-level calculations must include tr_id in SELECT clause")
         
-        # Check for result column
-        if not re.search(rf'\b{re.escape(request.result_column_name)}\b', request.sql_text, re.IGNORECASE):
-            errors.append(f"SQL must include result column '{request.result_column_name}'")
+        # ENHANCED: Extract final SELECT statement for proper alias validation (especially for CTEs)
+        final_select_sql = self._extract_final_select_statement(request.sql_text)
+        if not final_select_sql:
+            errors.append("Could not identify the final SELECT statement")
+            final_select_sql = request.sql_text  # Fallback to full SQL
+        
+        # ENHANCED: More precise result column validation using final SELECT only
+        result_column_found = False
+        aliased_columns = []
+        
+        # Extract all AS aliases from the FINAL SELECT only (not the entire SQL)
+        alias_pattern = r'\bAS\s+([a-zA-Z_][a-zA-Z0-9_]*)\b'
+        alias_matches = re.finditer(alias_pattern, final_select_sql, re.IGNORECASE)
+        for match in alias_matches:
+            aliased_columns.append(match.group(1).lower())
+        
+        # Check if the result column appears as an alias
+        result_column_lower = request.result_column_name.lower()
+        if result_column_lower in aliased_columns:
+            result_column_found = True
+        
+        # Also check if it appears as a direct column reference (without AS) in final SELECT
+        if not result_column_found:
+            direct_column_pattern = rf'\b{re.escape(request.result_column_name)}\b'
+            if re.search(direct_column_pattern, final_select_sql, re.IGNORECASE):
+                result_column_found = True
+        
+        # Report detailed error if result column not found
+        if not result_column_found:
+            if aliased_columns:
+                errors.append(f"Result column '{request.result_column_name}' not found in final SELECT. SQL returns columns with aliases: {', '.join(aliased_columns)}. Please ensure your SQL returns a column named '{request.result_column_name}' using AS alias.")
+            else:
+                errors.append(f"Result column '{request.result_column_name}' not found in final SELECT clause. Please ensure your SQL returns a column named '{request.result_column_name}' using AS alias.")
         
         # Extract table names and columns (simplified)
         used_tables = []
@@ -438,7 +481,7 @@ class UnifiedCalculationService:
             used_tables.append(match.group(1).lower())
         
         final_select_columns = []
-        select_match = re.search(r'SELECT\s+(.*?)\s+FROM', request.sql_text, re.IGNORECASE | re.DOTALL)
+        select_match = re.search(r'SELECT\s+(.*?)\s+FROM', final_select_sql, re.IGNORECASE | re.DOTALL)
         if select_match:
             # Simplified column extraction
             columns_text = select_match.group(1)
@@ -462,6 +505,48 @@ class UnifiedCalculationService:
             used_tables=used_tables,
             placeholders_used=placeholders_used
         )
+    
+    def _extract_final_select_statement(self, sql: str) -> str:
+        """Extract the final SELECT statement from SQL (especially for CTEs)"""
+        sql_trimmed = sql.strip()
+        
+        # If it starts with WITH, find the final SELECT after all CTEs
+        if re.match(r'^\s*WITH\b', sql_trimmed, re.IGNORECASE):
+            # Find the last SELECT that's not inside parentheses
+            paren_count = 0
+            in_quotes = False
+            quote_char = ''
+            last_select_at_zero_depth = -1
+            
+            for i in range(len(sql_trimmed)):
+                char = sql_trimmed[i]
+                prev_char = sql_trimmed[i-1] if i > 0 else ''
+                
+                # Handle quotes
+                if (char == '"' or char == "'") and prev_char != '\\':
+                    if not in_quotes:
+                        in_quotes = True
+                        quote_char = char
+                    elif char == quote_char:
+                        in_quotes = False
+                        quote_char = ''
+                
+                if not in_quotes:
+                    # Track parentheses
+                    if char == '(':
+                        paren_count += 1
+                    elif char == ')':
+                        paren_count -= 1
+                    
+                    # Look for SELECT at depth 0 (not inside parentheses)
+                    if paren_count == 0 and sql_trimmed[i:i+6].upper() == 'SELECT':
+                        last_select_at_zero_depth = i
+            
+            if last_select_at_zero_depth != -1:
+                return sql_trimmed[last_select_at_zero_depth:].strip()
+        
+        # For simple queries or if extraction fails, return the whole query
+        return sql_trimmed
 
     # === EXECUTION METHODS ===
 
@@ -490,9 +575,28 @@ class UnifiedCalculationService:
         cycle_code: int,
         report_scope: str = "TRANCHE"
     ) -> Dict[str, Any]:
-        """Execute a full report with multiple calculations"""
+        """Execute a full report with multiple calculations using separate execution for better error handling"""
         
         # calculation_requests is already a list of CalculationRequest objects
+        filters = QueryFilters(
+            deal_tranche_map=deal_tranche_map,
+            cycle_code=cycle_code,
+            report_scope=report_scope
+        )
+        
+        # Use the new separate execution method for better error handling and partial results
+        return self.resolver.resolve_report_separately(calculation_requests, filters)
+
+    def execute_report_unified(
+        self,
+        calculation_requests: List[CalculationRequest],
+        deal_tranche_map: Dict[int, List[str]],
+        cycle_code: int,
+        report_scope: str = "TRANCHE"
+    ) -> Dict[str, Any]:
+        """Execute a full report with multiple calculations using the original unified CTE approach"""
+        
+        # Keep the original method available for backward compatibility
         filters = QueryFilters(
             deal_tranche_map=deal_tranche_map,
             cycle_code=cycle_code,
@@ -543,6 +647,25 @@ class UnifiedCalculationService:
             }
 
     # === UTILITY METHODS ===
+
+    def _validate_unique_calculation_name(self, name: str, exclude_id: Optional[int] = None) -> None:
+        """Validate that calculation name is unique across all group levels"""
+        query = self.config_db.query(Calculation).filter(
+            Calculation.name == name,
+            Calculation.is_active == True
+        )
+        
+        # Exclude the current calculation if updating
+        if exclude_id:
+            query = query.filter(Calculation.id != exclude_id)
+        
+        existing_calculation = query.first()
+        if existing_calculation:
+            raise InvalidCalculationError(
+                f"Calculation name '{name}' already exists (ID: {existing_calculation.id}, "
+                f"Group Level: {existing_calculation.group_level.value}). "
+                f"Calculation names must be unique across all group levels."
+            )
 
     def _to_response(self, calculation: Calculation) -> CalculationResponse:
         """Convert calculation model to response schema"""

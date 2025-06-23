@@ -153,7 +153,7 @@ async def run_report(
 async def run_report_by_id(
     report_id: int, request: Dict[str, Any], service: ReportService = Depends(get_report_service)
 ) -> Dict[str, Any]:
-    """Run a saved report by ID with cycle parameter - returns data with column metadata."""
+    """Run a saved report by ID with cycle parameter - returns data with column metadata and execution results."""
     cycle_code = request.get("cycle_code")
     if not cycle_code:
         raise HTTPException(status_code=400, detail="cycle_code is required")
@@ -163,8 +163,12 @@ async def run_report_by_id(
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     
-    # Run the report to get formatted data
-    data = await service.run_report(report_id, cycle_code)
+    # Run the report to get formatted data AND execution results
+    report_result = await service.run_report(report_id, cycle_code)
+    
+    # Extract data and execution metadata
+    formatted_data = report_result.get("data", [])
+    execution_results = report_result.get("execution_results", {})
     
     # Extract column metadata from the report's column preferences
     column_metadata = []
@@ -179,8 +183,8 @@ async def run_report_by_id(
                 })
     else:
         # Fallback: create basic metadata from data keys if no column preferences
-        if data:
-            for i, key in enumerate(data[0].keys()):
+        if formatted_data:
+            for i, key in enumerate(formatted_data[0].keys()):
                 column_metadata.append({
                     "field": key,
                     "header": key,
@@ -191,11 +195,48 @@ async def run_report_by_id(
     # Sort columns by display order
     column_metadata.sort(key=lambda x: x.get("display_order", 0))
     
-    return {
-        "data": data,
+    # Enhanced response with execution metadata
+    response = {
+        "data": formatted_data,
         "columns": column_metadata,
-        "total_rows": len(data)
+        "total_rows": len(formatted_data),
+        # ENHANCED: Include execution results for debugging
+        "execution_summary": {
+            "success_rate": report_result.get("success_rate", "100%"),
+            "total_calculations": report_result.get("total_calculations", 0),
+            "successful_calculations": report_result.get("successful_calculations", 0),
+            "failed_calculations": report_result.get("failed_calculations", 0),
+            "execution_time_ms": report_result.get("execution_time_ms", 0),
+            "base_query_success": execution_results.get("base_query_success", True)
+        }
     }
+    
+    # Include detailed failure information if there are failed calculations
+    failed_calcs = execution_results.get("failed_calculations", [])
+    if failed_calcs:
+        response["failed_calculations"] = [
+            {
+                "calculation": failed_calc.get("calculation", "Unknown"),
+                "calculation_id": failed_calc.get("calculation_id", "Unknown"),
+                "error": failed_calc.get("error", "Unknown error"),
+                "error_type": failed_calc.get("error_type", "execution_error")
+            }
+            for failed_calc in failed_calcs
+        ]
+    
+    # Include successful calculations for completeness
+    successful_calcs = execution_results.get("successful_calculations", [])
+    if successful_calcs:
+        response["successful_calculations"] = [
+            {
+                "calculation": success_calc.get("calculation", "Unknown"),
+                "calculation_id": success_calc.get("calculation_id", "Unknown"),
+                "rows_returned": success_calc.get("rows_returned", 0)
+            }
+            for success_calc in successful_calcs
+        ]
+    
+    return response
 
 
 # ===== PREVIEW AND EXECUTION LOG ENDPOINTS =====

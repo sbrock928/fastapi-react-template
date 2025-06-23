@@ -113,7 +113,7 @@ class Calculation(Base):
     # Constraints
     __table_args__ = (
         UniqueConstraint(
-            "name", "group_level", "is_active", name="uq_calc_name_group_level_active"
+            "name", "is_active", name="uq_calc_name_active"
         ),
     )
 

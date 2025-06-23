@@ -4,6 +4,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import text  # Add this import for raw SQL execution
 from typing import List, Optional, Dict, Any
 from urllib.parse import unquote
 import time
@@ -560,6 +561,70 @@ def execute_report(request: Dict[str, Any]):
         raise HTTPException(status_code=500, detail=f"Error executing report: {str(e)}")
 
 
+@router.post("/execute-separate")
+def execute_report_separately(
+    request: Dict[str, Any],
+    dw_db: Session = Depends(get_dw_db),
+    config_db: Session = Depends(get_db)
+):
+    """Execute calculations separately and merge results - with better error handling"""
+    try:
+        # Parse request
+        cycle_code = request.get("cycle_code")
+        deal_tranche_map = request.get("deal_tranche_map", {})
+        report_scope = request.get("report_scope", "TRANCHE")
+        calculation_requests = request.get("calculation_requests", [])
+        
+        if not cycle_code:
+            raise HTTPException(status_code=400, detail="cycle_code is required")
+        
+        if not calculation_requests:
+            raise HTTPException(status_code=400, detail="calculation_requests cannot be empty")
+        
+        # FIXED: Convert cycle_code to integer to prevent type errors in arithmetic operations
+        try:
+            cycle_code_int = int(cycle_code)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail=f"Invalid cycle_code: {cycle_code}. Must be an integer.")
+        
+        # Convert deal_tranche_map keys to integers
+        normalized_deal_map = {}
+        for deal_key, tranches in deal_tranche_map.items():
+            try:
+                deal_int = int(deal_key)
+                normalized_deal_map[deal_int] = tranches if isinstance(tranches, list) else []
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail=f"Invalid deal ID: {deal_key}")
+        
+        # Import and set up resolver components
+        from .resolver import EnhancedCalculationResolver, CalculationRequest, QueryFilters
+        
+        # Convert calculation requests
+        calc_requests = []
+        for req in calculation_requests:
+            calc_id = req.get("calc_id")
+            alias = req.get("alias", str(calc_id))
+            calc_requests.append(CalculationRequest(calc_id=calc_id, alias=alias))
+        
+        # Set up filters with integer cycle_code
+        filters = QueryFilters(
+            deal_tranche_map=normalized_deal_map,
+            cycle_code=cycle_code_int,  # Now properly converted to integer
+            report_scope=report_scope
+        )
+        
+        # Execute using separate execution approach
+        resolver = EnhancedCalculationResolver(dw_db, config_db)
+        result = resolver.resolve_report_separately(calc_requests, filters)
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error executing report separately: {str(e)}")
+
+
 @router.post("/preview-sql")
 def preview_report_sql(request: Dict[str, Any]):
     """Preview SQL for a report without executing it - simplified"""
@@ -574,16 +639,89 @@ def preview_report_sql(request: Dict[str, Any]):
 
 
 @router.post("/preview-single")
-def preview_single_calculation(request: Dict[str, Any]):
-    """Preview SQL for a single calculation - simplified"""
+def preview_single_calculation(
+    request: Dict[str, Any],
+    service: UnifiedCalculationService = Depends(get_report_execution_service)
+):
+    """Preview SQL for a single calculation"""
     try:
-        # TODO: implement single calculation preview
-        return {
-            "success": False,
-            "message": "Single calculation preview not yet implemented in unified system"
-        }
+        # Extract required parameters
+        calculation_request = request.get("calculation_request", {})
+        deal_tranche_map = request.get("deal_tranche_map", {})
+        cycle_code = request.get("cycle_code")
+        
+        calc_type = calculation_request.get("calc_type")
+        calc_id = calculation_request.get("calc_id")
+        
+        if not calc_type or not calc_id:
+            raise HTTPException(status_code=400, detail="calc_type and calc_id are required in calculation_request")
+        
+        # Convert deal_tranche_map keys to integers if they're strings
+        normalized_deal_map = {}
+        for deal_key, tranches in deal_tranche_map.items():
+            try:
+                deal_int = int(deal_key)
+                normalized_deal_map[deal_int] = tranches if isinstance(tranches, list) else []
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail=f"Invalid deal ID in deal_tranche_map: {deal_key}")
+        
+        # Use the service to generate the preview
+        try:
+            preview_result = service.preview_calculation(
+                calc_id=calc_id,
+                deal_tranche_map=normalized_deal_map,
+                cycle_code=cycle_code,
+                report_scope="TRANCHE"
+            )
+            
+            # Extract SQL from the resolver response format
+            sql_preview = None
+            if "sql" in preview_result:
+                sql_preview = preview_result["sql"]
+            elif "unified_sql" in preview_result:
+                sql_preview = preview_result["unified_sql"]
+            elif "merged_data" in preview_result:
+                # This means it executed successfully, but we want the SQL
+                # Try to get it from debug_info or error fallback
+                debug_info = preview_result.get("debug_info", {})
+                sql_preview = debug_info.get("sql", "-- SQL preview not available")
+            else:
+                sql_preview = "-- Error: No SQL found in response"
+            
+            # Check for errors in the response
+            if "error" in preview_result:
+                return {
+                    "sql_preview": f"-- Error: {preview_result['error']}\n-- Debug info: {preview_result.get('debug_info', {})}",
+                    "error": preview_result["error"],
+                    "debug_info": preview_result.get("debug_info", {})
+                }
+            
+            return {
+                "sql_preview": sql_preview,
+                "calculation_type": preview_result.get("calculation_type", "unknown"),
+                "group_level": preview_result.get("group_level", "unknown"),
+                "parameters_used": preview_result.get("parameter_injections", {}).get("parameter_values", {}),
+                "placeholders_used": preview_result.get("placeholders_used", []),
+                "debug_info": preview_result.get("debug_info", {})
+            }
+            
+        except Exception as service_error:
+            # If service fails, return a meaningful error
+            return {
+                "sql_preview": f"-- Service Error: {str(service_error)}",
+                "error": f"Failed to generate SQL preview: {str(service_error)}",
+                "debug_info": {
+                    "calc_id": calc_id,
+                    "calc_type": calc_type,
+                    "cycle_code": cycle_code,
+                    "deal_tranche_map": normalized_deal_map
+                }
+            }
+            
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error previewing calculation: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to preview calculation: {str(e)}")
 
 
 # ===== STATISTICS ENDPOINTS =====
@@ -648,13 +786,25 @@ def get_user_calculation_by_source_field(
         # URL decode the source_field parameter
         decoded_source_field = unquote(source_field)
         
-        # TODO: implement source field lookup
-        return {
-            "success": False,
-            "message": f"Source field lookup for '{decoded_source_field}' not yet implemented"
-        }
+        # Use the service to look up the calculation
+        calculation = service.get_user_calculation_by_source_field(decoded_source_field)
+        
+        if calculation:
+            return {
+                "success": True,
+                "calculation": calculation.model_dump(),
+                "calculation_id": calculation.id,
+                "source_field": decoded_source_field
+            }
+        else:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"No user calculation found with source_field '{decoded_source_field}'"
+            )
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Error looking up user calculation: {str(e)}")
 
 
 @router.get("/system/by-result-column/{result_column}")
@@ -667,35 +817,25 @@ def get_system_calculation_by_result_column(
         # URL decode the result_column parameter
         decoded_result_column = unquote(result_column)
         
-        # TODO: implement result column lookup
-        return {
-            "success": False,
-            "message": f"Result column lookup for '{decoded_result_column}' not yet implemented"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
-@router.get("/usage/{calculation_id}")
-def get_calculation_usage_by_calculation_id(
-    calculation_id: str,
-    service: UnifiedCalculationService = Depends(get_report_execution_service)
-):
-    """Get calculation usage by the new calculation_id format"""
-    try:
-        # URL decode the calculation_id parameter
-        decoded_calc_id = unquote(calculation_id)
+        # Use the service to look up the calculation
+        calculation = service.get_system_calculation_by_result_column(decoded_result_column)
         
-        # TODO: implement usage tracking
-        return {
-            "calculation_id": decoded_calc_id,
-            "calculation_name": "Unknown",
-            "is_in_use": False,
-            "report_count": 0,
-            "reports": []
-        }
+        if calculation:
+            return {
+                "success": True,
+                "calculation": calculation.model_dump(),
+                "calculation_id": calculation.id,
+                "result_column": decoded_result_column
+            }
+        else:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"No system calculation found with result_column '{decoded_result_column}'"
+            )
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Error looking up system calculation: {str(e)}")
 
 
 # ===== VALIDATION ENDPOINTS FOR NEW FORMATS =====
@@ -734,3 +874,268 @@ def validate_system_calculation_result_column(request: Dict[str, str]):
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ===== REAL PARAMETER INJECTION ENDPOINT =====
+
+@router.post("/get-real-parameters")
+def get_real_parameters_for_preview(request: Dict[str, Any]):
+    """Get real parameter values from deal_tranche_map for SQL preview (instead of placeholders)"""
+    try:
+        # Extract parameters from request
+        deal_tranche_map = request.get("deal_tranche_map", {})
+        cycle_code = request.get("cycle_code")
+        
+        if not cycle_code:
+            raise HTTPException(status_code=400, detail="cycle_code is required")
+        
+        # FIXED: Convert cycle_code to integer to prevent type errors in arithmetic operations
+        try:
+            cycle_code_int = int(cycle_code)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail=f"Invalid cycle_code: {cycle_code}. Must be an integer.")
+        
+        # Convert deal_tranche_map keys to integers if they're strings
+        normalized_deal_map = {}
+        for deal_key, tranches in deal_tranche_map.items():
+            try:
+                deal_int = int(deal_key)
+                normalized_deal_map[deal_int] = tranches if isinstance(tranches, list) else []
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail=f"Invalid deal ID in deal_tranche_map: {deal_key}")
+        
+        # Import the resolver components
+        from .resolver import DynamicParameterInjector, QueryFilters
+        
+        # Create the filters object with the real data
+        filters = QueryFilters(
+            deal_tranche_map=normalized_deal_map,
+            cycle_code=cycle_code_int,  # Now properly converted to integer
+            report_scope="TRANCHE"  # Default to TRANCHE for most detailed view
+        )
+        
+        # Create the parameter injector with real data
+        injector = DynamicParameterInjector(filters)
+        
+        # Get the real parameter values that would be used in queries
+        real_parameters = injector.get_parameter_values()
+        
+        return {
+            "success": True,
+            "real_parameters": real_parameters,
+            "input_filters": {
+                "deal_tranche_map": normalized_deal_map,
+                "cycle_code": cycle_code_int
+            },
+            "parameter_descriptions": {
+                "current_cycle": "The selected reporting cycle code",
+                "previous_cycle": "The previous reporting cycle (current_cycle - 1)",
+                "cycle_minus_2": "Two cycles before current (current_cycle - 2)",
+                "deal_filter": "WHERE clause for CDI tables with selected deal numbers",
+                "standard_deal_filter": "WHERE clause for standard tables with selected deal numbers",
+                "deal_tranche_filter": "Combined WHERE clause for deal and tranche selections",
+                "deal_numbers": "Comma-separated list of selected deal numbers",
+                "tranche_ids": "Comma-separated list of selected tranche IDs (quoted for SQL)"
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating real parameters: {str(e)}")
+
+
+@router.post("/replace-placeholders-with-real-values")
+def replace_placeholders_with_real_values(request: Dict[str, Any]):
+    """Replace SQL placeholders with real values from deal_tranche_map"""
+    try:
+        # Extract parameters from request
+        sql_text = request.get("sql_text", "").strip()
+        deal_tranche_map = request.get("deal_tranche_map", {})
+        cycle_code = request.get("cycle_code")
+        
+        if not sql_text:
+            raise HTTPException(status_code=400, detail="sql_text is required")
+        
+        if not cycle_code:
+            raise HTTPException(status_code=400, detail="cycle_code is required")
+        
+        # FIXED: Convert cycle_code to integer to prevent type errors in arithmetic operations
+        try:
+            cycle_code_int = int(cycle_code)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail=f"Invalid cycle_code: {cycle_code}. Must be an integer.")
+        
+        # Convert deal_tranche_map keys to integers if they're strings
+        normalized_deal_map = {}
+        for deal_key, tranches in deal_tranche_map.items():
+            try:
+                deal_int = int(deal_key)
+                normalized_deal_map[deal_int] = tranches if isinstance(tranches, list) else []
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail=f"Invalid deal ID in deal_tranche_map: {deal_key}")
+        
+        # Import the resolver components
+        from .resolver import DynamicParameterInjector, QueryFilters
+        from .models import Calculation, CalculationType, GroupLevel
+        
+        # Create the filters object with the real data
+        filters = QueryFilters(
+            deal_tranche_map=normalized_deal_map,
+            cycle_code=cycle_code_int,  # Now properly converted to integer
+            report_scope="TRANCHE"  # Default to TRANCHE for most detailed view
+        )
+        
+        # Create the parameter injector with real data
+        injector = DynamicParameterInjector(filters)
+        
+        # Create a mock calculation object for the injection process
+        # This is needed because inject_parameters expects a Calculation object
+        class MockCalculation:
+            def __init__(self, sql):
+                self.raw_sql = sql
+            
+            def get_used_placeholders(self):
+                """Extract placeholders from SQL"""
+                import re
+                placeholders = set()
+                placeholder_pattern = r'\{([^}]+)\}'
+                matches = re.findall(placeholder_pattern, self.raw_sql)
+                for match in matches:
+                    placeholders.add(match)
+                return placeholders
+        
+        mock_calc = MockCalculation(sql_text)
+        
+        # Inject the real parameter values
+        sql_with_real_values = injector.inject_parameters(sql_text, mock_calc)
+        
+        # Get the parameter values that were used
+        parameter_values = injector.get_parameter_values()
+        used_placeholders = mock_calc.get_used_placeholders();
+        
+        return {
+            "success": True,
+            "original_sql": sql_text,
+            "sql_with_real_values": sql_with_real_values,
+            "parameter_values_used": {k: v for k, v in parameter_values.items() if k in used_placeholders},
+            "all_available_parameters": parameter_values,
+            "placeholders_found": list(used_placeholders),
+            "input_filters": {
+                "deal_tranche_map": normalized_deal_map,
+                "cycle_code": cycle_code
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error replacing placeholders: {str(e)}")
+
+
+# ===== PLACEHOLDERS ENDPOINT (ENHANCED) =====
+
+@router.post("/execute-raw-sql")
+def execute_raw_sql(
+    request: Dict[str, Any],
+    dw_db: Session = Depends(get_dw_db),
+    config_db: Session = Depends(get_db)
+):
+    """Execute raw SQL from field introspection with real parameter values"""
+    try:
+        # Extract parameters from request
+        sql_text = request.get("sql_text", "").strip()
+        deal_tranche_map = request.get("deal_tranche_map", {})
+        cycle_code = request.get("cycle_code")
+        alias = request.get("alias", "raw_sql_result")
+        
+        if not sql_text:
+            raise HTTPException(status_code=400, detail="sql_text is required")
+        
+        if not cycle_code:
+            raise HTTPException(status_code=400, detail="cycle_code is required")
+        
+        # Convert cycle_code to integer
+        try:
+            cycle_code_int = int(cycle_code)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail=f"Invalid cycle_code: {cycle_code}. Must be an integer.")
+        
+        # Convert deal_tranche_map keys to integers
+        normalized_deal_map = {}
+        for deal_key, tranches in deal_tranche_map.items():
+            try:
+                deal_int = int(deal_key)
+                normalized_deal_map[deal_int] = tranches if isinstance(tranches, list) else []
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail=f"Invalid deal ID: {deal_key}")
+        
+        # Import resolver components
+        from .resolver import DynamicParameterInjector, QueryFilters
+        
+        # Create filters
+        filters = QueryFilters(
+            deal_tranche_map=normalized_deal_map,
+            cycle_code=cycle_code_int,
+            report_scope="TRANCHE"
+        )
+        
+        # Create parameter injector and inject real values
+        injector = DynamicParameterInjector(filters)
+        
+        # Create a mock calculation object for placeholder extraction
+        class MockCalculation:
+            def __init__(self, sql):
+                self.raw_sql = sql
+            
+            def get_used_placeholders(self):
+                import re
+                placeholders = set()
+                placeholder_pattern = r'\{([^}]+)\}'
+                matches = re.findall(placeholder_pattern, self.raw_sql)
+                for match in matches:
+                    placeholders.add(match)
+                return placeholders
+        
+        mock_calc = MockCalculation(sql_text)
+        sql_with_real_values = injector.inject_parameters(sql_text, mock_calc)
+        
+        # Execute the SQL
+        try:
+            result = dw_db.execute(text(sql_with_real_values))  # Wrap with text()
+            rows = result.fetchall()
+            
+            # Convert to list of dictionaries
+            if rows:
+                columns = list(result.keys())
+                data = [dict(zip(columns, row)) for row in rows]
+            else:
+                data = []
+            
+            return {
+                "success": True,
+                "alias": alias,
+                "data": data,
+                "row_count": len(data),
+                "columns": list(result.keys()) if rows else [],
+                "sql_executed": sql_with_real_values,
+                "original_sql": sql_text,
+                "parameter_values_used": injector.get_parameter_values(),
+                "placeholders_found": list(mock_calc.get_used_placeholders())
+            }
+            
+        except Exception as sql_error:
+            return {
+                "success": False,
+                "alias": alias,
+                "error": f"SQL execution failed: {str(sql_error)}",
+                "sql_attempted": sql_with_real_values,
+                "original_sql": sql_text,
+                "parameter_values_used": injector.get_parameter_values(),
+                "placeholders_found": list(mock_calc.get_used_placeholders())
+            }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error executing raw SQL: {str(e)}")

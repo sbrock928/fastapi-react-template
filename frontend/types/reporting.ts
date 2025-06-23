@@ -154,6 +154,38 @@ export interface RunReportRequest {
   cycle_code: number;
 }
 
+// NEW: Failed calculation information
+export interface FailedCalculation {
+  calculation: string;
+  calculation_id: string;
+  error: string;
+  error_type: string;
+}
+
+// NEW: Execution summary for report run results
+export interface ExecutionSummary {
+  success_rate: string;
+  total_calculations: number;
+  successful_calculations: number;
+  failed_calculations: number;
+  execution_time_ms: number;
+  base_query_success: boolean;
+}
+
+// NEW: Report run result with execution details
+export interface ReportRunResult {
+  data: Record<string, any>[];
+  columns: {
+    field: string;
+    header: string;
+    format_type: string;
+    display_order: number;
+  }[];
+  total_rows: number;
+  execution_summary: ExecutionSummary;
+  failed_calculations?: FailedCalculation[];
+}
+
 export interface ReportExecutionLog {
   id: number;
   report_id: number;
