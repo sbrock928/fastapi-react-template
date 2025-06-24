@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import type { PreviewData } from '@/types/calculations';
 import { formatSQL, highlightSQL } from '@/utils/sqlFormatter';
 import styles from '@/styles/components/SQLPreview.module.css';
-import calculationsApi from '@/services/calculationsApi';
 import { useToast } from '@/context/ToastContext';
 
 interface SqlPreviewModalProps {
@@ -10,23 +9,15 @@ interface SqlPreviewModalProps {
   previewData: PreviewData | null;
   previewLoading: boolean;
   onClose: () => void;
-  calculationId?: number | null;
-  calculationType?: 'user_calculation' | 'system_calculation';
 }
 
 const SqlPreviewModal: React.FC<SqlPreviewModalProps> = ({
   isOpen,
   previewData,
   previewLoading,
-  onClose,
-  calculationId,
-  calculationType = 'user_calculation'
+  onClose
 }) => {
   const { showToast } = useToast();
-  const [executing, setExecuting] = useState(false);
-  const [executionResults, setExecutionResults] = useState<any>(null);
-  const [executionError, setExecutionError] = useState<string | null>(null);
-  const [showResults, setShowResults] = useState(false);
 
   if (!isOpen) return null;
 
@@ -35,41 +26,6 @@ const SqlPreviewModal: React.FC<SqlPreviewModalProps> = ({
     if (sql) {
       navigator.clipboard.writeText(sql);
       showToast('SQL copied to clipboard!', 'success');
-    }
-  };
-
-  const handleExecuteCalculation = async () => {
-    if (!calculationId || !previewData) {
-      showToast('Cannot execute: Missing calculation information', 'error');
-      return;
-    }
-
-    setExecuting(true);
-    setExecutionError(null);
-    setExecutionResults(null);
-
-    try {
-      const executionParams = {
-        deal_tranche_mapping: getDealMap() || { 101: ['A', 'B'], 102: [], 103: [] },
-        cycle_code: getCycleCode() || 202404
-      };
-
-      const response = await calculationsApi.executeSeparateCalculation(
-        calculationId,
-        calculationType,
-        executionParams
-      );
-
-      setExecutionResults(response.data);
-      setShowResults(true);
-      showToast(`Execution completed successfully! Retrieved ${response.data.row_count} rows in ${response.data.execution_time_ms}ms`, 'success');
-    } catch (error: any) {
-      console.error('Error executing calculation:', error);
-      const errorMessage = error.response?.data?.detail || error.message || 'Failed to execute calculation';
-      setExecutionError(errorMessage);
-      showToast(`Execution failed: ${errorMessage}`, 'error');
-    } finally {
-      setExecuting(false);
     }
   };
 
@@ -121,51 +77,6 @@ const SqlPreviewModal: React.FC<SqlPreviewModalProps> = ({
       return params.cycle;
     }
     return null;
-  };
-
-  const formatExecutionResults = () => {
-    if (!executionResults?.data || executionResults.data.length === 0) {
-      return <div className="text-muted">No results returned</div>;
-    }
-
-    const results = executionResults.data;
-    const columns = Object.keys(results[0]);
-
-    return (
-      <div className="table-responsive" style={{ maxHeight: '400px', overflowY: 'auto' }}>
-        <table className="table table-sm table-striped">
-          <thead className="table-dark sticky-top">
-            <tr>
-              {columns.map(col => (
-                <th key={col} scope="col">{col}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {results.slice(0, 100).map((row: any, index: number) => (
-              <tr key={index}>
-                {columns.map(col => (
-                  <td key={col}>
-                    {row[col] !== null && row[col] !== undefined ? 
-                      (typeof row[col] === 'number' ? 
-                        Number(row[col]).toLocaleString() : 
-                        String(row[col])
-                      ) : 
-                      <span className="text-muted">NULL</span>
-                    }
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {results.length > 100 && (
-          <div className="text-muted text-center py-2">
-            Showing first 100 rows of {results.length} total results
-          </div>
-        )}
-      </div>
-    );
   };
 
   return (
@@ -255,78 +166,15 @@ const SqlPreviewModal: React.FC<SqlPreviewModalProps> = ({
                   <div className="d-flex gap-2">
                     <button
                       className="btn btn-success"
-                      onClick={handleExecuteCalculation}
-                      disabled={executing || !calculationId}
-                      title="Execute this calculation with sample data to see actual results"
+                      onClick={handleCopySQL}
+                      title="Copy SQL to clipboard"
                     >
-                      {executing ? (
-                        <>
-                          <span className="spinner-border spinner-border-sm me-2" role="status"></span>
-                          Executing...
-                        </>
-                      ) : (
-                        <>
-                          <i className="bi bi-play-fill me-2"></i>
-                          Execute Calculation
-                        </>
-                      )}
+                      <i className="bi bi-clipboard me-2"></i>
+                      Copy SQL
                     </button>
-                    {executionResults && (
-                      <button
-                        className={`btn ${showResults ? 'btn-outline-primary' : 'btn-primary'}`}
-                        onClick={() => setShowResults(!showResults)}
-                      >
-                        <i className={`bi ${showResults ? 'bi-eye-slash' : 'bi-eye'} me-2`}></i>
-                        {showResults ? 'Hide Results' : 'Show Results'}
-                      </button>
-                    )}
-                  </div>
-                  <div className="text-muted small">
-                    <i className="bi bi-info-circle me-1"></i>
-                    Execute to test with real data before adding to reports
                   </div>
                 </div>
 
-                {/* Execution Results */}
-                {executionResults && showResults && (
-                  <div className="mb-4">
-                    <div className="card">
-                      <div className="card-header bg-success text-white">
-                        <div className="d-flex justify-content-between align-items-center">
-                          <h6 className="mb-0">
-                            <i className="bi bi-check-circle me-2"></i>
-                            Execution Results
-                          </h6>
-                          <div className="d-flex gap-3">
-                            <span className="badge bg-light text-dark">
-                              {executionResults.row_count} rows
-                            </span>
-                            <span className="badge bg-light text-dark">
-                              {executionResults.execution_time_ms}ms
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="card-body p-0">
-                        {formatExecutionResults()}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Execution Error */}
-                {executionError && (
-                  <div className="mb-4">
-                    <div className="alert alert-danger">
-                      <h6 className="alert-heading">
-                        <i className="bi bi-exclamation-triangle me-2"></i>
-                        Execution Failed
-                      </h6>
-                      <p className="mb-0">{executionError}</p>
-                    </div>
-                  </div>
-                )}
-                
                 {/* SQL Query */}
                 <div className="mb-3">
                   <div className={styles.sqlSectionHeader}>

@@ -60,8 +60,6 @@ const CalculationBuilder: React.FC = () => {
   const [showPreviewModal, setShowPreviewModal] = useState<boolean>(false);
   const [previewData, setPreviewData] = useState<any>(null);
   const [previewLoading, setPreviewLoading] = useState<boolean>(false);
-  const [previewCalculationId, setPreviewCalculationId] = useState<number | null>(null);
-  const [previewCalculationType, setPreviewCalculationType] = useState<'user_calculation' | 'system_calculation'>('user_calculation');
 
   // Form state
   const {
@@ -260,6 +258,50 @@ const CalculationBuilder: React.FC = () => {
     setFilteredSystemCalculations(filtered);
   }, [systemCalculations, systemFilter]);
 
+  // Usage tracking state
+  const [userUsage, setUserUsage] = useState<Record<number, any>>({});
+  const [systemUsage, setSystemUsage] = useState<Record<number, any>>({});
+
+  // Fetch usage data for calculations
+  const fetchUsageData = async () => {
+    try {
+      // Fetch usage for user calculations
+      const userUsageMap: Record<number, any> = {};
+      for (const calc of userCalculations) {
+        try {
+          const response = await calculationsApi.getUserCalculationUsage(calc.id);
+          userUsageMap[calc.id] = response.data;
+        } catch (error) {
+          console.error(`Error fetching usage for user calculation ${calc.id}:`, error);
+          userUsageMap[calc.id] = { is_in_use: false, report_count: 0, reports: [] };
+        }
+      }
+      setUserUsage(userUsageMap);
+
+      // Fetch usage for system calculations
+      const systemUsageMap: Record<number, any> = {};
+      for (const calc of systemCalculations) {
+        try {
+          const response = await calculationsApi.getSystemCalculationUsage(calc.id);
+          systemUsageMap[calc.id] = response.data;
+        } catch (error) {
+          console.error(`Error fetching usage for system calculation ${calc.id}:`, error);
+          systemUsageMap[calc.id] = { is_in_use: false, report_count: 0, reports: [] };
+        }
+      }
+      setSystemUsage(systemUsageMap);
+    } catch (error) {
+      console.error('Error fetching usage data:', error);
+    }
+  };
+
+  // Fetch usage data when calculations change
+  useEffect(() => {
+    if (userCalculations.length > 0 || systemCalculations.length > 0) {
+      fetchUsageData();
+    }
+  }, [userCalculations, systemCalculations]);
+
   // Handle showing usage information with scope-aware fetching
   const handleShowUsage = async (calcId: number, calcName: string) => {
     setUsageLoading(true);
@@ -295,10 +337,9 @@ const CalculationBuilder: React.FC = () => {
   const handlePreviewSQL = async (calcId: number) => {
     setPreviewLoading(true);
     setShowPreviewModal(true); // Show modal first with loading state
-    setPreviewCalculationId(calcId);
     
     // Set calculation type based on active tab
-    setPreviewCalculationType(activeTab === 'system-defined' ? 'system_calculation' : 'user_calculation');
+    // setPreviewCalculationType(activeTab === 'system-defined' ? 'system_calculation' : 'user_calculation');
     
     try {
       let response;
@@ -313,17 +354,44 @@ const CalculationBuilder: React.FC = () => {
         response = await calculationsApi.previewSQL(calcId, SAMPLE_PREVIEW_PARAMS);
       }
       
-      // Validate response data
-      if (response.data && response.data.sql) {
-        setPreviewData(response.data);
+      // FIXED: Handle both successful and error responses properly
+      if (response.data) {
+        // Check if the response contains an error
+        if (response.data.error) {
+          // Set preview data with error information
+          setPreviewData({
+            sql: response.data.sql_preview || '-- Error generating SQL preview\n-- Please try again or contact support',
+            error: response.data.error,
+            calculation_type: response.data.calculation_type || 'unknown',
+            group_level: response.data.group_level || 'unknown',
+            columns: [],
+            parameters: response.data.parameters_used || {}
+          });
+          showToast(`SQL preview generated with warnings: ${response.data.error}`, 'warning');
+        } else if (response.data.sql_preview || response.data.sql) {
+          // Successful response - map the backend format to frontend format
+          setPreviewData({
+            sql: response.data.sql_preview || response.data.sql,
+            calculation_type: response.data.calculation_type || 'unknown',
+            group_level: response.data.group_level || 'unknown',
+            columns: response.data.columns || [],
+            parameters: response.data.parameters_used || response.data.parameters || {}
+          });
+        } else {
+          throw new Error('Invalid response format from preview API - no SQL found');
+        }
       } else {
-        throw new Error('Invalid response data from preview API');
+        throw new Error('Empty response from preview API');
       }
     } catch (error) {
       console.error('Error previewing SQL:', error);
       setPreviewData({
         sql: '-- Error generating SQL preview\n-- Please try again or contact support',
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : 'Unknown error',
+        calculation_type: 'unknown',
+        group_level: 'unknown',
+        columns: [],
+        parameters: {}
       });
       showToast('Failed to preview SQL. Please try again.', 'error');
     } finally {
@@ -548,6 +616,7 @@ const CalculationBuilder: React.FC = () => {
                               <div key={calc.id} className="col-12">
                                 <CalculationCard
                                   calculation={calc}
+                                  usage={userUsage[calc.id]}
                                   usageScope={usageScope}
                                   onEdit={(calc) => handleOpenModal('user-defined', calc)}
                                   onDelete={tabData.deleteCalculation || (() => {})}
@@ -578,7 +647,7 @@ const CalculationBuilder: React.FC = () => {
                     selectedFilter={systemFilter}
                     setSelectedFilter={setSystemFilter}
                     loading={calculationsLoading}
-                    usage={{}}
+                    usage={systemUsage}
                     usageScope={usageScope}
                     onCreateSystemSql={() => handleOpenModal('system-sql')}
                     onEditSystemSql={(calc) => handleOpenModal('system-sql', calc)}
@@ -626,8 +695,6 @@ const CalculationBuilder: React.FC = () => {
             previewData={previewData}
             previewLoading={previewLoading}
             onClose={() => setShowPreviewModal(false)}
-            calculationId={previewCalculationId}
-            calculationType={previewCalculationType}
           />
         </>
       )}

@@ -328,14 +328,7 @@ def get_user_calculation_usage(
 ):
     """Get usage information for a user calculation"""
     try:
-        # TODO: implement usage tracking
-        return {
-            "calculation_id": calc_id,
-            "calculation_name": "Unknown",
-            "is_in_use": False,
-            "report_count": 0,
-            "reports": []
-        }
+        return service.get_user_calculation_usage(calc_id, report_scope)
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -350,14 +343,7 @@ def get_calculation_usage(
 ):
     """Get usage information for any calculation type"""
     try:
-        # TODO: implement usage tracking
-        return {
-            "calculation_id": calc_id,
-            "calculation_name": "Unknown",
-            "is_in_use": False,
-            "report_count": 0,
-            "reports": []
-        }
+        return service.get_calculation_usage(calc_id, calc_type)
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -397,14 +383,7 @@ def get_system_calculation_usage(
 ):
     """Get usage information for a system calculation"""
     try:
-        # TODO: implement usage tracking
-        return {
-            "calculation_id": calc_id,
-            "calculation_name": "Unknown",
-            "is_in_use": False,
-            "report_count": 0,
-            "reports": []
-        }
+        return service.get_system_calculation_usage(calc_id, report_scope)
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -643,7 +622,7 @@ def preview_single_calculation(
     request: Dict[str, Any],
     service: UnifiedCalculationService = Depends(get_report_execution_service)
 ):
-    """Preview SQL for a single calculation"""
+    """Preview SQL for a single calculation using the same logic as report previews"""
     try:
         # Extract required parameters
         calculation_request = request.get("calculation_request", {})
@@ -665,7 +644,7 @@ def preview_single_calculation(
             except (ValueError, TypeError):
                 raise HTTPException(status_code=400, detail=f"Invalid deal ID in deal_tranche_map: {deal_key}")
         
-        # Use the service to generate the preview
+        # Use the same service method that report previews use
         try:
             preview_result = service.preview_calculation(
                 calc_id=calc_id,
@@ -674,47 +653,74 @@ def preview_single_calculation(
                 report_scope="TRANCHE"
             )
             
-            # Extract SQL from the resolver response format
-            sql_preview = None
+            # Extract the SQL and other data from the resolver response
+            # The resolver returns the same format as report execution
             if "sql" in preview_result:
                 sql_preview = preview_result["sql"]
-            elif "unified_sql" in preview_result:
-                sql_preview = preview_result["unified_sql"]
-            elif "merged_data" in preview_result:
-                # This means it executed successfully, but we want the SQL
-                # Try to get it from debug_info or error fallback
-                debug_info = preview_result.get("debug_info", {})
-                sql_preview = debug_info.get("sql", "-- SQL preview not available")
-            else:
-                sql_preview = "-- Error: No SQL found in response"
-            
-            # Check for errors in the response
-            if "error" in preview_result:
+                
+                # Get calculation details from the database
+                calc_response = service.get_calculation_by_id(calc_id)
+                if not calc_response:
+                    raise HTTPException(status_code=404, detail=f"Calculation with ID {calc_id} not found")
+                
                 return {
-                    "sql_preview": f"-- Error: {preview_result['error']}\n-- Debug info: {preview_result.get('debug_info', {})}",
-                    "error": preview_result["error"],
+                    "sql": sql_preview,
+                    "sql_preview": sql_preview,  # Both fields for compatibility
+                    "calculation_type": calc_response.calculation_type.value if calc_response.calculation_type else "unknown",
+                    "group_level": calc_response.group_level.value if calc_response.group_level else "unknown",
+                    "calculation_name": calc_response.name,
+                    "columns": preview_result.get("columns", []),
+                    "parameters_used": preview_result.get("parameter_injections", {}).get("parameter_values", {}),
+                    "parameters": {
+                        "deal_tranche_map": normalized_deal_map,
+                        "cycle_code": cycle_code
+                    },
+                    "placeholders_used": preview_result.get("placeholders_used", []),
                     "debug_info": preview_result.get("debug_info", {})
                 }
-            
-            return {
-                "sql_preview": sql_preview,
-                "calculation_type": preview_result.get("calculation_type", "unknown"),
-                "group_level": preview_result.get("group_level", "unknown"),
-                "parameters_used": preview_result.get("parameter_injections", {}).get("parameter_values", {}),
-                "placeholders_used": preview_result.get("placeholders_used", []),
-                "debug_info": preview_result.get("debug_info", {})
-            }
-            
+            elif "error" in preview_result:
+                # Return error with SQL fallback
+                return {
+                    "sql": f"-- Error: {preview_result['error']}",
+                    "sql_preview": f"-- Error: {preview_result['error']}",
+                    "error": preview_result["error"],
+                    "calculation_type": "error",
+                    "group_level": "unknown",
+                    "calculation_name": "Error",
+                    "columns": [],
+                    "parameters_used": {},
+                    "parameters": {
+                        "deal_tranche_map": normalized_deal_map,
+                        "cycle_code": cycle_code
+                    },
+                    "debug_info": preview_result.get("debug_info", {})
+                }
+            else:
+                # Fallback if no SQL found in response
+                raise Exception("No SQL found in preview result")
+                
         except Exception as service_error:
-            # If service fails, return a meaningful error
+            # If service fails, return a meaningful error with fallback SQL
+            error_message = f"Failed to generate SQL preview: {str(service_error)}"
             return {
-                "sql_preview": f"-- Service Error: {str(service_error)}",
-                "error": f"Failed to generate SQL preview: {str(service_error)}",
+                "sql": f"-- Service Error: {error_message}",
+                "sql_preview": f"-- Service Error: {error_message}",
+                "error": error_message,
+                "calculation_type": "error",
+                "group_level": "unknown",
+                "calculation_name": "Error",
+                "columns": [],
+                "parameters_used": {},
+                "parameters": {
+                    "deal_tranche_map": normalized_deal_map,
+                    "cycle_code": cycle_code
+                },
                 "debug_info": {
                     "calc_id": calc_id,
                     "calc_type": calc_type,
                     "cycle_code": cycle_code,
-                    "deal_tranche_map": normalized_deal_map
+                    "deal_tranche_map": normalized_deal_map,
+                    "error": str(service_error)
                 }
             }
             

@@ -45,15 +45,29 @@ const SystemCalculationsTab: React.FC<SystemCalculationsTabProps> = ({
     return systemCalc.calculation_type === 'system_sql';
   });
 
-  // Dummy delete function (system calculations cannot be deleted)
-  const handleDeleteAttempt = (_id: number, name: string) => {
-    // This will never actually delete, just show a warning
-    console.warn(`Cannot delete system calculation: ${name}`);
-    // If onDeleteSystemSql is provided, call it (for compatibility with user calculations)
-    if (onDeleteSystemSql) {
-      onDeleteSystemSql(_id, name).catch(err => {
-        console.error(`Failed to delete system calculation ${name}:`, err);
-      });
+  // Handle delete with usage checking
+  const handleDeleteAttempt = async (id: number, name: string) => {
+    try {
+      // Check if the calculation is in use
+      const calcUsage = usage[id];
+      
+      if (calcUsage?.is_in_use) {
+        // Show warning if calculation is in use
+        const reportList = calcUsage.reports?.map((r: any) => r.report_name).join(', ') || 'unknown reports';
+        alert(`Cannot delete "${name}" - it is currently being used in the following reports: ${reportList}`);
+        return;
+      }
+      
+      // If not in use, confirm deletion
+      const confirmDelete = window.confirm(
+        `Are you sure you want to delete the system calculation "${name}"? This action cannot be undone.`
+      );
+      
+      if (confirmDelete && onDeleteSystemSql) {
+        await onDeleteSystemSql(id, name);
+      }
+    } catch (error) {
+      console.error(`Failed to delete system calculation ${name}:`, error);
     }
   };
 

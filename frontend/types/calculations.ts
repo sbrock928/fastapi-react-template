@@ -223,6 +223,7 @@ export interface AvailableCalculation {
 export interface PreviewData {
   // New API format (actual backend response)
   sql?: string;
+  sql_preview?: string; // Backend sometimes returns this field
   columns?: string[];
   calculation_type?: string;
   group_level?: string;
@@ -230,6 +231,8 @@ export interface PreviewData {
     deal_tranche_map?: Record<string, string[]>;
     cycle_code?: number;
   };
+  parameters_used?: Record<string, any>; // Backend response field
+  error?: string; // Backend error field
   
   // Legacy format (for backward compatibility)
   calculation_name?: string;

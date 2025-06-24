@@ -14,18 +14,10 @@ import type {
   SystemCalculationUpdateRequest,
   SystemSqlValidationRequest,
   SystemSqlValidationResponse,
-  CalculationUsage
+  CalculationUsage,
+  PreviewData
 } from '@/types/calculations';
 import { parseCalculationId } from '@/types/calculations';
-
-// Add the PreviewData type for individual calculation previews
-type PreviewData = {
-  sql: string;
-  columns: string[];
-  calculation_type: string;
-  group_level: string;
-  parameters: any;
-};
 
 // Updated to handle string-based calculation IDs
 export const calculationsApi = {
@@ -169,6 +161,22 @@ export const calculationsApi = {
       cycle_code: executionParams.cycle || executionParams.cycle_code || 202404
     };
     
+    return apiClient.post('/calculations/execute-separate', requestData);
+  },
+
+  async executeReport(requestData: {
+    calculation_requests: Array<{
+      calc_id: number;
+      alias?: string;
+    }>;
+    deal_tranche_map: Record<number, string[]>;
+    cycle_code: number;
+    report_scope?: string;
+  }): Promise<AxiosResponse<{
+    merged_data: any[];
+    execution_results: any;
+    debug_info: any;
+  }>> {
     return apiClient.post('/calculations/execute-separate', requestData);
   },
 

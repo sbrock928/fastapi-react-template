@@ -223,21 +223,19 @@ const CalculationCard: React.FC<CalculationCardProps> = ({
             <button
               onClick={() => onDelete(calculation.id, calculation.name)}
               className={`btn btn-sm ${
-                isSystem || usage?.is_in_use 
+                usage?.is_in_use 
                   ? 'btn-outline-secondary' 
                   : 'btn-outline-danger'
               }`}
               title={
-                isSystem
-                  ? 'System calculations cannot be deleted'
-                  : usage?.is_in_use 
-                    ? 'Cannot delete - calculation is in use'
-                    : 'Delete calculation'
+                usage?.is_in_use 
+                  ? 'Cannot delete - calculation is in use'
+                  : 'Delete calculation'
               }
-              disabled={isSystem || usage?.is_in_use}
+              disabled={usage?.is_in_use}
             >
               <i className="bi bi-trash"></i> 
-              {isSystem ? 'Protected' : usage?.is_in_use ? 'In Use' : 'Delete'}
+              {usage?.is_in_use ? 'In Use' : 'Delete'}
             </button>
             
             <button

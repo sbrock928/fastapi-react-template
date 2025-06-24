@@ -646,6 +646,91 @@ class UnifiedCalculationService:
                 }
             }
 
+    # === USAGE TRACKING METHODS ===
+
+    def get_calculation_usage(self, calc_id: int, calc_type: str, report_scope: Optional[str] = None) -> Dict[str, Any]:
+        """Get usage information for any calculation type"""
+        try:
+            # Import here to avoid circular imports
+            from app.reporting.models import Report, ReportCalculation
+            
+            # Get the calculation details first
+            calculation = self.get_calculation_by_id(calc_id)
+            if not calculation:
+                return {
+                    "calculation_id": calc_id,
+                    "calculation_name": "Unknown",
+                    "is_in_use": False,
+                    "report_count": 0,
+                    "reports": [],
+                    "error": f"Calculation with ID {calc_id} not found"
+                }
+            
+            # Build the calculation_id string based on type and calculation details
+            if calc_type.lower() == 'user' or calculation.calculation_type == 'USER_AGGREGATION':
+                calc_id_str = f"user.{calculation.source_field}"
+            elif calc_type.lower() == 'system' or calculation.calculation_type == 'SYSTEM_SQL':
+                calc_id_str = f"system.{calculation.result_column_name}"
+            else:
+                calc_id_str = str(calc_id)
+            
+            # Query reports that use this calculation
+            query = self.config_db.query(Report, ReportCalculation).join(
+                ReportCalculation, Report.id == ReportCalculation.report_id
+            ).filter(
+                ReportCalculation.calculation_id == calc_id_str,
+                Report.is_active == True
+            )
+            
+            # Apply scope filter if provided
+            if report_scope and report_scope.upper() in ['DEAL', 'TRANCHE']:
+                query = query.filter(Report.scope == report_scope.upper())
+            
+            results = query.all()
+            
+            # Format the response
+            reports = []
+            for report, report_calc in results:
+                reports.append({
+                    "report_id": report.id,
+                    "report_name": report.name,
+                    "report_description": report.description,
+                    "scope": report.scope,
+                    "created_by": report.created_by,
+                    "created_date": report.created_date.isoformat() if report.created_date else None,
+                    "display_name": report_calc.display_name,
+                    "display_order": report_calc.display_order
+                })
+            
+            return {
+                "calculation_id": calc_id,
+                "calculation_name": calculation.name,
+                "is_in_use": len(reports) > 0,
+                "report_count": len(reports),
+                "reports": reports,
+                "calculation_type": calculation.calculation_type.value if calculation.calculation_type else "unknown",
+                "scope_filter": report_scope
+            }
+            
+        except Exception as e:
+            print(f"Error getting calculation usage: {str(e)}")
+            return {
+                "calculation_id": calc_id,
+                "calculation_name": "Unknown",
+                "is_in_use": False,
+                "report_count": 0,
+                "reports": [],
+                "error": str(e)
+            }
+
+    def get_user_calculation_usage(self, calc_id: int, report_scope: Optional[str] = None) -> Dict[str, Any]:
+        """Get usage information for a user calculation"""
+        return self.get_calculation_usage(calc_id, 'user', report_scope)
+
+    def get_system_calculation_usage(self, calc_id: int, report_scope: Optional[str] = None) -> Dict[str, Any]:
+        """Get usage information for a system calculation"""
+        return self.get_calculation_usage(calc_id, 'system', report_scope)
+
     # === UTILITY METHODS ===
 
     def _validate_unique_calculation_name(self, name: str, exclude_id: Optional[int] = None) -> None:
