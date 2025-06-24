@@ -957,8 +957,19 @@ class ReportService:
 
     def _format_value(self, value: Any, format_type: ColumnFormat, use_rounding: bool = True, precision: int = 2) -> Any:
         """Format a single value according to the specified format type with precision control."""
+        # Handle NULL values with appropriate defaults based on format type
         if value is None:
-            return None
+            if format_type == ColumnFormat.CURRENCY:
+                return f"$0.{'0' * precision}"
+            elif format_type == ColumnFormat.PERCENTAGE:
+                return f"0.{'0' * precision}%"
+            elif format_type == ColumnFormat.NUMBER:
+                if precision == 0:
+                    return "0"
+                else:
+                    return f"0.{'0' * precision}"
+            else:  # TEXT, DATE formats
+                return None
 
         try:
             if format_type == ColumnFormat.CURRENCY:
