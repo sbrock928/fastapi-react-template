@@ -543,7 +543,7 @@ class ReportService:
             else:
                 print("No raw data returned!")
 
-            # Apply column preferences to the result - RESPECT USER SETTINGS
+            # Apply column preferences to the result
             formatted_data = self._apply_column_preferences(raw_data, report)
 
             # DEBUG: Log formatted data keys
@@ -553,67 +553,28 @@ class ReportService:
             else:
                 print("No formatted data!")
 
-            # Calculate success metrics - FIXED: Count all calculations and fix response structure
-            successful_calc_details = execution_results.get('successful_calculations', [])
-            failed_calc_details = execution_results.get('failed_calculations', [])
-            
-            # Count non-default calculations (exclude deal_number, tranche_id, cycle_code)
-            non_default_calcs = [req for req in calculation_requests 
-                               if not req.alias in ['deal_number', 'tranche_id', 'cycle_code']]
-            total_calculations = len(non_default_calcs)
-            successful_calculations_count = len(successful_calc_details)
-            failed_calculations_count = len(failed_calc_details)
-            
-            # If we have more successful details than our count suggests, use the details count
-            if successful_calculations_count > total_calculations:
-                total_calculations = successful_calculations_count
-            
-            success_rate = (successful_calculations_count / total_calculations * 100) if total_calculations > 0 else 100
+            # Calculate success metrics
+            total_calculations = execution_results.get('total_calculations', 0)
+            successful_calculations = len(execution_results.get('successful_calculations', []))
+            success_rate = (successful_calculations / total_calculations * 100) if total_calculations > 0 else 100
 
             # Log successful execution with enhanced metrics
             await self._log_execution(
                 report_id, cycle_code, "api_user",
                 (time.time() - start_time) * 1000,
                 len(formatted_data), True,
-                f"Success rate: {success_rate:.1f}% ({successful_calculations_count}/{total_calculations} calculations)"
+                f"Success rate: {success_rate:.1f}% ({successful_calculations}/{total_calculations} calculations)"
             )
 
-            # Build response with properly formatted columns metadata  
-            columns_metadata = self._build_columns_metadata_from_preferences(formatted_data, report)
-
-            # ENHANCED: Build better execution summary with proper calculation names
-            calculation_name_map = {req.calc_id: req.alias for req in calculation_requests}
-
-            # ENHANCED: Return both data and execution metadata with columns
+            # ENHANCED: Return both data and execution metadata
             return {
                 "data": formatted_data,
-                "columns": columns_metadata,
-                "total_rows": len(formatted_data),
-                "execution_summary": {
-                    "success_rate": f"{success_rate:.1f}%",
-                    "total_calculations": total_calculations,
-                    "successful_calculations": successful_calculations_count,  # FIXED: Return count, not array
-                    "failed_calculations": failed_calculations_count,
-                    "execution_time_ms": (time.time() - start_time) * 1000,
-                    "base_query_success": execution_results.get('base_query_success', False)
-                },
-                "successful_calculations": [
-                    {
-                        "calculation": calculation_name_map.get(calc.get('calculation_id'), calc.get('alias', 'Unknown')),
-                        "calculation_id": calc.get('calculation_id', 'Unknown'),
-                        "rows_returned": calc.get('rows_returned', 0)  # FIXED: Use 'rows_returned' instead of 'row_count'
-                    }
-                    for calc in execution_results.get('successful_calculations', [])
-                ],
-                "failed_calculations": [
-                    {
-                        "calculation": calculation_name_map.get(calc.get('calculation_id'), calc.get('alias', 'Unknown')),
-                        "calculation_id": calc.get('calculation_id', 'Unknown'),
-                        "error": calc.get('error', 'Unknown error'),
-                        "error_type": calc.get('error_type', 'execution_error')
-                    }
-                    for calc in execution_results.get('failed_calculations', [])
-                ]
+                "execution_results": execution_results,
+                "success_rate": f"{success_rate:.1f}%",
+                "total_calculations": total_calculations,
+                "successful_calculations": successful_calculations,
+                "failed_calculations": len(execution_results.get('failed_calculations', [])),
+                "execution_time_ms": (time.time() - start_time) * 1000
             }
 
         except HTTPException:
@@ -829,94 +790,82 @@ class ReportService:
         format_rules = {}
         visible_columns = set()
         
-        # DEBUG: Log column preferences
-        print("=== DEBUG: Column Preferences ===")
-        for col_pref in column_prefs.columns:
-            print(f"  Column ID: {col_pref.column_id}, Display: {col_pref.display_name}, Format: {col_pref.format_type}, Visible: {col_pref.is_visible}")
-        
         # Create a mapping from calculation IDs to display names for user/system calculations
         calc_id_to_display_name = {}
-        calc_id_to_alias = {}  # Track the actual alias used in SQL
+        calc_id_to_alias = {}  # NEW: Track the actual alias used in SQL
         for report_calc in report.selected_calculations:
             calc_id = report_calc.calculation_id
             calc_type = getattr(report_calc, 'calculation_type', None)
             display_name = self._get_calculation_display_name(calc_id, calc_type)
             calc_id_to_display_name[calc_id] = display_name
             
-            # Track the actual alias that will be used in the SQL (the display_name from report_calc)
+            # NEW: Track the actual alias that will be used in the SQL (the display_name from report_calc)
             actual_alias = report_calc.display_name or display_name
             calc_id_to_alias[calc_id] = actual_alias
-            print(f"DEBUG: Calc mapping - ID: {calc_id}, Display: {display_name}, Alias: {actual_alias}")
-
-        # FIXED: Build comprehensive column mapping that handles missing preferences
-        available_raw_columns = set(raw_data[0].keys())
-        print(f"DEBUG: Available raw columns: {available_raw_columns}")
         
-        # First pass: Map columns that have explicit preferences
-        mapped_columns = set()
         for col_pref in column_prefs.columns:
             if col_pref.is_visible:
                 column_id = col_pref.column_id
                 
-                # Find the raw data key for this column preference
-                raw_data_key = None
-                
+                # FIXED: Handle different types of columns with proper static field mapping
                 if column_id.startswith("static_"):
-                    # For static fields, find by calculation alias
+                    # For static fields, the raw data key is now the display name (alias)
+                    # Find the corresponding calculation to get its display name
+                    static_calc = None
                     for report_calc in report.selected_calculations:
                         if report_calc.calculation_id == column_id:
-                            raw_data_key = report_calc.display_name or self._get_calculation_display_name(column_id, "static")
+                            static_calc = report_calc
                             break
                     
-                    # Fallback: try the actual static field name
-                    if not raw_data_key or raw_data_key not in available_raw_columns:
+                    if static_calc and static_calc.display_name:
+                        # Use the display name from the report calculation
+                        raw_data_key = static_calc.display_name
+                    else:
+                        # Fallback: try to get the display name from static field registry - FIXED: Use StaticFieldHelper
                         field_path = column_id.replace("static_", "")
                         field = StaticFieldHelper.get_static_field_by_path(field_path)
-                        if field.name in available_raw_columns:
-                            raw_data_key = field.name
-                
+                        raw_data_key = field.name
                 elif column_id.replace(".", "_") in ["deal_number", "tranche_id", "cycle_code"]:
-                    # Default columns
+                    # Default columns - convert dots to underscores for raw data lookup
                     raw_data_key = column_id.replace(".", "_")
-                
                 elif column_id in calc_id_to_alias:
                     # User/system calculations - use the actual alias from the SQL
                     raw_data_key = calc_id_to_alias[column_id]
+                else:
+                    # Default case - use column_id as is
+                    raw_data_key = column_id
                 
-                else:
-                    # Try to find by column_id directly
-                    if column_id in available_raw_columns:
-                        raw_data_key = column_id
-                
-                # If we found a valid mapping and the column exists in raw data
-                if raw_data_key and raw_data_key in available_raw_columns:
-                    column_mapping[raw_data_key] = col_pref.display_name
-                    format_rules[raw_data_key] = col_pref.format_type
-                    visible_columns.add(raw_data_key)
-                    mapped_columns.add(raw_data_key)
-                    print(f"DEBUG: Mapped preference - {column_id} -> raw_key: '{raw_data_key}' -> display: '{col_pref.display_name}' (format: {col_pref.format_type})")
-                else:
-                    print(f"DEBUG: Could not map preference - {column_id} (raw_key: {raw_data_key}, exists: {raw_data_key in available_raw_columns if raw_data_key else False})")
+                column_mapping[raw_data_key] = col_pref.display_name
+                format_rules[raw_data_key] = col_pref.format_type
+                visible_columns.add(raw_data_key)
 
-        # Second pass: Add any unmapped columns from raw data with default formatting
-        for raw_column in available_raw_columns:
-            if raw_column not in mapped_columns:
-                # Check if this is a default column that should be included
-                if raw_column in ["deal_number", "tranche_id", "cycle_code"]:
-                    column_mapping[raw_column] = raw_column.replace('_', ' ').title()
-                    format_rules[raw_column] = ColumnFormat.NUMBER if raw_column == "cycle_code" else ColumnFormat.TEXT
-                    visible_columns.add(raw_column)
-                    print(f"DEBUG: Added default column - '{raw_column}' -> '{column_mapping[raw_column]}' (format: {format_rules[raw_column]})")
+        # Handle default columns based on report scope, but respect visibility settings
+        if report.scope == "DEAL":
+            default_columns = {'deal_number', 'cycle_code'}
+        else:  # TRANCHE scope
+            default_columns = {'deal_number', 'tranche_id', 'cycle_code'}
+        
+        # Create a set of explicitly hidden columns from column preferences
+        hidden_columns = set()
+        for col_pref in column_prefs.columns:
+            if not col_pref.is_visible:
+                # Convert column_id to raw_data_key format for comparison
+                if col_pref.column_id.startswith("static_") or col_pref.column_id.replace(".", "_") in ["deal_number", "tranche_id", "cycle_code"]:
+                    hidden_columns.add(col_pref.column_id.replace(".", "_"))
                 else:
-                    # For other unmapped columns, add them with text format
-                    column_mapping[raw_column] = raw_column
-                    format_rules[raw_column] = ColumnFormat.TEXT
-                    visible_columns.add(raw_column)
-                    print(f"DEBUG: Added unmapped column - '{raw_column}' -> '{raw_column}' (format: TEXT)")
+                    hidden_columns.add(col_pref.column_id)
+        
+        # Default columns are always included (we removed the include_default_columns toggle)
+        for col in default_columns:
+            # Only add default columns if they're not explicitly hidden and not already visible
+            if col not in visible_columns and col not in hidden_columns and col in raw_data[0]:
+                visible_columns.add(col)
+                if col not in column_mapping:
+                    column_mapping[col] = col.replace('_', ' ').title()
 
-        # Process each row with enhanced debugging
+        # Process each row
         formatted_data = []
-        for row_idx, row in enumerate(raw_data):
+        for row in raw_data:
             formatted_row = {}
             
             # Only include visible columns
@@ -925,17 +874,9 @@ class ReportService:
                     display_name = column_mapping.get(original_col, original_col)
                     format_type = format_rules.get(original_col, ColumnFormat.TEXT)
                     
-                    # DEBUG: Log formatting decisions for first row only
-                    if row_idx == 0:
-                        print(f"DEBUG: Formatting column '{original_col}' -> '{display_name}' with type {format_type} and value '{value}' (type: {type(value)})")
-                    
                     # Apply formatting
                     formatted_value = self._format_value(value, format_type)
                     formatted_row[display_name] = formatted_value
-                    
-                    # DEBUG: Log the result for first row only
-                    if row_idx == 0:
-                        print(f"DEBUG: Result: '{formatted_value}' (type: {type(formatted_value)})")
             
             formatted_data.append(formatted_row)
 
@@ -990,6 +931,13 @@ class ReportService:
                         return value
                 elif isinstance(value, (int, float)):
                     return f"${value:,.2f}"
+                # FIXED: Handle Decimal types from SQLAlchemy
+                elif hasattr(value, '__float__'):  # This covers Decimal, numpy types, etc.
+                    try:
+                        numeric_value = float(value)
+                        return f"${numeric_value:,.2f}"
+                    except (ValueError, TypeError):
+                        return value
                 return value
             
             elif format_type == ColumnFormat.PERCENTAGE:
@@ -1004,6 +952,13 @@ class ReportService:
                         return value
                 elif isinstance(value, (int, float)):
                     return f"{value:.1f}%"
+                # FIXED: Handle Decimal types from SQLAlchemy
+                elif hasattr(value, '__float__'):  # This covers Decimal, numpy types, etc.
+                    try:
+                        numeric_value = float(value)
+                        return f"{numeric_value:.1f}%"
+                    except (ValueError, TypeError):
+                        return value
                 return value
             
             elif format_type == ColumnFormat.NUMBER:
@@ -1021,6 +976,17 @@ class ReportService:
                         return value
                 elif isinstance(value, (int, float)):
                     return f"{value:,}"
+                # FIXED: Handle Decimal types from SQLAlchemy
+                elif hasattr(value, '__float__'):  # This covers Decimal, numpy types, etc.
+                    try:
+                        numeric_value = float(value)
+                        # Use int formatting if it's a whole number, otherwise float
+                        if numeric_value.is_integer():
+                            return f"{int(numeric_value):,}"
+                        else:
+                            return f"{numeric_value:,.2f}"
+                    except (ValueError, TypeError):
+                        return value
                 return value
             
             elif format_type == ColumnFormat.DATE_MDY:
@@ -1550,17 +1516,23 @@ class ReportService:
                         actual_column_name = display_name
                         break
                 
-                # Fallback - check if column_id itself is a display name in the data
-                if not actual_column_name and data:
-                    first_row = data[0]
-                    if column_id in first_row:
-                        actual_column_name = column_id
-                    else:
-                        # Check if any of the column mappings match
-                        for raw_key, display_name in column_mapping.items():
-                            if display_name == column_id:
-                                actual_column_name = column_id
-                                break
+                # If not found in mapping, try to find by display name directly - FIXED: Use StaticFieldHelper
+                if not actual_column_name:
+                    field_path = column_id.replace("static_", "")
+                    field = StaticFieldHelper.get_static_field_by_path(field_path)
+                    actual_column_name = field.name
+            
+            # Fallback - check if column_id itself is a display name in the data
+            if not actual_column_name and data:
+                first_row = data[0]
+                if column_id in first_row:
+                    actual_column_name = column_id
+                else:
+                    # Check if any of the column mappings match
+                    for raw_key, display_name in column_mapping.items():
+                        if display_name == column_id:
+                            actual_column_name = column_id
+                            break
             
             if actual_column_name and actual_column_name in data[0]:
                 # Add to sort keys with direction
@@ -1595,39 +1567,3 @@ class ReportService:
         except Exception as e:
             print(f"Warning: Error applying sorting: {e}")
             return data
-
-    def _build_columns_metadata_from_preferences(self, formatted_data: List[Dict[str, Any]], report: Report) -> List[Dict[str, Any]]:
-        """Build columns metadata based on user's explicit column preferences."""
-        if not formatted_data:
-            return []
-
-        columns_metadata = []
-        column_names = list(formatted_data[0].keys())
-        
-        # Get column preferences
-        column_prefs = getattr(report, '_parsed_column_preferences', None)
-        
-        if column_prefs:
-            # Use explicit user preferences - respect their exact format choices
-            for col_pref in column_prefs.columns:
-                if col_pref.is_visible and col_pref.display_name in column_names:
-                    columns_metadata.append({
-                        "field": col_pref.display_name,
-                        "header": col_pref.display_name,
-                        "format_type": col_pref.format_type.value,  # Use user's exact format setting
-                        "display_order": col_pref.display_order
-                    })
-        else:
-            # Fallback for reports without column preferences
-            for index, column_name in enumerate(column_names):
-                columns_metadata.append({
-                    "field": column_name,
-                    "header": column_name,
-                    "format_type": "text",  # Default to text when no preferences
-                    "display_order": index
-                })
-        
-        # Sort by display order
-        columns_metadata.sort(key=lambda x: x["display_order"])
-        
-        return columns_metadata
