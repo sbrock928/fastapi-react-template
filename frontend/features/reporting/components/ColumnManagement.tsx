@@ -130,6 +130,28 @@ const ColumnManagement: React.FC<ColumnManagementProps> = ({
     });
   };
 
+  // Update column precision
+  const updateColumnPrecision = (index: number, precision: number) => {
+    const newColumns = [...preferences.columns];
+    newColumns[index].precision = Math.max(0, Math.min(10, precision)); // Clamp between 0-10
+    
+    updatePreferences({
+      ...preferences,
+      columns: newColumns
+    });
+  };
+
+  // Update column rounding
+  const updateColumnRounding = (index: number, useRounding: boolean) => {
+    const newColumns = [...preferences.columns];
+    newColumns[index].use_rounding = useRounding;
+    
+    updatePreferences({
+      ...preferences,
+      columns: newColumns
+    });
+  };
+
   // Add or remove column sort
   const toggleColumnSort = (columnId: string) => {
     const sortInfo = getColumnSortInfo(preferences, columnId);
@@ -197,6 +219,7 @@ const ColumnManagement: React.FC<ColumnManagementProps> = ({
                   {/* Column Info */}
                   <div className="col">
                     <div className="row align-items-center">
+                      {/* Column Name - Fixed width */}
                       <div className="col-md-3">
                         <input
                           type="text"
@@ -210,6 +233,7 @@ const ColumnManagement: React.FC<ColumnManagementProps> = ({
                         )}
                       </div>
                       
+                      {/* Format Selection - Fixed width */}
                       <div className="col-md-2">
                         <select
                           className="form-select form-select-sm"
@@ -223,13 +247,54 @@ const ColumnManagement: React.FC<ColumnManagementProps> = ({
                           ))}
                         </select>
                       </div>
+
+                      {/* Precision and Rounding Controls - Fixed width with min-height for alignment */}
+                      <div className="col-md-2" style={{ minHeight: '58px' }}>
+                        {(column.format_type === ColumnFormat.CURRENCY || 
+                          column.format_type === ColumnFormat.PERCENTAGE || 
+                          column.format_type === ColumnFormat.NUMBER) ? (
+                          <div className="row g-1">
+                            <div className="col-7">
+                              <input
+                                type="number"
+                                className="form-control form-control-sm"
+                                value={column.precision || 2}
+                                onChange={(e) => updateColumnPrecision(index, parseInt(e.target.value) || 0)}
+                                min="0"
+                                max="10"
+                                title="Decimal places"
+                                style={{ fontSize: '0.75rem' }}
+                              />
+                              <small className="text-muted">Precision</small>
+                            </div>
+                            <div className="col-5">
+                              <div className="form-check form-check-sm">
+                                <input
+                                  className="form-check-input"
+                                  type="checkbox"
+                                  checked={column.use_rounding !== false}
+                                  onChange={(e) => updateColumnRounding(index, e.target.checked)}
+                                  title="Round vs Truncate"
+                                />
+                                <small className="text-muted">Round</small>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="d-flex align-items-center justify-content-center h-100">
+                            <small className="text-muted">—</small>
+                          </div>
+                        )}
+                      </div>
                       
+                      {/* Order Badge - Fixed width */}
                       <div className="col-md-1 text-center">
                         <span className="badge bg-secondary">
                           #{column.display_order + 1}
                         </span>
                       </div>
                       
+                      {/* Visibility Toggle - Fixed width */}
                       <div className="col-md-1 text-center">
                         <button
                           type="button"
@@ -241,23 +306,20 @@ const ColumnManagement: React.FC<ColumnManagementProps> = ({
                         </button>
                       </div>
                       
-                      {/* Sort Controls - FIXED DESIGN */}
+                      {/* Sort Controls - Fixed width */}
                       <div className="col-md-2">
                         <div className="d-flex align-items-center gap-1">
-                          {/* Single Sort Button with Direction Indicator */}
                           <button
                             type="button"
                             className={`btn btn-sm ${sortInfo.isSorted ? 'btn-primary' : 'btn-outline-secondary'}`}
                             onClick={() => {
                               if (sortInfo.isSorted) {
-                                // If already sorted, cycle through: ASC → DESC → REMOVE
                                 if (sortInfo.direction === SortDirection.ASC) {
                                   changeSortDirection(column.column_id);
                                 } else {
-                                  toggleColumnSort(column.column_id); // Remove sort
+                                  toggleColumnSort(column.column_id);
                                 }
                               } else {
-                                // Add new sort (ASC)
                                 toggleColumnSort(column.column_id);
                               }
                             }}
@@ -280,7 +342,6 @@ const ColumnManagement: React.FC<ColumnManagementProps> = ({
                             )}
                           </button>
                           
-                          {/* Sort Order Badge */}
                           {sortInfo.isSorted && (
                             <span className="badge bg-info" style={{ fontSize: '0.7rem' }}>
                               {sortInfo.sortOrder !== undefined ? sortInfo.sortOrder + 1 : ''}
@@ -289,8 +350,9 @@ const ColumnManagement: React.FC<ColumnManagementProps> = ({
                         </div>
                       </div>
                       
-                      <div className="col-md-2">
-                        <small className="text-muted">
+                      {/* Column ID - Remaining space */}
+                      <div className="col-md-1">
+                        <small className="text-muted text-truncate d-block" title={column.column_id}>
                           {column.column_id}
                         </small>
                       </div>

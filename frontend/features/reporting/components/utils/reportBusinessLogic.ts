@@ -317,7 +317,9 @@ export const updateColumnPreferencesWithNewCalculations = (
       display_name: calc.display_name || `Calculation ${calc.calculation_id}`,
       is_visible: true,
       display_order: existingPreferences.columns.length + index,
-      format_type: ColumnFormat.TEXT
+      format_type: ColumnFormat.TEXT,
+      use_rounding: true,
+      precision: 2
     }));
 
   // Remove columns for calculations that no longer exist

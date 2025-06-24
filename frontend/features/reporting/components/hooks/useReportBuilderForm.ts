@@ -55,7 +55,9 @@ export const useReportBuilderForm = ({ editingReport, isEditMode }: UseReportBui
           display_name: calc.display_name || `Calculation ${calc.calculation_id}`,
           is_visible: true,
           display_order: validExistingColumns.length + index,
-          format_type: ColumnFormat.TEXT
+          format_type: ColumnFormat.TEXT,
+          use_rounding: true,
+          precision: 2
         }));
         
         // Update display orders to be sequential

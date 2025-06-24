@@ -874,8 +874,50 @@ class ReportService:
                     display_name = column_mapping.get(original_col, original_col)
                     format_type = format_rules.get(original_col, ColumnFormat.TEXT)
                     
-                    # Apply formatting
-                    formatted_value = self._format_value(value, format_type)
+                    # Get precision and rounding settings from column preferences
+                    # DEBUG: Log the matching process
+                    print(f"DEBUG: Looking for column preferences for original_col='{original_col}'")
+                    print(f"DEBUG: Available column preferences:")
+                    for cp in column_prefs.columns:
+                        print(f"  - column_id='{cp.column_id}', display_name='{cp.display_name}', precision={getattr(cp, 'precision', 'NOT_SET')}, use_rounding={getattr(cp, 'use_rounding', 'NOT_SET')}")
+                    
+                    # FIXED: Improve column preference matching logic
+                    col_pref = None
+                    
+                    # Method 1: Direct match by original_col name
+                    for cp in column_prefs.columns:
+                        if cp.column_id == original_col:
+                            col_pref = cp
+                            print(f"DEBUG: Found direct match for '{original_col}' -> {cp.column_id}")
+                            break
+                    
+                    # Method 2: Match by alias (for user/system calculations)
+                    if not col_pref:
+                        reverse_calc_id_to_alias = {v: k for k, v in calc_id_to_alias.items()}
+                        if original_col in reverse_calc_id_to_alias:
+                            calc_id = reverse_calc_id_to_alias[original_col]
+                            for cp in column_prefs.columns:
+                                if cp.column_id == calc_id:
+                                    col_pref = cp
+                                    print(f"DEBUG: Found alias match for '{original_col}' -> calc_id '{calc_id}' -> {cp.column_id}")
+                                    break
+                    
+                    # Method 3: Match by display name (fallback)
+                    if not col_pref:
+                        for cp in column_prefs.columns:
+                            if cp.display_name == original_col:
+                                col_pref = cp
+                                print(f"DEBUG: Found display name match for '{original_col}' -> {cp.display_name}")
+                                break
+                    
+                    # Extract precision and rounding with defaults
+                    use_rounding = getattr(col_pref, 'use_rounding', True) if col_pref else True
+                    precision = getattr(col_pref, 'precision', 2) if col_pref else 2
+                    
+                    print(f"DEBUG: Final formatting settings for '{original_col}': format_type={format_type}, precision={precision}, use_rounding={use_rounding}")
+                    
+                    # Apply formatting with precision control
+                    formatted_value = self._format_value(value, format_type, use_rounding, precision)
                     formatted_row[display_name] = formatted_value
             
             formatted_data.append(formatted_row)
@@ -913,8 +955,8 @@ class ReportService:
 
         return formatted_data
 
-    def _format_value(self, value: Any, format_type: ColumnFormat) -> Any:
-        """Format a single value according to the specified format type."""
+    def _format_value(self, value: Any, format_type: ColumnFormat, use_rounding: bool = True, precision: int = 2) -> Any:
+        """Format a single value according to the specified format type with precision control."""
         if value is None:
             return None
 
@@ -926,16 +968,34 @@ class ReportService:
                     clean_value = value.replace('$', '').replace(',', '').strip()
                     try:
                         numeric_value = float(clean_value)
-                        return f"${numeric_value:,.2f}"
+                        if use_rounding:
+                            return f"${numeric_value:,.{precision}f}"
+                        else:
+                            # Truncate to specified precision without rounding
+                            factor = 10 ** precision
+                            truncated_value = int(numeric_value * factor) / factor
+                            return f"${truncated_value:,.{precision}f}"
                     except ValueError:
                         return value
                 elif isinstance(value, (int, float)):
-                    return f"${value:,.2f}"
+                    if use_rounding:
+                        return f"${value:,.{precision}f}"
+                    else:
+                        # Truncate to specified precision without rounding
+                        factor = 10 ** precision
+                        truncated_value = int(value * factor) / factor
+                        return f"${truncated_value:,.{precision}f}"
                 # FIXED: Handle Decimal types from SQLAlchemy
                 elif hasattr(value, '__float__'):  # This covers Decimal, numpy types, etc.
                     try:
                         numeric_value = float(value)
-                        return f"${numeric_value:,.2f}"
+                        if use_rounding:
+                            return f"${numeric_value:,.{precision}f}"
+                        else:
+                            # Truncate to specified precision without rounding
+                            factor = 10 ** precision
+                            truncated_value = int(numeric_value * factor) / factor
+                            return f"${truncated_value:,.{precision}f}"
                     except (ValueError, TypeError):
                         return value
                 return value
@@ -947,16 +1007,34 @@ class ReportService:
                     clean_value = value.replace('%', '').strip()
                     try:
                         numeric_value = float(clean_value)
-                        return f"{numeric_value:.1f}%"
+                        if use_rounding:
+                            return f"{numeric_value:.{precision}f}%"
+                        else:
+                            # Truncate to specified precision without rounding
+                            factor = 10 ** precision
+                            truncated_value = int(numeric_value * factor) / factor
+                            return f"{truncated_value:.{precision}f}%"
                     except ValueError:
                         return value
                 elif isinstance(value, (int, float)):
-                    return f"{value:.1f}%"
+                    if use_rounding:
+                        return f"{value:.{precision}f}%"
+                    else:
+                        # Truncate to specified precision without rounding
+                        factor = 10 ** precision
+                        truncated_value = int(value * factor) / factor
+                        return f"{truncated_value:.{precision}f}%"
                 # FIXED: Handle Decimal types from SQLAlchemy
                 elif hasattr(value, '__float__'):  # This covers Decimal, numpy types, etc.
                     try:
                         numeric_value = float(value)
-                        return f"{numeric_value:.1f}%"
+                        if use_rounding:
+                            return f"{numeric_value:.{precision}f}%"
+                        else:
+                            # Truncate to specified precision without rounding
+                            factor = 10 ** precision
+                            truncated_value = int(numeric_value * factor) / factor
+                            return f"{truncated_value:.{precision}f}%"
                     except (ValueError, TypeError):
                         return value
                 return value
@@ -967,24 +1045,55 @@ class ReportService:
                     clean_value = value.replace(',', '').strip()
                     try:
                         numeric_value = float(clean_value)
-                        # Use int formatting if it's a whole number, otherwise float
-                        if numeric_value.is_integer():
-                            return f"{int(numeric_value):,}"
+                        if use_rounding:
+                            # Use int formatting if precision is 0, otherwise float
+                            if precision == 0:
+                                return f"{int(round(numeric_value)):,}"
+                            else:
+                                return f"{numeric_value:,.{precision}f}"
                         else:
-                            return f"{numeric_value:,.2f}"
+                            # Truncate to specified precision without rounding
+                            if precision == 0:
+                                return f"{int(numeric_value):,}"
+                            else:
+                                factor = 10 ** precision
+                                truncated_value = int(numeric_value * factor) / factor
+                                return f"{truncated_value:,.{precision}f}"
                     except ValueError:
                         return value
                 elif isinstance(value, (int, float)):
-                    return f"{value:,}"
+                    if use_rounding:
+                        # Use int formatting if precision is 0, otherwise float
+                        if precision == 0:
+                            return f"{int(round(value)):,}"
+                        else:
+                            return f"{value:,.{precision}f}"
+                    else:
+                        # Truncate to specified precision without rounding
+                        if precision == 0:
+                            return f"{int(value):,}"
+                        else:
+                            factor = 10 ** precision
+                            truncated_value = int(value * factor) / factor
+                            return f"{truncated_value:,.{precision}f}"
                 # FIXED: Handle Decimal types from SQLAlchemy
                 elif hasattr(value, '__float__'):  # This covers Decimal, numpy types, etc.
                     try:
                         numeric_value = float(value)
-                        # Use int formatting if it's a whole number, otherwise float
-                        if numeric_value.is_integer():
-                            return f"{int(numeric_value):,}"
+                        if use_rounding:
+                            # Use int formatting if precision is 0, otherwise float
+                            if precision == 0:
+                                return f"{int(round(numeric_value)):,}"
+                            else:
+                                return f"{numeric_value:,.{precision}f}"
                         else:
-                            return f"{numeric_value:,.2f}"
+                            # Truncate to specified precision without rounding
+                            if precision == 0:
+                                return f"{int(numeric_value):,}"
+                            else:
+                                factor = 10 ** precision
+                                truncated_value = int(numeric_value * factor) / factor
+                                return f"{truncated_value:,.{precision}f}"
                     except (ValueError, TypeError):
                         return value
                 return value

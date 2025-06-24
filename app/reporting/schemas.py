@@ -45,6 +45,8 @@ class ColumnPreference(BaseModel):
     is_visible: bool = True  # Whether to include in final output
     display_order: int = 0  # Order in the final output
     format_type: ColumnFormat = ColumnFormat.TEXT  # How to format values
+    use_rounding: bool = True  # Whether to apply rounding to numeric values
+    precision: int = 2  # Number of decimal places for numeric formats (currency, percentage, number)
     
     model_config = ConfigDict(from_attributes=True)
 

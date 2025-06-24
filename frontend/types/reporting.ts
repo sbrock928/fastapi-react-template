@@ -56,6 +56,8 @@ export interface ColumnPreference {
   is_visible: boolean;         // Whether to include in final output
   display_order: number;       // Order in the final output
   format_type: ColumnFormat;   // How to format values
+  use_rounding: boolean;       // Whether to apply rounding to numeric values
+  precision: number;           // Number of decimal places for numeric formats (currency, percentage, number)
 }
 
 // NEW: Complete column preferences for a report
@@ -261,14 +263,18 @@ export function createColumnPreference(
   displayName: string,
   displayOrder: number = 0,
   formatType: ColumnFormat = ColumnFormat.TEXT,
-  isVisible: boolean = true
+  isVisible: boolean = true,
+  useRounding: boolean = false,
+  precision: number = 2
 ): ColumnPreference {
   return {
     column_id: calculationId, // Direct string assignment
     display_name: displayName,
     is_visible: isVisible,
     display_order: displayOrder,
-    format_type: formatType
+    format_type: formatType,
+    use_rounding: useRounding,
+    precision: precision
   };
 }
 
