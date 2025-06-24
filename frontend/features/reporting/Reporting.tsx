@@ -203,18 +203,35 @@ const ReportingContent = () => {
       
       // Determine notification type based on execution results
       if (execution_summary) {
-        const { successful_calculations, failed_calculations: failedCount, total_calculations } = execution_summary;
+        // FIXED: Handle both old and new response formats
+        // Check if successful_calculations is an array (new format) or number (old format)
+        let successfulCount: number;
+        let failedCount: number;
+        
+        if (Array.isArray(execution_summary.successful_calculations)) {
+          // New format: execution_summary contains arrays, count them
+          successfulCount = execution_summary.successful_calculations.length;
+          failedCount = Array.isArray(execution_summary.failed_calculations) 
+            ? execution_summary.failed_calculations.length 
+            : 0;
+        } else {
+          // Old format: execution_summary contains counts directly
+          successfulCount = execution_summary.successful_calculations || 0;
+          failedCount = execution_summary.failed_calculations || 0;
+        }
+        
+        const totalCalculations = execution_summary.total_calculations || (successfulCount + failedCount);
         
         if (failedCount === 0) {
           // Complete success
-          showToast(`Report executed successfully! ${total_rows} rows returned with all ${successful_calculations} calculations completed.`, 'success');
-        } else if (successful_calculations > 0) {
+          showToast(`Report executed successfully! ${total_rows} rows returned with all ${successfulCount} calculations completed.`, 'success');
+        } else if (successfulCount > 0) {
           // Partial success - some calculations failed
           const failureDetails = failed_calculations && failed_calculations.length > 0 
             ? ` Failed calculations: ${failed_calculations.map(f => f.calculation).join(', ')}`
             : '';
           showToast(
-            `Report completed with ${failedCount} calculation errors. ${total_rows} rows returned with ${successful_calculations}/${total_calculations} calculations successful.${failureDetails}`, 
+            `Report completed with ${failedCount} calculation errors. ${total_rows} rows returned with ${successfulCount}/${totalCalculations} calculations successful.${failureDetails}`, 
             'warning'
           );
         } else {

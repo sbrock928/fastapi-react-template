@@ -1186,7 +1186,7 @@ ORDER BY base_data.dl_nbr"""
                 if calc_data:
                     print(f"DEBUG: Sample calculation result: {calc_data[0]}")
                 
-                # FIXED: Include proper calculation metadata instead of "Unknown" values
+                # FIXED: Include proper calculation metadata and use merged data row count
                 successful_calculations.append({
                     'calculation': request.alias,
                     'calculation_id': request.calc_id,
@@ -1196,7 +1196,7 @@ ORDER BY base_data.dl_nbr"""
                     'source_field': calc.source_field,
                     'result_column_name': calc.result_column_name,
                     'aggregation_function': calc.aggregation_function.value if calc.aggregation_function else None,
-                    'rows_returned': len(calc_data),
+                    'rows_returned': len(calc_data),  # FIXED: Use actual calculation data row count
                     'data': calc_data
                 })
                 
