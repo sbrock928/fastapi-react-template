@@ -9,9 +9,18 @@ from datetime import datetime
 from .models import Calculation, CalculationType, AggregationFunction, SourceModel, GroupLevel
 from .field_introspection import FieldIntrospectionService
 from .schemas import (
-    UserAggregationCalculationCreate, SystemFieldCalculationCreate, SystemSqlCalculationCreate,
-    CalculationUpdate, CalculationResponse,
-    SqlValidationRequest, SqlValidationResult, PlaceholderInfo
+    UserAggregationCalculationCreate,
+    SystemFieldCalculationCreate,
+    SystemSqlCalculationCreate,
+    DependentCalculationCreate,
+    CalculationUpdate,
+    CalculationResponse,
+    CalculationListResponse,
+    BulkCalculationOperation,
+    BulkCalculationResponse,
+    SqlValidationRequest,
+    SqlValidationResult,
+    PlaceholderInfo
 )
 from .resolver import EnhancedCalculationResolver, CalculationRequest, QueryFilters
 from app.core.exceptions import CalculationNotFoundError, InvalidCalculationError
@@ -139,6 +148,48 @@ class UnifiedCalculationService:
         
         return self._to_response(calculation)
 
+    def create_dependent_calculation(
+        self, 
+        request: DependentCalculationCreate, 
+        created_by: str
+    ) -> CalculationResponse:
+        """Create a new dependent calculation that references other calculations"""
+        
+        # Check for duplicate calculation names across all group levels
+        self._validate_unique_calculation_name(request.name)
+        
+        # Validate that all dependencies exist
+        self._validate_calculation_dependencies(request.calculation_dependencies)
+        
+        # Validate the expression syntax
+        self._validate_calculation_expression(request.calculation_expression, request.calculation_dependencies)
+        
+        # Store dependencies and expression in metadata_config
+        metadata_config = {
+            "calculation_dependencies": request.calculation_dependencies,
+            "calculation_expression": request.calculation_expression,
+            "dependency_validation": {
+                "validated_at": datetime.utcnow().isoformat(),
+                "dependencies_count": len(request.calculation_dependencies)
+            }
+        }
+        
+        calculation = Calculation(
+            name=request.name,
+            description=request.description,
+            calculation_type=CalculationType.DEPENDENT_CALCULATION,
+            group_level=request.group_level,
+            result_column_name=request.result_column_name,
+            metadata_config=metadata_config,
+            created_by=created_by
+        )
+        
+        self.config_db.add(calculation)
+        self.config_db.commit()
+        self.config_db.refresh(calculation)
+        
+        return self._to_response(calculation)
+
     # === RETRIEVAL METHODS ===
 
     def get_calculation_by_id(self, calc_id: int) -> Optional[CalculationResponse]:
@@ -210,6 +261,8 @@ class UnifiedCalculationService:
                 calc_type = CalculationType.SYSTEM_SQL
             elif calculation_type_str == "SYSTEM_FIELD":
                 calc_type = CalculationType.SYSTEM_FIELD
+            elif calculation_type_str == "DEPENDENT_CALCULATION":
+                calc_type = CalculationType.DEPENDENT_CALCULATION
             else:
                 return []
         except:
@@ -671,7 +724,11 @@ class UnifiedCalculationService:
                 calc_id_str = f"user.{calculation.source_field}"
             elif calc_type.lower() == 'system' or calculation.calculation_type == 'SYSTEM_SQL':
                 calc_id_str = f"system.{calculation.result_column_name}"
+            elif calc_type.lower() == 'dependent' or calculation.calculation_type == 'DEPENDENT_CALCULATION':
+                # Dependent calculations use numeric IDs in reports
+                calc_id_str = str(calc_id)
             else:
+                # Fallback to numeric ID for unknown types
                 calc_id_str = str(calc_id)
             
             # Query reports that use this calculation
@@ -731,6 +788,10 @@ class UnifiedCalculationService:
         """Get usage information for a system calculation"""
         return self.get_calculation_usage(calc_id, 'system', report_scope)
 
+    def get_dependent_calculation_usage(self, calc_id: int, report_scope: Optional[str] = None) -> Dict[str, Any]:
+        """Get usage information for a dependent calculation"""
+        return self.get_calculation_usage(calc_id, 'dependent', report_scope)
+
     # === UTILITY METHODS ===
 
     def _validate_unique_calculation_name(self, name: str, exclude_id: Optional[int] = None) -> None:
@@ -751,6 +812,65 @@ class UnifiedCalculationService:
                 f"Group Level: {existing_calculation.group_level.value}). "
                 f"Calculation names must be unique across all group levels."
             )
+
+    def _validate_calculation_dependencies(self, dependencies: List[str]) -> None:
+        """Validate that all calculation dependencies exist and are accessible"""
+        for dep in dependencies:
+            if dep.startswith("user."):
+                source_field = dep[5:]  # Remove "user." prefix
+                calc = self.config_db.query(Calculation).filter(
+                    Calculation.calculation_type == CalculationType.USER_AGGREGATION,
+                    Calculation.source_field == source_field,
+                    Calculation.is_active == True
+                ).first()
+                if not calc:
+                    raise InvalidCalculationError(f"Dependency not found: {dep}. No active user calculation with source_field '{source_field}'")
+            
+            elif dep.startswith("system."):
+                result_column = dep[7:]  # Remove "system." prefix
+                calc = self.config_db.query(Calculation).filter(
+                    Calculation.calculation_type == CalculationType.SYSTEM_SQL,
+                    Calculation.result_column_name == result_column,
+                    Calculation.is_active == True
+                ).first()
+                if not calc:
+                    raise InvalidCalculationError(f"Dependency not found: {dep}. No active system calculation with result_column '{result_column}'")
+            
+            else:
+                raise InvalidCalculationError(f"Invalid dependency format: {dep}. Must be 'user.field_name' or 'system.column_name'")
+
+    def _validate_calculation_expression(self, expression: str, dependencies: List[str]) -> None:
+        """Validate that the calculation expression is syntactically correct"""
+        # Check that all dependencies referenced in the expression are declared
+        import re
+        pattern = r'\$\{([^}]+)\}'
+        referenced_vars = re.findall(pattern, expression)
+        
+        # Map dependencies to their variable names
+        declared_vars = set()
+        for dep in dependencies:
+            if dep.startswith("user.") or dep.startswith("system."):
+                var_name = dep.split(".", 1)[1]  # Get the part after the dot
+                declared_vars.add(var_name)
+        
+        # Check that all referenced variables are declared
+        for var in referenced_vars:
+            if var not in declared_vars:
+                raise InvalidCalculationError(
+                    f"Expression references undefined variable: ${{{var}}}. "
+                    f"Available variables: {', '.join(f'${{{v}}}' for v in sorted(declared_vars))}"
+                )
+        
+        # Basic SQL injection protection for expressions
+        dangerous_patterns = [
+            r'\bDROP\b', r'\bDELETE\b', r'\bTRUNCATE\b',
+            r'\bINSERT\b', r'\bUPDATE\b', r'\bALTER\b',
+            r'\bEXEC\b', r'\bEXECUTE\b', r'--', r'/\*', r'\*/'
+        ]
+        
+        for pattern in dangerous_patterns:
+            if re.search(pattern, expression, re.IGNORECASE):
+                raise InvalidCalculationError(f"Expression contains potentially dangerous SQL operations")
 
     def _to_response(self, calculation: Calculation) -> CalculationResponse:
         """Convert calculation model to response schema"""

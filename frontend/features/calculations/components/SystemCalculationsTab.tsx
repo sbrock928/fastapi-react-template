@@ -31,18 +31,10 @@ const SystemCalculationsTab: React.FC<SystemCalculationsTabProps> = ({
   onPreviewSQL,
   onShowUsage
 }) => {
-  // Filter out CDI variables - only show actual system SQL calculations
+  // Filter out dependent calculations - only show actual system SQL calculations
   const systemSqlCalcs = filteredCalculations.filter(calc => {
-    // First check if this is a SystemCalculation (has metadata_config property)
-    if (calc.calculation_type !== 'system_sql') {
-      return false; // This filters out UserCalculations
-    }
-    
-    // Now we know calc is a SystemCalculation, safe to access metadata_config
-    const systemCalc = calc as SystemCalculation;
-    
-    // Only include if it's a system SQL calculation
-    return systemCalc.calculation_type === 'system_sql';
+    // Only include system SQL calculations, exclude dependent calculations
+    return calc.calculation_type === 'system_sql';
   });
 
   // Handle delete with usage checking
@@ -109,6 +101,7 @@ const SystemCalculationsTab: React.FC<SystemCalculationsTabProps> = ({
         selectedFilter={selectedFilter}
         onFilterChange={setSelectedFilter}
         fieldsLoading={loading}
+        filterType="system"
       />
 
       {/* System SQL Calculations Section */}
@@ -137,7 +130,15 @@ const SystemCalculationsTab: React.FC<SystemCalculationsTabProps> = ({
                         calculation={calc}
                         usage={usage[calc.id]}
                         usageScope={usageScope}
-                        onEdit={() => onEditSystemSql(calc)} // Allow editing system SQL calculations
+                        onEdit={() => {
+                          // Only allow editing of system SQL calculations, not dependent calculations
+                          if (calc.calculation_type === 'system_sql') {
+                            onEditSystemSql(calc as SystemCalculation);
+                          } else {
+                            // Handle dependent calculations separately if needed
+                            console.log('Cannot edit dependent calculation through system SQL modal');
+                          }
+                        }} // Allow editing system SQL calculations
                         onDelete={handleDeleteAttempt}
                         onPreviewSQL={onPreviewSQL}
                         onShowUsage={onShowUsage}

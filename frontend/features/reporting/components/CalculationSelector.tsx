@@ -31,6 +31,8 @@ const getAvailableCalculationDisplayType = (calc: AvailableCalculation): string 
     return isCDIVariable ? 'CDI Var' : 'System SQL';
   } else if (isStaticFieldCalculation(calc)) {
     return 'Raw Field';
+  } else if (calc.calculation_type === 'DEPENDENT_CALCULATION') {
+    return 'Dependent';
   }
   return 'Unknown';
 };
@@ -52,7 +54,7 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [calculationType, setCalculationType] = useState<'all' | 'user' | 'system' | 'static'>('all');
+  const [calculationType, setCalculationType] = useState<'all' | 'user' | 'system' | 'static' | 'dependent'>('all');
   const [sortBy, setSortBy] = useState<'name' | 'type' | 'category'>('name');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
@@ -95,6 +97,8 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
       calculations = calculations.filter(calc => isSystemSqlCalculation(calc));
     } else if (calculationType === 'static') {
       calculations = calculations.filter(calc => isStaticFieldCalculation(calc));
+    } else if (calculationType === 'dependent') {
+      calculations = calculations.filter(calc => calc.calculation_type === 'DEPENDENT_CALCULATION');
     }
 
     // Filter by category
@@ -296,12 +300,13 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
               <select
                 className="form-select"
                 value={calculationType}
-                onChange={(e) => setCalculationType(e.target.value as 'all' | 'user' | 'system' | 'static')}
+                onChange={(e) => setCalculationType(e.target.value as 'all' | 'user' | 'system' | 'static' | 'dependent')}
               >
                 <option value="all">All Types</option>
                 <option value="user">User Calculations</option>
                 <option value="system">System Calculations</option>
                 <option value="static">Raw Fields</option>
+                <option value="dependent">Dependent Calculations</option>
               </select>
             </div>
             <div className="col-md-2">
@@ -401,6 +406,9 @@ const CalculationSelector: React.FC<CalculationSelectorProps> = ({
                 } else if (displayType === 'Raw Field') {
                   badgeClass = 'bg-info';
                   icon = 'bi-file-text';
+                } else if (displayType === 'Dependent') {
+                  badgeClass = 'bg-light text-dark';
+                  icon = 'bi-arrow-repeat';
                 }
               }
               

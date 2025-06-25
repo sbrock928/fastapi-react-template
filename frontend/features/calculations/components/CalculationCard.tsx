@@ -7,7 +7,8 @@ import {
   getCalculationCategory,
   isSystemCalculation,
   isUserDefinedCalculation,
-  isSystemSqlCalculation
+  isSystemSqlCalculation,
+  isDependentCalculation
 } from '@/types/calculations';
 
 interface CalculationCardProps {
@@ -78,6 +79,8 @@ const CalculationCard: React.FC<CalculationCardProps> = ({
       return 'bi-person-gear';
     } else if (isSystemSqlCalculation(calculation)) {
       return 'bi-code-square';
+    } else if (isDependentCalculation(calculation)) {
+      return 'bi-diagram-3';
     }
     return 'bi-question-circle';
   };
@@ -87,6 +90,8 @@ const CalculationCard: React.FC<CalculationCardProps> = ({
       return 'bg-primary';
     } else if (isSystemSqlCalculation(calculation)) {
       return 'bg-primary text-white';
+    } else if (isDependentCalculation(calculation)) {
+      return 'bg-info text-white';
     }
     return 'bg-secondary';
   };

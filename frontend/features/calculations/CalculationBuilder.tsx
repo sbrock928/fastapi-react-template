@@ -15,8 +15,9 @@ import CalculationModal from './components/CalculationModal';
 import SystemCalculationsTab from './components/SystemCalculationsTab';
 import UsageModal from './components/UsageModal';
 import SqlPreviewModal from './components/SqlPreviewModal';
+import { DependentCalculationModal } from './components/DependentCalculationModal';
 
-type CalculationTab = 'user-defined' | 'system-defined';
+type CalculationTab = 'user-defined' | 'system-defined' | 'dependent';
 
 const CalculationBuilder: React.FC = () => {
   const { showToast } = useToast();
@@ -49,6 +50,7 @@ const CalculationBuilder: React.FC = () => {
 
   // Modal states (remove CDI modal states - now handled by global context)
   const [showModal, setShowModal] = useState<boolean>(false);
+  const [showDependentModal, setShowDependentModal] = useState<boolean>(false);
   const [modalType, setModalType] = useState<'user-defined' | 'system-sql'>('user-defined');
   const [editingCalculation, setEditingCalculation] = useState<UserCalculation | SystemCalculation | null>(null);
   const [showUsageModal, setShowUsageModal] = useState<boolean>(false);
@@ -254,6 +256,12 @@ const CalculationBuilder: React.FC = () => {
       filtered = systemCalculations.filter(calc => calc.group_level === 'deal');
     } else if (systemFilter === 'tranche') {
       filtered = systemCalculations.filter(calc => calc.group_level === 'tranche');
+    } else if (systemFilter === 'system-sql') {
+      // Filter to show only SYSTEM_SQL calculations (exclude dependent calculations)
+      filtered = systemCalculations.filter(calc => calc.calculation_type === 'system_sql');
+    } else if (systemFilter === 'dependent') {
+      // Filter to show only dependent calculations
+      filtered = systemCalculations.filter(calc => calc.calculation_type && calc.calculation_type.toString() === 'dependent_calculation');
     }
     setFilteredSystemCalculations(filtered);
   }, [systemCalculations, systemFilter]);
@@ -278,11 +286,17 @@ const CalculationBuilder: React.FC = () => {
       }
       setUserUsage(userUsageMap);
 
-      // Fetch usage for system calculations
+      // Fetch usage for system calculations (including dependent calculations)
       const systemUsageMap: Record<number, any> = {};
       for (const calc of systemCalculations) {
         try {
-          const response = await calculationsApi.getSystemCalculationUsage(calc.id);
+          let response;
+          // Use the correct API endpoint based on calculation type
+          if (calc.calculation_type && calc.calculation_type.toString() === 'dependent_calculation') {
+            response = await calculationsApi.getDependentCalculationUsage(calc.id);
+          } else {
+            response = await calculationsApi.getSystemCalculationUsage(calc.id);
+          }
           systemUsageMap[calc.id] = response.data;
         } catch (error) {
           console.error(`Error fetching usage for system calculation ${calc.id}:`, error);
@@ -316,7 +330,13 @@ const CalculationBuilder: React.FC = () => {
       if (isUserCalc) {
         response = await calculationsApi.getUserCalculationUsage(calcId, scopeParam);
       } else {
-        response = await calculationsApi.getSystemCalculationUsage(calcId, scopeParam);
+        // For system/dependent calculations, determine the correct API to use
+        const calculation = systemCalculations.find(calc => calc.id === calcId);
+        if (calculation && calculation.calculation_type && calculation.calculation_type.toString() === 'dependent_calculation') {
+          response = await calculationsApi.getDependentCalculationUsage(calcId, scopeParam);
+        } else {
+          response = await calculationsApi.getSystemCalculationUsage(calcId, scopeParam);
+        }
       }
       
       setSelectedUsageData({
@@ -338,19 +358,52 @@ const CalculationBuilder: React.FC = () => {
     setPreviewLoading(true);
     setShowPreviewModal(true); // Show modal first with loading state
     
-    // Set calculation type based on active tab
-    // setPreviewCalculationType(activeTab === 'system-defined' ? 'system_calculation' : 'user_calculation');
-    
     try {
+      // First, find the calculation to determine its type
+      const calculation = [...userCalculations, ...systemCalculations].find(calc => calc.id === calcId);
+      
+      if (!calculation) {
+        throw new Error('Calculation not found');
+      }
+
+      // Handle dependent calculations specially - they don't have SQL
+      // Use string check for calculation_type since TypeScript doesn't know about dependent calculations in this context
+      if ((calculation as any).calculation_type === 'dependent_calculation') {
+        const depCalc = calculation as any; // Cast to any to access dependent calculation properties
+        const expression = depCalc.metadata_config?.calculation_expression || 'No expression available';
+        const dependencies = depCalc.metadata_config?.calculation_dependencies || [];
+        
+        setPreviewData({
+          sql: `-- Dependent Calculation Expression Preview
+-- This calculation doesn't generate SQL directly, but uses other calculations
+-- 
+-- Expression: ${expression}
+-- 
+-- Dependencies:
+${dependencies.map((dep: string) => `--   - ${dep}`).join('\n')}
+--
+-- This calculation will be evaluated using the results of the above dependencies
+-- when included in a report.`,
+          calculation_type: 'dependent_calculation',
+          group_level: depCalc.group_level,
+          columns: [depCalc.result_column_name || 'result'],
+          parameters: {
+            expression: expression,
+            dependencies: dependencies
+          }
+        });
+        return;
+      }
+
       let response;
       
-      // Determine which API to call based on the current tab
-      if (activeTab === 'user-defined') {
+      // Determine which API to call based on the calculation type
+      if (calculation.calculation_type === 'user_aggregation') {
         response = await calculationsApi.previewUserSQL(calcId, SAMPLE_PREVIEW_PARAMS);
-      } else if (activeTab === 'system-defined') {
+      } else if (calculation.calculation_type === 'system_sql') {
         response = await calculationsApi.previewSystemSql(calcId, SAMPLE_PREVIEW_PARAMS);
       } else {
-        // Default to user calculation for other tabs
+        // Default to user calculation for other types
         response = await calculationsApi.previewSQL(calcId, SAMPLE_PREVIEW_PARAMS);
       }
       
@@ -468,9 +521,16 @@ const CalculationBuilder: React.FC = () => {
 
   // Calculate filtered counts for tab badges
   const getSystemSqlCount = () => {
-    // Only count system SQL calculations (CDI variables removed)
+    // Only count system SQL calculations (exclude dependent calculations)
     return systemCalculations.filter(calc => {
       return calc.calculation_type === 'system_sql';
+    }).length;
+  };
+
+  const getDependentCalculationsCount = () => {
+    // Only count dependent calculations
+    return systemCalculations.filter(calc => {
+      return calc.calculation_type && calc.calculation_type.toString() === 'dependent_calculation';
     }).length;
   };
 
@@ -558,7 +618,16 @@ const CalculationBuilder: React.FC = () => {
                     System Defined Calculations
                     <span className="badge bg-primary ms-2">{getSystemSqlCount()}</span>
                   </button>
-
+                  <button
+                    className={`nav-link ${activeTab === 'dependent' ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => handleTabSwitch('dependent')}
+                    disabled={hasUnsavedChanges}
+                  >
+                    <i className="bi bi-link-45deg me-2"></i>
+                    Dependent Calculations
+                    <span className="badge bg-primary ms-2">{getDependentCalculationsCount()}</span>
+                  </button>
                 </div>
               </nav>
             </div>
@@ -618,7 +687,15 @@ const CalculationBuilder: React.FC = () => {
                                   calculation={calc}
                                   usage={userUsage[calc.id]}
                                   usageScope={usageScope}
-                                  onEdit={(calc) => handleOpenModal('user-defined', calc)}
+                                  onEdit={(calc) => {
+                                    // Allow editing of all calculation types
+                                    if (calc.calculation_type === 'user_aggregation') {
+                                      handleOpenModal('user-defined', calc as UserCalculation);
+                                    } else {
+                                      // For dependent calculations and other types, show appropriate message
+                                      showToast('Use the "New Dependent Calculation" button to create a new calculation with updated values.', 'info');
+                                    }
+                                  }}
                                   onDelete={tabData.deleteCalculation || (() => {})}
                                   onShowUsage={handleShowUsage}
                                   onPreviewSQL={() => handlePreviewSQL(calc.id)}
@@ -650,11 +727,80 @@ const CalculationBuilder: React.FC = () => {
                     usage={systemUsage}
                     usageScope={usageScope}
                     onCreateSystemSql={() => handleOpenModal('system-sql')}
-                    onEditSystemSql={(calc) => handleOpenModal('system-sql', calc)}
+                    onEditSystemSql={(calc) => {
+                      // Only allow editing of system SQL calculations, not dependent calculations
+                      if (calc.calculation_type === 'system_sql') {
+                        handleOpenModal('system-sql', calc as SystemCalculation);
+                      } else {
+                        showToast('Dependent calculations cannot be edited through this modal. Please create a new one if needed.', 'info');
+                      }
+                    }}
                     onDeleteSystemSql={handleDeleteSystemCalculation}
                     onShowUsage={handleShowUsage}
                     onPreviewSQL={(calcId) => handlePreviewSQL(calcId)}
                   />
+                )}
+
+                {/* Dependent Calculations Tab */}
+                {activeTab === 'dependent' && (
+                  <div className="tab-pane fade show active">
+                    <div className="d-flex justify-content-between align-items-center mb-3">
+                      <h5 className="mb-0">Dependent Calculations</h5>
+                      <button
+                        onClick={() => setShowDependentModal(true)}
+                        disabled={fieldsLoading}
+                        className="btn btn-primary"
+                        title="Create a calculation that uses other calculations"
+                      >
+                        <i className="bi bi-plus-lg me-2"></i>
+                        New Dependent Calculation
+                      </button>
+                    </div>
+
+                    {/* Dependent Calculations List */}
+                    <div className="card">
+                      <div className="card-header bg-primary">
+                        <h6 className="card-title mb-0 text-white">Available Dependent Calculations</h6>
+                      </div>
+                      <div className="card-body">
+                        {calculationsLoading ? (
+                          <div className="text-center py-4">
+                            <div className="spinner-border text-primary" role="status">
+                              <span className="visually-hidden">Loading...</span>
+                            </div>
+                            <p className="mt-2 mb-0">Loading calculations...</p>
+                          </div>
+                        ) : (
+                          <div className="row g-3">
+                            {systemCalculations.filter(calc => calc.calculation_type && calc.calculation_type.toString() === 'dependent_calculation').map((calc: any) => (
+                              <div key={calc.id} className="col-12">
+                                <CalculationCard
+                                  calculation={calc}
+                                  usage={systemUsage[calc.id]}
+                                  usageScope={usageScope}
+                                  onEdit={() => {
+                                    // Allow creation of new dependent calculations based on existing ones
+                                    showToast('Create a new dependent calculation to make changes. Dependent calculations use immutable expressions for consistency.', 'info');
+                                  }}
+                                  onDelete={handleDeleteSystemCalculation}
+                                  onShowUsage={handleShowUsage}
+                                  onPreviewSQL={() => handlePreviewSQL(calc.id)}
+                                />
+                              </div>
+                            ))}
+                            
+                            {systemCalculations.filter(calc => calc.calculation_type && calc.calculation_type.toString() === 'dependent_calculation').length === 0 && (
+                              <div className="col-12">
+                                <div className="text-center py-4 text-muted">
+                                  No dependent calculations available. Create your first dependent calculation above.
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
@@ -695,6 +841,15 @@ const CalculationBuilder: React.FC = () => {
             previewData={previewData}
             previewLoading={previewLoading}
             onClose={() => setShowPreviewModal(false)}
+          />
+
+          <DependentCalculationModal
+            show={showDependentModal}
+            onHide={() => setShowDependentModal(false)}
+            onSuccess={() => {
+              setShowDependentModal(false);
+              refetchCalculations();
+            }}
           />
         </>
       )}

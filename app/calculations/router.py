@@ -15,10 +15,13 @@ from .schemas import (
     CalculationUpdate, CalculationResponse, CalculationListResponse,
     SqlValidationRequest, SqlValidationResponse, PlaceholderListResponse,
     CalculationPreviewRequest, CalculationPreviewResponse,
-    BulkCalculationOperation, BulkCalculationResponse
+    BulkCalculationOperation, BulkCalculationResponse,
+    DependentCalculationCreate
 )
+from .models import Calculation, CalculationType  # Add missing imports
 from .service import UnifiedCalculationService
 from .field_introspection import FieldIntrospectionService
+from app.core.exceptions import InvalidCalculationError  # Add this import too
 
 router = APIRouter(prefix="/calculations", tags=["calculations"])
 
@@ -57,24 +60,30 @@ def get_all_calculations(
 ):
     """Get all calculations (user and system) in a unified response"""
     try:
-        # Fetch both types of calculations using the unified service
+        # Fetch all types of calculations using the unified service
         user_calcs = service.get_calculations_by_type("USER_AGGREGATION", group_level)
         system_calcs = service.get_calculations_by_type("SYSTEM_SQL", group_level)
+        dependent_calcs = service.get_calculations_by_type("DEPENDENT_CALCULATION", group_level)
         
         # Create summary statistics
         summary = {
-            "total_calculations": len(user_calcs) + len(system_calcs),
+            "total_calculations": len(user_calcs) + len(system_calcs) + len(dependent_calcs),
             "user_calculation_count": len(user_calcs),
             "system_calculation_count": len(system_calcs),
+            "dependent_calculation_count": len(dependent_calcs),
             "user_in_use_count": 0,  # TODO: implement usage tracking
             "system_in_use_count": 0,  # TODO: implement usage tracking
+            "dependent_in_use_count": 0,  # TODO: implement usage tracking
             "total_in_use": 0,
             "group_level_filter": group_level
         }
         
+        # Combine all calculations for the response
+        all_calculations = user_calcs + system_calcs + dependent_calcs
+        
         return UnifiedCalculationsResponse(
             user_calculations=user_calcs,
-            system_calculations=system_calcs,
+            system_calculations=all_calculations,  # Include dependent calcs in system for now
             summary=summary
         )
         
@@ -384,6 +393,19 @@ def get_system_calculation_usage(
     """Get usage information for a system calculation"""
     try:
         return service.get_system_calculation_usage(calc_id, report_scope)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/dependent/{calc_id}/usage")
+def get_dependent_calculation_usage(
+    calc_id: int,
+    report_scope: Optional[str] = Query(None, description="Filter usage by report scope (DEAL/TRANCHE)"),
+    service: UnifiedCalculationService = Depends(get_report_execution_service)
+):
+    """Get usage information for a dependent calculation"""
+    try:
+        return service.get_dependent_calculation_usage(calc_id, report_scope)
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -728,6 +750,127 @@ def preview_single_calculation(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to preview calculation: {str(e)}")
+
+
+# ===== DEPENDENT CALCULATION PREVIEW ENDPOINT =====
+
+@router.post("/preview-dependent-calculation")
+def preview_dependent_calculation(
+    request: Dict[str, Any],
+    config_db: Session = Depends(get_db)
+):
+    """Preview a dependent calculation by showing its structure and dependencies rather than executable SQL"""
+    try:
+        # Extract parameters from request
+        calc_id = request.get("calc_id")
+        deal_tranche_map = request.get("deal_tranche_map", {})
+        cycle_code = request.get("cycle_code")
+        alias = request.get("alias", "dependent_calculation")
+        
+        if not calc_id:
+            raise HTTPException(status_code=400, detail="calc_id is required")
+        
+        # Convert calc_id to integer if it's a string
+        try:
+            calc_id_int = int(calc_id)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail=f"Invalid calc_id: {calc_id}. Must be an integer.")
+        
+        # Get the dependent calculation from the database
+        from .models import Calculation, CalculationType
+        calc = config_db.query(Calculation).filter_by(
+            id=calc_id_int, 
+            calculation_type=CalculationType.DEPENDENT_CALCULATION,
+            is_active=True
+        ).first()
+        
+        if not calc:
+            raise HTTPException(status_code=404, detail=f"Dependent calculation with ID {calc_id} not found")
+        
+        # Extract metadata
+        dependencies = calc.metadata_config.get('calculation_dependencies', []) if calc.metadata_config else []
+        expression = calc.metadata_config.get('calculation_expression', '') if calc.metadata_config else ''
+        
+        # Get dependency details
+        dependency_details = []
+        for dep_id in dependencies:
+            # Handle both string-based and numeric dependency IDs
+            if dep_id.startswith("user."):
+                # User calculation dependency
+                source_field = dep_id[5:]
+                dep_calc = config_db.query(Calculation).filter_by(
+                    calculation_type=CalculationType.USER_AGGREGATION,
+                    source_field=source_field,
+                    is_active=True
+                ).first()
+                if dep_calc:
+                    dependency_details.append({
+                        "id": dep_id,
+                        "name": dep_calc.name,
+                        "type": "User Aggregation",
+                        "description": dep_calc.description or f"User calculation based on {source_field}",
+                        "variable_name": source_field
+                    })
+            elif dep_id.startswith("system."):
+                # System calculation dependency
+                result_column = dep_id[7:]
+                dep_calc = config_db.query(Calculation).filter_by(
+                    calculation_type=CalculationType.SYSTEM_SQL,
+                    result_column_name=result_column,
+                    is_active=True
+                ).first()
+                if dep_calc:
+                    dependency_details.append({
+                        "id": dep_id,
+                        "name": dep_calc.name,
+                        "type": "System SQL",
+                        "description": dep_calc.description or f"System calculation producing {result_column}",
+                        "variable_name": result_column
+                    })
+            else:
+                # Unknown dependency format
+                dependency_details.append({
+                    "id": dep_id,
+                    "name": dep_id,
+                    "type": "Unknown",
+                    "description": f"Unknown dependency: {dep_id}",
+                    "variable_name": dep_id
+                })
+        
+        # Create a preview structure showing the logic without executable SQL
+        preview_info = {
+            "calculation_name": calc.name,
+            "calculation_description": calc.description or "No description provided",
+            "expression": expression,
+            "dependencies": dependency_details,
+            "group_level": calc.group_level.value,
+            "execution_note": "This calculation will be computed using the results of its dependencies when the report is executed.",
+            "variable_substitution": {}
+        }
+        
+        # Show how variables would be substituted
+        for dep in dependency_details:
+            var_name = dep["variable_name"]
+            preview_info["variable_substitution"][f"${{{var_name}}}"] = f"<value_from_{dep['type'].replace(' ', '_').lower()}_{var_name}>"
+        
+        return {
+            "success": True,
+            "alias": alias,
+            "calculation_type": "DEPENDENT_CALCULATION",
+            "preview_info": preview_info,
+            "note": "Dependent calculations cannot be executed independently. They are evaluated as part of report execution after their dependencies are computed.",
+            "execution_approach": "dependency_resolution_required"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {
+            "success": False,
+            "alias": alias,
+            "error": f"Error previewing dependent calculation: {str(e)}",
+            "calculation_type": "DEPENDENT_CALCULATION"
+        }
 
 
 # ===== STATISTICS ENDPOINTS =====
@@ -1145,3 +1288,6 @@ def execute_raw_sql(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error executing raw SQL: {str(e)}")
+
+
+# ===== EXISTING ENDPOINTS CONTINUE BELOW ====#

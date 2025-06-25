@@ -25,6 +25,7 @@ class CalculationType(str, enum.Enum):
     USER_AGGREGATION = "user_aggregation"    # Simple aggregations (SUM, AVG, etc.)
     SYSTEM_FIELD = "system_field"           # Raw field access
     SYSTEM_SQL = "system_sql"               # Custom SQL with placeholders
+    DEPENDENT_CALCULATION = "dependent_calculation"  # Calculations that reference other calculations
 
 
 class AggregationFunction(str, enum.Enum):
@@ -79,6 +80,10 @@ class Calculation(Base):
     # For SYSTEM_SQL - Enhanced SQL with placeholder support
     raw_sql: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     result_column_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    
+    # For DEPENDENT_CALCULATION - calculations that reference other calculations
+    calculation_dependencies: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
+    calculation_expression: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # Dynamic parameter configuration
     sql_parameters: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
@@ -291,6 +296,15 @@ class Calculation(Base):
         
         elif self.calculation_type in [CalculationType.SYSTEM_SQL]:
             return f"Custom SQL → {self.result_column_name}"
+        
+        elif self.calculation_type == CalculationType.DEPENDENT_CALCULATION:
+            if self.metadata_config and "calculation_expression" in self.metadata_config:
+                expression = self.metadata_config["calculation_expression"]
+                # Convert ${variable} format to a more readable format
+                import re
+                readable_expression = re.sub(r'\$\{([^}]+)\}', r'\1', expression)
+                return f"Dependent → {readable_expression}"
+            return f"Dependent → {self.result_column_name}"
         
         return "Unknown calculation type"
 

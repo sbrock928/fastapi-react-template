@@ -81,6 +81,11 @@ export const calculationsApi = {
     return apiClient.get(`/calculations/system/${id}/usage`, { params });
   },
 
+  async getDependentCalculationUsage(id: number, reportScope?: string): Promise<AxiosResponse<CalculationUsage>> {
+    const params = reportScope ? { report_scope: reportScope } : {};
+    return apiClient.get(`/calculations/dependent/${id}/usage`, { params });
+  },
+
   async validateSystemSql(data: SystemSqlValidationRequest): Promise<AxiosResponse<SystemSqlValidationResponse>> {
     return apiClient.post('/calculations/validate-system-sql', data);
   },
@@ -194,7 +199,7 @@ export const calculationsApi = {
   // These methods help maintain compatibility with existing code that expects the old API format
   
   async getAvailableCalculations(scope: 'DEAL' | 'TRANCHE'): Promise<AxiosResponse<any[]>> {
-    // This combines user calculations, system calculations, and static fields
+    // This combines user calculations, system calculations, dependent calculations, and static fields
     // to match the old AvailableCalculation format expected by reporting components
     try {
       // Use the new unified endpoint instead of separate calls
@@ -221,9 +226,13 @@ export const calculationsApi = {
         });
       });
 
-      // Add approved system calculations
+      // Add system calculations (includes both system SQL and dependent calculations)
       unifiedResponse.data.system_calculations.forEach(calc => {
-        if (calc.approved_by) { // Only include approved system calculations
+        // Check scope compatibility for all calculation types
+        const isCompatible = this.isCalculationCompatibleWithScope(calc.group_level, scope);
+        
+        if (calc.calculation_type === 'system_sql' && calc.approved_by && isCompatible) {
+          // Only include approved system calculations that are compatible with scope
           combined.push({
             id: calc.id,
             name: calc.name,
@@ -237,6 +246,24 @@ export const calculationsApi = {
             category: 'Custom SQL Calculations',
             is_default: false,
             calculation_type: 'SYSTEM_SQL'
+          });
+        }
+        
+        // Handle dependent calculations with scope compatibility check
+        if (calc.calculation_type && calc.calculation_type.toString() === 'dependent_calculation' && isCompatible) {
+          combined.push({
+            id: calc.id,
+            name: calc.name,
+            description: calc.description,
+            aggregation_function: null,
+            source_model: null,
+            source_field: null,
+            group_level: calc.group_level,
+            weight_field: null,
+            scope: scope,
+            category: 'Dependent Calculations',
+            is_default: false,
+            calculation_type: 'DEPENDENT_CALCULATION'
           });
         }
       });
@@ -358,6 +385,22 @@ export const calculationsApi = {
     }
   },
 
+  // Dependent Calculations
+  async createDependentCalculation(data: any): Promise<any> {
+    const response = await apiClient.post('/calculations/dependent', data);
+    return response.data;
+  },
+
+  async getAvailableCalculationsForDependencies(): Promise<any> {
+    const response = await apiClient.get('/calculations/available-calculations');
+    return response.data;
+  },
+
+  async validateCalculationExpression(data: { expression: string; dependencies: string[] }): Promise<any> {
+    const response = await apiClient.post('/calculations/validate-expression', data);
+    return response.data;
+  },
+
   // Helper methods for compatibility
   categorizeCalculation(calc: UserCalculation): string {
     if (calc.source_model === 'Deal') {
@@ -405,6 +448,20 @@ export const calculationsApi = {
   isStaticFieldCompatibleWithScope(field: StaticFieldInfo, scope: 'DEAL' | 'TRANCHE'): boolean {
     const fieldGroupLevel = this.determineFieldGroupLevel(field.field_path);
     return scope === 'TRANCHE' || fieldGroupLevel === 'deal';
+  },
+
+  isCalculationCompatibleWithScope(groupLevel: string, scope: 'DEAL' | 'TRANCHE'): boolean {
+    // All calculations with group level 'deal' are compatible with both scopes
+    if (groupLevel === 'deal') {
+      return true;
+    }
+    
+    // Tranche-level calculations are only compatible with TRANCHE scope
+    if (groupLevel === 'tranche') {
+      return scope === 'TRANCHE';
+    }
+    
+    return false;
   }
 };
 
@@ -440,12 +497,16 @@ export const safeCalculationsApi = {
   getCalculationUsageByType: withErrorHandling(calculationsApi.getCalculationUsageByType),
   getUserCalculationUsage: withErrorHandling(calculationsApi.getUserCalculationUsage),
   getSystemCalculationUsage: withErrorHandling(calculationsApi.getSystemCalculationUsage),
+  getDependentCalculationUsage: withErrorHandling(calculationsApi.getDependentCalculationUsage),
   createSystemSqlCalculation: withErrorHandling(calculationsApi.createSystemSqlCalculation),
   updateSystemCalculation: withErrorHandling(calculationsApi.updateSystemCalculation),
   validateSystemSql: withErrorHandling(calculationsApi.validateSystemSql),
   getStaticFields: withErrorHandling(calculationsApi.getStaticFields),
   getAvailableCalculations: withErrorHandling(calculationsApi.getAvailableCalculations),
-  getAllCalculations: withErrorHandling(calculationsApi.getAllCalculations)
+  getAllCalculations: withErrorHandling(calculationsApi.getAllCalculations),
+  createDependentCalculation: withErrorHandling(calculationsApi.createDependentCalculation),
+  getAvailableCalculationsForDependencies: withErrorHandling(calculationsApi.getAvailableCalculationsForDependencies),
+  validateCalculationExpression: withErrorHandling(calculationsApi.validateCalculationExpression)
 };
 
 export default calculationsApi;

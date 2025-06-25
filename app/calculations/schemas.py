@@ -100,6 +100,48 @@ class SystemSqlCalculationCreate(CalculationBase):
         return v.strip()
 
 
+class DependentCalculationCreate(CalculationBase):
+    """Schema for creating dependent calculations that reference other calculations"""
+    calculation_type: CalculationType = Field(default=CalculationType.DEPENDENT_CALCULATION)
+    calculation_dependencies: List[str] = Field(..., min_items=1, description="List of calculation references like 'user.tr_end_bal_amt', 'system.investment_income'")
+    calculation_expression: str = Field(..., min_length=1, description="Expression using the dependencies")
+    result_column_name: str = Field(..., description="Name of the result column")
+    
+    @field_validator("calculation_dependencies")
+    @classmethod
+    def validate_calculation_dependencies(cls, v):
+        """Validate calculation dependency references"""
+        if not v:
+            raise ValueError("At least one calculation dependency is required")
+        
+        for dep in v:
+            if not re.match(r"^(user|system)\.[a-zA-Z_][a-zA-Z0-9_]*$", dep):
+                raise ValueError(f"Invalid dependency format: {dep}. Must be 'user.field_name' or 'system.column_name'")
+        
+        return v
+    
+    @field_validator("calculation_expression") 
+    @classmethod
+    def validate_calculation_expression(cls, v):
+        """Validate calculation expression syntax"""
+        if not v.strip():
+            raise ValueError("calculation_expression cannot be empty")
+        
+        # Basic validation - ensure it contains calculation references
+        if not re.search(r'\$\{[^}]+\}', v):
+            raise ValueError("Expression must reference at least one calculation using ${calc_name} syntax")
+        
+        return v.strip()
+    
+    @field_validator("result_column_name")
+    @classmethod
+    def validate_result_column_name(cls, v):
+        """Validate result column name format"""
+        if not re.match(r"^[a-zA-Z][a-zA-Z0-9_]*$", v):
+            raise ValueError("result_column_name must be a valid SQL identifier")
+        return v
+
+
 class CalculationUpdate(BaseModel):
     """Schema for updating calculations"""
     name: Optional[str] = Field(None, min_length=3, max_length=100)
@@ -116,6 +158,10 @@ class CalculationUpdate(BaseModel):
     raw_sql: Optional[str] = None
     result_column_name: Optional[str] = None
     sql_parameters: Optional[Dict[str, Any]] = None
+    
+    # Dependent calculation fields
+    calculation_dependencies: Optional[List[str]] = None  # List of calculation references like "user.tr_end_bal_amt", "system.investment_income"
+    calculation_expression: Optional[str] = None  # Expression using the dependencies
     
     # Metadata
     metadata_config: Optional[Dict[str, Any]] = None

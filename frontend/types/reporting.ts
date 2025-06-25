@@ -114,7 +114,7 @@ export interface AvailableCalculation {
   scope: ReportScope;
   category: string; // For UI grouping
   is_default: boolean;
-  calculation_type?: 'USER_DEFINED' | 'SYSTEM_SQL' | 'STATIC_FIELD';
+  calculation_type?: 'USER_DEFINED' | 'SYSTEM_SQL' | 'STATIC_FIELD' | 'DEPENDENT_CALCULATION';
 }
 
 // Deal information (from data warehouse)

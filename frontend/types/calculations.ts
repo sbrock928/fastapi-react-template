@@ -51,6 +51,26 @@ export interface SystemCalculation extends BaseCalculation {
   metadata_config?: any;
 }
 
+// Dependent calculations (reference other calculations)
+export interface DependentCalculation extends BaseCalculation {
+  calculation_type: 'dependent_calculation';
+  aggregation_function: null;
+  source_model: null;
+  source_field: null;
+  weight_field: null;
+  raw_sql: null;
+  result_column_name: string;
+  sql_parameters: null;
+  metadata_config: {
+    calculation_dependencies: string[];
+    calculation_expression: string;
+    dependency_validation?: {
+      validated_at: string;
+      dependencies_count: number;
+    };
+  };
+}
+
 // Static field information (no database storage)
 export interface StaticFieldInfo {
   field_path: string; // e.g., "deal.dl_nbr", "tranche.tr_id"
@@ -62,7 +82,7 @@ export interface StaticFieldInfo {
 }
 
 // Union type for all calculation types
-export type Calculation = UserCalculation | SystemCalculation;
+export type Calculation = UserCalculation | SystemCalculation | DependentCalculation;
 
 // Enums matching backend
 export enum AggregationFunction {
@@ -216,7 +236,7 @@ export interface AvailableCalculation {
   scope: 'DEAL' | 'TRANCE'; // FIXED: Use specific type instead of string
   category: string;
   is_default: boolean;
-  calculation_type: 'USER_DEFINED' | 'SYSTEM_SQL' | 'STATIC_FIELD';
+  calculation_type: 'USER_DEFINED' | 'SYSTEM_SQL' | 'STATIC_FIELD' | 'DEPENDENT_CALCULATION';
 }
 
 // SQL Preview
@@ -275,6 +295,10 @@ export function isSystemSqlCalculation(calc: Calculation): calc is SystemCalcula
   return calc.calculation_type === 'system_sql';
 }
 
+export function isDependentCalculation(calc: Calculation): calc is DependentCalculation {
+  return calc.calculation_type === 'dependent_calculation';
+}
+
 export function isSystemCalculation(calc: Calculation): boolean {
   return calc.calculation_type === 'system_sql';
 }
@@ -285,6 +309,8 @@ export function getCalculationDisplayType(calc: Calculation): string {
     return `User Defined (${calc.aggregation_function})`;
   } else if (isSystemSqlCalculation(calc)) {
     return 'System SQL';
+  } else if (isDependentCalculation(calc)) {
+    return 'Dependent';
   }
   return 'Unknown';
 }
@@ -294,6 +320,8 @@ export function getCalculationSourceDescription(calc: Calculation): string {
     return `${calc.source_model}.${calc.source_field}`;
   } else if (isSystemSqlCalculation(calc)) {
     return `Custom SQL (${calc.result_column_name})`;
+  } else if (isDependentCalculation(calc)) {
+    return 'Dependent';
   }
   return 'Unknown';
 }
@@ -311,6 +339,8 @@ export function getCalculationCategory(calc: Calculation): string {
     return 'Other';
   } else if (isSystemSqlCalculation(calc)) {
     return 'Custom SQL Calculations';
+  } else if (isDependentCalculation(calc)) {
+    return 'Dependent Calculations';
   }
   return 'Other';
 }

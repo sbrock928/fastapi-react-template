@@ -55,8 +55,7 @@ export const FILTER_OPTIONS = [
 export const SYSTEM_FILTER_OPTIONS = [
   { value: 'all', label: 'All System Calculations' },
   { value: 'deal', label: 'Deal Level' },
-  { value: 'tranche', label: 'Tranche Level' },
-  { value: 'system-sql', label: 'SQL Calculations Only' }
+  { value: 'tranche', label: 'Tranche Level' }
 ];
 
 // Calculation type options for UI
@@ -81,6 +80,13 @@ export const CALCULATION_TYPE_OPTIONS = [
     description: 'Advanced custom calculations using SQL',
     icon: 'bi-code-square',
     color: 'warning'
+  },
+  {
+    value: 'dependent',
+    label: 'Dependent Calculation',
+    description: 'Create calculations that reference other calculations',
+    icon: 'bi-diagram-3',
+    color: 'info'
   }
 ];
 

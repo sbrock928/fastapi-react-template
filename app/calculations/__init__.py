@@ -6,6 +6,7 @@ from .schemas import (
     UserAggregationCalculationCreate,
     SystemFieldCalculationCreate, 
     SystemSqlCalculationCreate,
+    DependentCalculationCreate,  # New schema for dependent calculations
     CalculationUpdate,
     CalculationResponse,
     CalculationPreviewRequest,
@@ -66,6 +67,7 @@ __all__ = [
     "UserAggregationCalculationCreate",
     "SystemFieldCalculationCreate",
     "SystemSqlCalculationCreate",
+    "DependentCalculationCreate",
     "CalculationUpdate",
     "CalculationResponse",
     "CalculationPreviewRequest",

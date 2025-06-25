@@ -275,9 +275,9 @@ class ReportService:
                         calculation_type="USER_DEFINED"
                     ))
 
-        # Add system calculations with new format
+        # Add system calculations with new format (including dependent calculations)
         if self.system_calc_service:
-            # Use the correct method from UnifiedCalculationService
+            # Get system SQL calculations
             system_calcs_result = self.system_calc_service.list_calculations(
                 calculation_type=CalculationType.SYSTEM_SQL,
                 limit=1000  # Get all system calculations
@@ -299,6 +299,30 @@ class ReportService:
                         category="System Calculations",
                         is_default=False,
                         calculation_type="SYSTEM_SQL"
+                    ))
+
+            # Add dependent calculations
+            dependent_calcs_result = self.system_calc_service.list_calculations(
+                calculation_type=CalculationType.DEPENDENT_CALCULATION,
+                limit=1000  # Get all dependent calculations
+            )
+            dependent_calcs = dependent_calcs_result.get('calculations', [])
+            
+            for calc in dependent_calcs:
+                if self._is_calculation_compatible_with_scope(calc.group_level.value, scope):
+                    available_calcs.append(AvailableCalculation(
+                        id=str(calc.id),  # FIXED: Convert numeric ID to string for frontend compatibility
+                        name=calc.name,
+                        description=calc.description,
+                        aggregation_function=None,
+                        source_model=None,
+                        source_field=None,
+                        group_level=calc.group_level.value,
+                        weight_field=None,
+                        scope=scope,
+                        category="Dependent Calculations",
+                        is_default=False,
+                        calculation_type="DEPENDENT_CALCULATION"
                     ))
 
         # Add static fields (keep existing format) - FIXED: Use StaticFieldHelper
@@ -398,6 +422,21 @@ class ReportService:
                 if field.field_path == field_path:
                     return field.name
             return field_path
+        
+        # Handle dependent calculations (string IDs that represent numeric IDs)
+        elif (calculation_type == "DEPENDENT_CALCULATION" or 
+              (calculation_id.isdigit() and self.system_calc_service)):
+            try:
+                numeric_id = int(calculation_id)
+                # For dependent calculations, always use numeric ID
+                if self.system_calc_service:
+                    dependent_calc = self.system_calc_service.get_calculation_by_id(numeric_id)
+                    if dependent_calc and hasattr(dependent_calc, 'calculation_type') and dependent_calc.calculation_type.name == 'DEPENDENT_CALCULATION':
+                        return dependent_calc.name
+            except ValueError:
+                pass
+            
+            return f"Dependent Calc: {calculation_id}"
         
         # Legacy numeric ID handling
         try:
@@ -546,37 +585,34 @@ class ReportService:
             # Apply column preferences to the result
             formatted_data = self._apply_column_preferences(raw_data, report)
 
-            # DEBUG: Log formatted data keys
-            print("=== DEBUG: Formatted Data Keys ===")
-            if formatted_data:
-                print(f"Formatted data keys: {list(formatted_data[0].keys())}")
-            else:
-                print("No formatted data!")
-
-            # Calculate success metrics
-            total_calculations = execution_results.get('total_calculations', 0)
+            # Calculate execution statistics
+            total_calculations = len(calculation_requests)
             successful_calculations = len(execution_results.get('successful_calculations', []))
-            success_rate = (successful_calculations / total_calculations * 100) if total_calculations > 0 else 100
-
-            # Log successful execution with enhanced metrics
+            
+            # Log the successful execution
             await self._log_execution(
                 report_id, cycle_code, "api_user",
                 (time.time() - start_time) * 1000,
-                len(formatted_data), True,
-                f"Success rate: {success_rate:.1f}% ({successful_calculations}/{total_calculations} calculations)"
+                len(formatted_data), True
             )
 
-            # ENHANCED: Return both data and execution metadata
+            # Return the final result
             return {
                 "data": formatted_data,
-                "execution_results": execution_results,
-                "success_rate": f"{success_rate:.1f}%",
-                "total_calculations": total_calculations,
-                "successful_calculations": successful_calculations,
-                "failed_calculations": len(execution_results.get('failed_calculations', [])),
-                "execution_time_ms": (time.time() - start_time) * 1000
+                "report_metadata": {
+                    "report_id": report_id,
+                    "report_name": report.name,
+                    "report_scope": report.scope,
+                    "cycle_code": cycle_code,
+                    "row_count": len(formatted_data)
+                },
+                "execution_summary": {
+                    "total_calculations": total_calculations,
+                    "successful_calculations": successful_calculations,
+                    "failed_calculations": len(execution_results.get('failed_calculations', [])),
+                    "execution_time_ms": (time.time() - start_time) * 1000
+                }
             }
-
         except HTTPException:
             # Re-raise HTTP exceptions as they already have proper error details
             raise
@@ -666,7 +702,7 @@ class ReportService:
                                     id=calc_response.id, is_active=True
                                 ).first()
                 
-                # Handle numeric calculation IDs (legacy format)
+                # Handle numeric calculation IDs (legacy format and dependent calculations)
                 elif isinstance(request.calc_id, int):
                     from app.calculations.models import Calculation
                     calc = resolver.config_db.query(Calculation).filter_by(
@@ -705,6 +741,62 @@ class ReportService:
                                 "sql": query,
                                 "description": calc.description or f"System calculation: {calc.name}"
                             })
+                        elif calc.calculation_type.name == 'DEPENDENT_CALCULATION':
+                            # Handle dependent calculations with a special approach for SQL preview
+                            try:
+                                # For SQL preview, show the structure and dependencies rather than executable SQL
+                                dependencies = calc.metadata_config.get('calculation_dependencies', []) if calc.metadata_config else []
+                                expression = calc.metadata_config.get('calculation_expression', '') if calc.metadata_config else ''
+                                
+                                preview_sql = f"""-- Dependent Calculation: {calc.name}
+-- Dependencies: {', '.join(dependencies)}
+-- Expression: {expression}
+--
+-- This calculation will be computed using the results of:
+{chr(10).join([f'--   - {dep}' for dep in dependencies])}
+--
+-- The calculation expression will be evaluated as:
+-- ({expression})
+-- 
+-- Note: Dependent calculations are evaluated after their dependencies
+-- and use the computed values from other calculations in the report.
+
+SELECT 
+    base.dl_nbr{', base.tr_id' if calc.group_level.value == 'tranche' else ''},
+    ({expression.replace('${', 'COALESCE(').replace('}', ', 0)')}) AS "{request.alias}"
+FROM (
+    -- Base data would be joined with dependency results here
+    SELECT dl_nbr{', tr_id' if calc.group_level.value == 'tranche' else ''} 
+    FROM deal
+    {'JOIN tranche ON deal.dl_nbr = tranche.dl_nbr' if calc.group_level.value == 'tranche' else ''}
+    WHERE {resolver.parameter_injector.get_parameter_values()['deal_tranche_filter']}
+) base
+-- Additional JOINs with dependency calculation results would be added here"""
+
+                                calculation_queries.append({
+                                    "alias": request.alias,
+                                    "type": "Dependent Calculation",
+                                    "calculation_type": "DEPENDENT_CALCULATION",  # Add this field for frontend detection
+                                    "calculation_id": calc.id,  # Add calculation ID for frontend to extract
+                                    "sql": preview_sql,
+                                    "description": f"Dependent calculation: {calc.name}. Depends on: {', '.join(dependencies)}"
+                                })
+                            except Exception as dep_error:
+                                # Fallback for dependent calculation preview
+                                calculation_queries.append({
+                                    "alias": request.alias,
+                                    "type": "Dependent Calculation",
+                                    "sql": f"""-- Dependent Calculation: {calc.name}
+-- Error generating preview: {str(dep_error)}
+-- This calculation depends on other calculations and will be computed
+-- using their results when the report is executed.
+
+SELECT 
+    NULL as dl_nbr{', NULL as tr_id' if calc.group_level.value == 'tranche' else ''}, 
+    NULL as "{request.alias}"
+WHERE FALSE -- Preview not available""",
+                                    "description": f"Dependent calculation: {calc.name} (preview error: {str(dep_error)})"
+                                })
                         # Skip SYSTEM_FIELD calculations as they're included in the base query
                     except Exception as e:
                         # Add failed calculation to the list with error info
@@ -1119,6 +1211,16 @@ class ReportService:
                         return dt.strftime("%m/%d/%Y")
                     except:
                         return value
+                elif isinstance(value, (int, float)):
+                    # NEW: Handle cycle codes - convert integer cycle codes to MM/DD/YYYY format
+                    try:
+                        from app.utils import convert_cycle_code_to_date
+                        cycle_code_int = int(value)
+                        formatted_date = convert_cycle_code_to_date(cycle_code_int)
+                        return formatted_date
+                    except Exception as e:
+                        print(f"Warning: Could not convert cycle code {value} to date: {e}")
+                        return str(value)
                 return value
             
             elif format_type == ColumnFormat.DATE_DMY:
@@ -1130,6 +1232,23 @@ class ReportService:
                         return dt.strftime("%d/%m/%Y")
                     except:
                         return value
+                elif isinstance(value, (int, float)):
+                    # NEW: Handle cycle codes - convert integer cycle codes to DD/MM/YYYY format
+                    try:
+                        from app.utils import convert_cycle_code_to_date
+                        cycle_code_int = int(value)
+                        # Get MM/DD/YYYY format first, then convert to DD/MM/YYYY
+                        formatted_date = convert_cycle_code_to_date(cycle_code_int)
+                        # Convert from M/D/YYYY to D/M/YYYY format
+                        if '/' in formatted_date:
+                            parts = formatted_date.split('/')
+                            if len(parts) == 3:
+                                month, day, year = parts
+                                return f"{day}/{month}/{year}"
+                        return formatted_date
+                    except Exception as e:
+                        print(f"Warning: Could not convert cycle code {value} to date: {e}")
+                        return str(value)
                 return value
             
             else:  # TEXT or unknown
@@ -1237,6 +1356,26 @@ class ReportService:
                         print(f"Debug: Found system calculation - {system_calc.name} using alias: '{display_name}'")
                     else:
                         print(f"Warning: No system calculation found with result_column: {result_column}")
+            
+            # Handle dependent calculations (string IDs that represent numeric IDs)
+            elif (calc_type == "DEPENDENT_CALCULATION" or 
+                  (calc_id_str.isdigit() and self.system_calc_service)):
+                try:
+                    numeric_id = int(calc_id_str)
+                    # For dependent calculations, always use numeric ID
+                    if self.system_calc_service:
+                        dependent_calc = self.system_calc_service.get_calculation_by_id(numeric_id)
+                        if dependent_calc and hasattr(dependent_calc, 'calculation_type') and dependent_calc.calculation_type.name == 'DEPENDENT_CALCULATION':
+                            display_name = report_calc.display_name or dependent_calc.name
+                            calc_request = CalculationRequest(
+                                calc_id=numeric_id,  # Use numeric ID for dependent calculations
+                                alias=display_name
+                            )
+                            print(f"Debug: Found dependent calculation - {dependent_calc.name} using alias: '{display_name}'")
+                        else:
+                            print(f"Warning: No dependent calculation found with ID {numeric_id}")
+                except ValueError:
+                    print(f"Warning: Invalid dependent calculation ID format: {calc_id_str}")
             
             # Handle static fields - check calculation_type first, then fallback to "static_" prefix
             elif calc_type == "static" or calc_id_str.startswith("static_"):
@@ -1417,11 +1556,41 @@ class ReportService:
                     else:
                         print(f"Warning: No system calculation found with result_column: {result_column}")
             
-            elif calc_id_str.startswith("static_"):
-                # Static field: "static_{table}.{field_name}"
-                field_path = calc_id_str.replace("static_", "")
+            elif (calc_type == "DEPENDENT_CALCULATION" or 
+                  (calc_id_str.isdigit() and self.system_calc_service)):
+                try:
+                    numeric_id = int(calc_id_str)
+                    # For dependent calculations, always use numeric ID
+                    if self.system_calc_service:
+                        dependent_calc = self.system_calc_service.get_calculation_by_id(numeric_id)
+                        if dependent_calc and hasattr(dependent_calc, 'calculation_type') and dependent_calc.calculation_type.name == 'DEPENDENT_CALCULATION':
+                            display_name = report_calc.display_name or dependent_calc.name
+                            calc_request = CalculationRequest(
+                                calc_id=numeric_id,  # Use numeric ID for dependent calculations
+                                alias=display_name
+                            )
+                            print(f"Debug: Found dependent calculation - {dependent_calc.name} using alias: '{display_name}'")
+                        else:
+                            print(f"Warning: No dependent calculation found with ID {numeric_id}")
+                except ValueError:
+                    print(f"Warning: Invalid dependent calculation ID format: {calc_id_str}")
+            
+            # Handle static fields - check calculation_type first, then fallback to "static_" prefix
+            elif calc_type == "static" or calc_id_str.startswith("static_"):
+                if calc_type == "static":
+                    # The calc_id_str IS the field path for static type, but may have "static_" prefix
+                    if calc_id_str.startswith("static_"):
+                        field_path = calc_id_str.replace("static_", "")
+                    else:
+                        field_path = calc_id_str
+                    # Use the calculation_id as the alias, but replace dots with underscores for valid SQL
+                    alias = calc_id_str.replace(".", "_")
+                else:
+                    # The calc_id_str has "static_" prefix, remove it
+                    field_path = calc_id_str.replace("static_", "")
+                    alias = calc_id_str.replace(".", "_")
                 
-                # FIXED: Use display_name from report_calc like other calculation types
+                # FIXED: Use StaticFieldHelper for static fields
                 field = StaticFieldHelper.get_static_field_by_path(field_path)
                 display_name = report_calc.display_name or field.name
                 calc_request = CalculationRequest(
@@ -1430,8 +1599,8 @@ class ReportService:
                 )
                 print(f"Debug: Found static field - {field.name} using alias: '{display_name}'")
             
+            # Handle legacy numeric calculation IDs
             else:
-                # Legacy numeric ID handling
                 try:
                     numeric_id = int(calc_id_str)
                     

@@ -99,8 +99,50 @@ const SQLPreviewModal: React.FC<SQLPreviewModalProps> = ({
         cycle_code: previewData?.parameters?.cycle_code || 202404
       };
 
-      // Check if this is raw SQL from preview data (has sql property but no calculation_id)
-      if (calcData.sql && !calcData.calculation_id && !calcData.calc_id) {
+      // FIXED: Check if this is a dependent calculation - updated detection logic
+      const isDependentCalculation = (
+        calcData.calculation_type === 'DEPENDENT_CALCULATION' || 
+        calcData.type === 'dependent' || 
+        calcData.type === 'Dependent Calculation' || // Backend uses this format
+        (calcData.calculation_id && typeof calcData.calculation_id === 'string' && calcData.calculation_id.startsWith('dependent.')) ||
+        (calcData.sql && calcData.sql.includes('-- Dependent Calculation:')) // Also check SQL content
+      );
+
+      if (isDependentCalculation) {
+        // Use the new preview endpoint for dependent calculations
+        const calculationId = await extractCalculationId(calcData);
+        
+        if (calculationId === null) {
+          throw new Error(`Could not determine calculation ID for dependent calculation: ${calcData.alias || JSON.stringify(calcData)}`);
+        }
+
+        const requestData = {
+          calc_id: calculationId,
+          deal_tranche_map: executionParams.deal_tranche_map,
+          cycle_code: executionParams.cycle_code,
+          alias: calcData.alias || 'dependent_calculation'
+        };
+
+        const response = await apiClient.post('/calculations/preview-dependent-calculation', requestData);
+        
+        if (response.data.success) {
+          // Set a special result format for dependent calculations
+          const dependentResult = {
+            ...response.data,
+            is_dependent_calculation: true,
+            preview_only: true
+          };
+          
+          setExecutionResults(prev => ({ ...prev, [calcData.alias || calcData]: dependentResult }));
+          setShowResults(prev => ({ ...prev, [calcData.alias || calcData]: true }));
+          showToast('Dependent calculation preview generated successfully!', 'info');
+        } else {
+          const errorMsg = response.data.error || 'Failed to preview dependent calculation';
+          setExecutionErrors(prev => ({ ...prev, [calcData.alias || calcData]: errorMsg }));
+          showToast(`Dependent calculation preview failed: ${errorMsg}`, 'error');
+        }
+        
+      } else if (calcData.sql && !calcData.calculation_id && !calcData.calc_id) {
         // This is raw SQL from field introspection - execute it using the new execute-raw-sql endpoint
         const requestData = {
           sql_text: calcData.sql,
@@ -173,7 +215,107 @@ const SQLPreviewModal: React.FC<SQLPreviewModalProps> = ({
       return <div className="text-muted">No results available</div>;
     }
     
-    // Handle different response formats
+    // Handle dependent calculation preview results
+    if (results.is_dependent_calculation && results.preview_info) {
+      const previewInfo = results.preview_info;
+      
+      return (
+        <div className="dependent-calculation-preview">
+          <div className="alert alert-info mb-3">
+            <h6 className="alert-heading">
+              <i className="bi bi-diagram-3 me-2"></i>
+              Dependent Calculation Preview
+            </h6>
+            <p className="mb-0">{results.note}</p>
+          </div>
+          
+          <div className="mb-3">
+            <h6><i className="bi bi-info-circle me-2"></i>Calculation Details</h6>
+            <div className="card">
+              <div className="card-body">
+                <div className="row">
+                  <div className="col-md-6">
+                    <strong>Name:</strong> {previewInfo.calculation_name}
+                  </div>
+                  <div className="col-md-6">
+                    <strong>Group Level:</strong> {previewInfo.group_level}
+                  </div>
+                </div>
+                {previewInfo.calculation_description && (
+                  <div className="mt-2">
+                    <strong>Description:</strong> {previewInfo.calculation_description}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          
+          <div className="mb-3">
+            <h6><i className="bi bi-code-square me-2"></i>Expression</h6>
+            <div className="card">
+              <div className="card-body">
+                <code className="text-primary">{previewInfo.expression}</code>
+              </div>
+            </div>
+          </div>
+          
+          <div className="mb-3">
+            <h6><i className="bi bi-diagram-2 me-2"></i>Dependencies ({previewInfo.dependencies.length})</h6>
+            <div className="table-responsive">
+              <table className="table table-sm table-striped">
+                <thead className="table-dark">
+                  <tr>
+                    <th>Variable</th>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {previewInfo.dependencies.map((dep: any, index: number) => (
+                    <tr key={index}>
+                      <td><code>${'{'}dep.variable_name{'}'}</code></td>
+                      <td>{dep.name}</td>
+                      <td>
+                        <span className={`badge ${dep.type === 'User Aggregation' ? 'bg-primary' : 'bg-success'}`}>
+                          {dep.type}
+                        </span>
+                      </td>
+                      <td className="text-muted small">{dep.description}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          
+          {Object.keys(previewInfo.variable_substitution).length > 0 && (
+            <div className="mb-3">
+              <h6><i className="bi bi-arrow-repeat me-2"></i>Variable Substitution Preview</h6>
+              <div className="card">
+                <div className="card-body">
+                  <small className="text-muted d-block mb-2">
+                    How variables in the expression will be replaced with dependency values:
+                  </small>
+                  {Object.entries(previewInfo.variable_substitution).map(([variable, substitution]) => (
+                    <div key={variable} className="mb-1">
+                      <code className="text-danger">{variable}</code> → <code className="text-success">{String(substitution)}</code>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          
+          <div className="alert alert-warning">
+            <i className="bi bi-exclamation-triangle me-2"></i>
+            <strong>Note:</strong> {previewInfo.execution_note}
+          </div>
+        </div>
+      );
+    }
+    
+    // Handle regular execution results with data
     let data = null;
     if (results.data && Array.isArray(results.data)) {
       // New format: { data: [...], row_count: 17, columns: [...] }
